@@ -1,38 +1,35 @@
-# ─── Core ────────────────────────────────────────────────────────────────────
+# Core
 Django==5.2
 asgiref==3.11.0
 
-# ─── REST Framework ──────────────────────────────────────────────────────────
+# REST
 djangorestframework==3.16.1
-djangorestframework-simplejwt==5.5.1
+djangorestframework_simplejwt==5.5.1
 
-# ─── JWT / Criptografia ──────────────────────────────────────────────────────
+# Security
 PyJWT==2.10.1
-cryptography==44.0.2          # RS256 — geração/leitura de chaves RSA
+cryptography==44.0.2
 
-# ─── Banco de dados ──────────────────────────────────────────────────────────
+# Database
 psycopg[binary]==3.3.2
 
-# ─── Cache ───────────────────────────────────────────────────────────────────
-pylibmc==1.6.3                # Memcached client
-django-pylibmc==0.6.1
+# Cache
+pymemcache==4.0.0
 
-# ─── CORS ────────────────────────────────────────────────────────────────────
+# Config
+django-environ==0.11.2
 django-cors-headers==4.9.0
 
-# ─── Variáveis de ambiente ───────────────────────────────────────────────────
-django-environ==0.11.2
-
-# ─── Utilitários ─────────────────────────────────────────────────────────────
+# Utilities
 django-extensions==4.1
-sqlparse==0.5.5
-tzdata==2025.3
 
-# ─── Testes ──────────────────────────────────────────────────────────────────
+# Testing
 pytest==9.0.2
 pytest-django==4.12.0
-coverage==7.8.0
 pytest-cov==6.1.0
+coverage==7.8.0
 
-# ─── Qualidade de código ─────────────────────────────────────────────────────
+# Dev tools
 pre-commit==4.5.0
+
+django-debug-toolbar==4.4.6

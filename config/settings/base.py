@@ -110,7 +110,7 @@ DATABASE_ROUTERS = ["config.routers.SchemaRouter"]
 # ─── Cache (Memcached) ───────────────────────────────────────────────────────
 CACHES = {
     "default": {
-        "BACKEND": "django_pylibmc.memcached.PyLibMCCache",
+        "BACKEND": "django.core.cache.backends.memcached.PyMemcacheCache",
         "LOCATION": env("MEMCACHED_LOCATION", default="127.0.0.1:11211"),
         "TIMEOUT": 300,
         "BINARY": True,
