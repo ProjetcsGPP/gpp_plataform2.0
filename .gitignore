@@ -1,0 +1,53 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# =========================
+# Virtual Environment
+# =========================
+venv/
+.venv/
+env/
+
+# =========================
+# Django
+# =========================
+db.sqlite3
+*.log
+media/
+staticfiles/
+
+# =========================
+# Environment variables
+# =========================
+.env
+.env.*
+
+# =========================
+# IDEs
+# =========================
+.idea/
+*.sublime-workspace
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# =========================
+# Temporary files
+# =========================
+*.tmp
+*.bak
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
