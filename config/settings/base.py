@@ -40,6 +40,7 @@ THIRD_PARTY_APPS = [
 ]
 
 LOCAL_APPS = [
+    "apps.core",
     "apps.accounts",
     "apps.portal",
     "apps.acoes_pngi",
@@ -58,11 +59,12 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",          # mantido para Admin
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    # ── GPP Custom Middleware (ordem obrigatória) ──────────────────────────
-    "apps.accounts.middleware.application_context.ApplicationContextMiddleware",
-    "apps.accounts.middleware.jwt_authentication.JWTAuthenticationMiddleware",
-    "apps.accounts.middleware.role_context.RoleContextMiddleware",
-    "apps.accounts.middleware.authorization.AuthorizationMiddleware",
+    # ──────────────────────────────────────────────────────────────────────
+    # CORE PLATFORM
+    "apps.core.middleware.application_context.ApplicationContextMiddleware",
+    "apps.core.middleware.jwt_authentication.JWTAuthenticationMiddleware",
+    "apps.core.middleware.role_context.RoleContextMiddleware",
+    "apps.core.middleware.authorization.AuthorizationMiddleware",
     # ──────────────────────────────────────────────────────────────────────
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
