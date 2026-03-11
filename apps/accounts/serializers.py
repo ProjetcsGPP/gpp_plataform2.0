@@ -1,5 +1,6 @@
 """
 GPP Plataform 2.0 — Accounts Serializers
+FASE 6: adicionado MeSerializer
 """
 import logging
 
@@ -28,7 +29,6 @@ class GPPTokenObtainPairSerializer(TokenObtainPairSerializer):
         data = super().validate(attrs)
         user = self.user
 
-        # Valida UserProfile ativo
         try:
             profile = user.profile
             if profile.status_usuario_id != 1:
@@ -48,7 +48,6 @@ class GPPTokenObtainPairSerializer(TokenObtainPairSerializer):
                 "Perfil de usuário não encontrado."
             )
 
-        # Valida ao menos 1 UserRole
         has_role = UserRole.objects.filter(user=user).exists()
         if not has_role:
             security_logger.warning(
@@ -69,7 +68,6 @@ class GPPTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-        # Claims extras (não usar para autorização — sempre validar no banco)
         token["username"] = user.username
         token["email"] = user.email
         is_admin = UserRole.objects.filter(
@@ -115,3 +113,55 @@ class UserRoleSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserRole
         fields = ["id", "user", "aplicacao", "aplicacao_codigo", "role", "role_codigo"]
+
+
+# ─── Me Serializer ────────────────────────────────────────────────────────────────
+
+class UserRoleNestedSerializer(serializers.ModelSerializer):
+    """Serializer aninhado de UserRole para o endpoint /me/."""
+    role_codigo = serializers.CharField(source="role.codigoperfil", read_only=True)
+    role_nome = serializers.CharField(source="role.nomeperfil", read_only=True)
+    aplicacao_codigo = serializers.CharField(source="aplicacao.codigointerno", read_only=True)
+    aplicacao_nome = serializers.CharField(source="aplicacao.nomeaplicacao", read_only=True)
+
+    class Meta:
+        model = UserRole
+        fields = ["id", "aplicacao_codigo", "aplicacao_nome", "role_codigo", "role_nome"]
+
+
+class MeSerializer(serializers.Serializer):
+    """
+    Serializer composto para GET /api/accounts/me/.
+    Agrega: dados do user, profile e roles ativas.
+    """
+    id = serializers.IntegerField(source="user.id")
+    username = serializers.CharField(source="user.username")
+    email = serializers.EmailField(source="user.email")
+    first_name = serializers.CharField(source="user.first_name")
+    last_name = serializers.CharField(source="user.last_name")
+    is_portal_admin = serializers.SerializerMethodField()
+
+    # Profile fields (nullable caso não exista)
+    name = serializers.SerializerMethodField()
+    orgao = serializers.SerializerMethodField()
+    status_usuario_id = serializers.SerializerMethodField()
+
+    roles = UserRoleNestedSerializer(source="user_roles", many=True)
+
+    def get_is_portal_admin(self, obj):
+        return UserRole.objects.filter(
+            user=obj["user"],
+            role__codigoperfil="PORTAL_ADMIN",
+        ).exists()
+
+    def get_name(self, obj):
+        profile = obj.get("profile")
+        return profile.name if profile else None
+
+    def get_orgao(self, obj):
+        profile = obj.get("profile")
+        return profile.orgao if profile else None
+
+    def get_status_usuario_id(self, obj):
+        profile = obj.get("profile")
+        return profile.status_usuario_id if profile else None
