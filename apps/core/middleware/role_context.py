@@ -22,7 +22,8 @@ se altera entre requests (detecção de troca de contexto).
 import logging
 
 from django.contrib.auth.models import AnonymousUser
-from django.core.cache import cache
+from django.core.cache import cache        # Cache miss: consulta banco
+from apps.accounts.models import UserRole
 
 security_logger = logging.getLogger("gpp.security")
 
@@ -58,8 +59,6 @@ class RoleContextMiddleware:
                 )
             return
 
-        # Cache miss: consulta banco
-        from apps.accounts.models import UserRole
 
         qs = (
             UserRole.objects
