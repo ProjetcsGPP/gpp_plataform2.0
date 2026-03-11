@@ -24,6 +24,8 @@ import logging
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 
+from apps.accounts.models import UserRole
+
 security_logger = logging.getLogger("gpp.security")
 
 CACHE_TTL = 300  # 5 minutos
@@ -59,8 +61,6 @@ class RoleContextMiddleware:
             return
 
         # Cache miss: consulta banco
-        from apps.accounts.models import UserRole
-
         qs = (
             UserRole.objects
             .filter(user=user)
