@@ -6,12 +6,12 @@ from django.contrib.auth.models import User
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
-from unittest.mock import patch, MagicMock
 
 from apps.accounts.models import (
     Aplicacao, Role, StatusUsuario, TipoUsuario,
     ClassificacaoUsuario, UserProfile, UserRole,
 )
+from apps.core.tests.utils import patch_security
 
 
 def _make_status():
@@ -44,6 +44,7 @@ def _make_app(codigo="PORTAL"):
 
 
 def _make_user_with_profile(username, orgao="SESP", is_admin=False):
+    """Cria User + UserProfile + role PORTAL_ADMIN ou USER."""
     user = User.objects.create_user(username=username, password="pass")
     _make_status()
     _make_tipo()
@@ -67,86 +68,6 @@ def _make_user_with_profile(username, orgao="SESP", is_admin=False):
     return user, profile
 
 
-def _bypass_middlewares(user, is_portal_admin=False):
-    """
-    Patch nos 3 middlewares customizados do GPP.
-    Injeta user, user_roles e is_portal_admin direto no request.
-    """
-    user_roles = list(UserRole.objects.filter(user=user))
-
-    def fake_jwt(get_response):
-        def middleware(request):
-            request.user = user
-            request.token_jti = "fake-jti"
-            request.is_portal_admin = is_portal_admin
-            return get_response(request)
-        return middleware
-
-    def fake_role(get_response):
-        def middleware(request):
-            request.user_roles = user_roles
-            request.is_portal_admin = is_portal_admin
-            return get_response(request)
-        return middleware
-
-    def fake_authz(get_response):
-        def middleware(request):
-            return get_response(request)
-        return middleware
-
-    return patch.multiple(
-        "django.conf.settings",
-        MIDDLEWARE=[
-            "django.middleware.security.SecurityMiddleware",
-            "django.contrib.sessions.middleware.SessionMiddleware",
-            "corsheaders.middleware.CorsMiddleware",
-            "django.middleware.common.CommonMiddleware",
-            "django.contrib.auth.middleware.AuthenticationMiddleware",
-            "django.contrib.messages.middleware.MessageMiddleware",
-            "django.middleware.clickjacking.XFrameOptionsMiddleware",
-        ],
-    )
-
-
-# ─── Alternativa mais simples: patch direto no __call__ dos middlewares ───────
-
-def _patch_security(user, is_portal_admin=False):
-    """
-    Faz patch diretamente no __call__ dos 3 middlewares customizados,
-    injetando os atributos no request antes de chamar a view.
-    """
-    user_roles = list(UserRole.objects.filter(user=user))
-
-    def patched_jwt_call(self_mw, request):
-        request.user = user
-        request.token_jti = "test-jti"
-        request.is_portal_admin = is_portal_admin
-        return self_mw.get_response(request)
-
-    def patched_role_call(self_mw, request):
-        request.user_roles = user_roles
-        request.is_portal_admin = is_portal_admin
-        return self_mw.get_response(request)
-
-    def patched_authz_call(self_mw, request):
-        return self_mw.get_response(request)
-
-    return [
-        patch(
-            "apps.core.middleware.jwt_authentication.JWTAuthenticationMiddleware.__call__",
-            new=patched_jwt_call,
-        ),
-        patch(
-            "apps.core.middleware.role_context.RoleContextMiddleware.__call__",
-            new=patched_role_call,
-        ),
-        patch(
-            "apps.core.middleware.authorization.AuthorizationMiddleware.__call__",
-            new=patched_authz_call,
-        ),
-    ]
-
-
 class MeEndpointTest(APITestCase):
     def setUp(self):
         self.user, self.profile = _make_user_with_profile("testuser_me")
@@ -155,7 +76,7 @@ class MeEndpointTest(APITestCase):
 
     def test_me_endpoint_returns_user_data(self):
         """GET /api/accounts/me/ com token válido deve retornar 200."""
-        patches = _patch_security(self.user)
+        patches = patch_security(self.user)
         with patches[0], patches[1], patches[2]:
             self.client.force_authenticate(user=self.user)
             response = self.client.get(self.url)
@@ -184,7 +105,7 @@ class ProfilesListTest(APITestCase):
 
     def test_profiles_list_admin_sees_all(self):
         """PORTAL_ADMIN deve ver todos os profiles na listagem."""
-        patches = _patch_security(self.admin, is_portal_admin=True)
+        patches = patch_security(self.admin, is_portal_admin=True)
         with patches[0], patches[1], patches[2]:
             self.client.force_authenticate(user=self.admin)
             response = self.client.get(self.url)
@@ -196,7 +117,7 @@ class ProfilesListTest(APITestCase):
 
     def test_profiles_list_user_sees_only_own(self):
         """Usuário comum deve receber na listagem apenas o próprio profile."""
-        patches = _patch_security(self.user)
+        patches = patch_security(self.user)
         with patches[0], patches[1], patches[2]:
             self.client.force_authenticate(user=self.user)
             response = self.client.get(self.url)
@@ -230,7 +151,7 @@ class AssignRolePermissionTest(APITestCase):
 
     def test_assign_role_non_admin_returns_403(self):
         """POST /api/accounts/user-roles/ por usuário não-admin deve retornar 403."""
-        patches = _patch_security(self.user, is_portal_admin=False)
+        patches = patch_security(self.user, is_portal_admin=False)
         with patches[0], patches[1], patches[2]:
             self.client.force_authenticate(user=self.user)
             response = self.client.post(self.url, self.payload)
