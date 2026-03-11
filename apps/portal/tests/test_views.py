@@ -5,7 +5,7 @@ FASE 6: testes obrigatórios dos endpoints do portal.
 from django.contrib.auth.models import User
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase, APIClient
 from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.accounts.models import (
@@ -52,6 +52,7 @@ class AplicacoesListTest(APITestCase):
             codigointerno="APP_TESTE",
             defaults={"nomeaplicacao": "App de Teste", "isshowinportal": True},
         )
+        self.client = APIClient()
         self.url = reverse("portal:aplicacao-list")
 
     def test_aplicacoes_list_authenticated(self):
@@ -59,7 +60,9 @@ class AplicacoesListTest(APITestCase):
         GET /api/portal/aplicacoes/ autenticado deve retornar 200
         e uma lista de aplicações com isshowinportal=True.
         """
-        self.client.credentials(**_auth_header(self.user))
+        #self.client.credentials(**_auth_header(self.user))
+        
+        self.client.force_authenticate(user=self.user)
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -79,6 +82,7 @@ class AplicacoesListTest(APITestCase):
 class DashboardTest(APITestCase):
     def setUp(self):
         self.user = _make_user_with_role("dashboard_user")
+        self.client = APIClient()
         self.url = reverse("portal:dashboard")
 
     def test_dashboard_returns_user_roles(self):
@@ -86,7 +90,9 @@ class DashboardTest(APITestCase):
         GET /api/portal/dashboard/ deve retornar 'aplicacoes' e 'roles'.
         'roles' deve conter ao menos a role do usuário criado no setUp.
         """
-        self.client.credentials(**_auth_header(self.user))
+        #self.client.credentials(**_auth_header(self.user))
+        
+        self.client.force_authenticate(user=self.user)
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)

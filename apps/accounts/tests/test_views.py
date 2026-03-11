@@ -5,13 +5,34 @@ FASE 6: testes obrigatórios dos endpoints de accounts.
 from django.contrib.auth.models import User
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase, APIClient
 from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.accounts.models import (
     Aplicacao, Role, StatusUsuario, TipoUsuario,
     ClassificacaoUsuario, UserProfile, UserRole,
 )
+
+# No topo do arquivo test_views.py
+from unittest.mock import patch
+
+def authenticated_request(self, user, is_portal_admin=False):
+    """Simula middlewares completos para testes DRF."""
+    self.client.force_authenticate(user=self.user)
+    self.client.credentials()  # Limpa qualquer header Authorization antigo
+    self.client.handler._request.user_roles = list(UserRole.objects.filter(user=self.user))
+    self.client.handler._request.is_portal_admin = False  # ou True para admin
+    
+    # Mock RoleContextMiddleware: injeta user_roles
+    user_roles = UserRole.objects.filter(user=user)
+    self.client.handler._request.user_roles = list(user_roles)
+    
+    # Mock is_portal_admin
+    self.client.handler._request.is_portal_admin = is_portal_admin
+    
+    return self.client
+
+
 
 
 def _make_status():
@@ -68,16 +89,10 @@ def _make_user_with_profile(username, orgao="SESP", is_admin=False):
     return user, profile
 
 
-def _auth_header(user, is_portal_admin=False):
-    """Gera header JWT válido para o usuário."""
-    token = AccessToken.for_user(user)
-    token["is_portal_admin"] = is_portal_admin
-    return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
-
-
 class MeEndpointTest(APITestCase):
     def setUp(self):
         self.user, self.profile = _make_user_with_profile("testuser_me")
+        self.client = APIClient()
         self.url = reverse("accounts:me")
 
     def test_me_endpoint_returns_user_data(self):
@@ -85,7 +100,12 @@ class MeEndpointTest(APITestCase):
         GET /api/accounts/me/ com token válido
         deve retornar id, username, email e lista de roles.
         """
-        self.client.credentials(**_auth_header(self.user))
+        #self.client.credentials(**_auth_header(self.user))
+        
+        self.client.force_authenticate(user=self.user)
+        self.client.credentials()  # Limpa qualquer header Authorization antigo
+        self.client.handler._request.user_roles = list(UserRole.objects.filter(user=self.user))
+        self.client.handler._request.is_portal_admin = False  # ou True para admin
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -105,6 +125,7 @@ class ProfilesListTest(APITestCase):
     def setUp(self):
         self.admin, self.admin_profile = _make_user_with_profile("admin_profiles", is_admin=True)
         self.user, self.user_profile = _make_user_with_profile("common_user_profiles", orgao="SESP")
+        self.client = APIClient()
         self.url = reverse("accounts:userprofile-list")
 
     def test_profiles_list_admin_sees_all(self):
@@ -112,7 +133,13 @@ class ProfilesListTest(APITestCase):
         PORTAL_ADMIN deve ver todos os profiles na listagem.
         """
         # Força flag is_portal_admin via middleware mock
-        self.client.credentials(**_auth_header(self.admin, is_portal_admin=True))
+        #self.client.credentials(**_auth_header(self.admin, is_portal_admin=True))
+        
+        self.client.force_authenticate(user=self.admin)
+        self.client.credentials()  # Limpa qualquer header Authorization antigo
+        self.client.handler._request.user_roles = list(UserRole.objects.filter(user=self.user))
+        self.client.handler._request.is_portal_admin = True
+        
         # Simula middleware: força atributo no request
         from unittest.mock import patch
         with patch(
@@ -127,7 +154,13 @@ class ProfilesListTest(APITestCase):
         """
         Usuário comum deve receber na listagem apenas o próprio profile.
         """
-        self.client.credentials(**_auth_header(self.user))
+        #self.client.credentials(**_auth_header(self.user))
+        
+        self.client.force_authenticate(user=self.user)
+        self.client.credentials()  # Limpa qualquer header Authorization antigo
+        self.client.handler._request.user_roles = list(UserRole.objects.filter(user=self.user))
+        self.client.handler._request.is_portal_admin = False
+        
         response = self.client.get(self.url)
         # Pode ser 200 (lista com 1 item) ou 403 se middleware não injetou roles
         self.assertIn(response.status_code, [
@@ -145,6 +178,7 @@ class ProfilesListTest(APITestCase):
 class AssignRolePermissionTest(APITestCase):
     def setUp(self):
         self.user, _ = _make_user_with_profile("nonadmin_assign")
+        self.client = APIClient()
         self.app = _make_app("PORTAL")
         role, _ = Role.objects.get_or_create(
             aplicacao=self.app,
@@ -162,6 +196,12 @@ class AssignRolePermissionTest(APITestCase):
         """
         POST /api/accounts/user-roles/ por usuário não-admin deve retornar 403.
         """
-        self.client.credentials(**_auth_header(self.user, is_portal_admin=False))
+        #self.client.credentials(**_auth_header(self.user, is_portal_admin=False))
+        
+        self.client.force_authenticate(user=self.user)
+        self.client.credentials()  # Limpa qualquer header Authorization antigo
+        self.client.handler._request.user_roles = list(UserRole.objects.filter(user=self.user))
+        self.client.handler._request.is_portal_admin = False
+        
         response = self.client.post(self.url, self.payload)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

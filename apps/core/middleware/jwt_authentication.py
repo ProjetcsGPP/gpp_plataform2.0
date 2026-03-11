@@ -119,7 +119,8 @@ class JWTAuthenticationMiddleware:
 
         # Verifica status_usuario no profile (1 = ativo)
         profile = getattr(user, "profile", None)
-        if profile is not None and getattr(profile, "status_usuario", 1) != 1:
+        #if profile is not None and getattr(profile, "status_usuario", 1) != 1:
+        if profile is not None and getattr(profile, "status_usuario_id", 1) != 1:
             security_logger.warning(
                 "JWT_USER_INACTIVE user_id=%s path=%s reason=user_inactive",
                 user_id, request.path,
