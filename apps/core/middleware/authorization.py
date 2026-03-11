@@ -16,6 +16,8 @@ Regras:
   2. PORTAL_ADMIN → passa sempre
   3. Usuário não autenticado → 401
   4. Usuário sem nenhuma role para a app atual → 403
+  5. Path bate com AUTHORIZATION_REQUIRED_ROLES e usuário não tem
+     nenhuma das roles requeridas → 403 permission_denied
 """
 import json
 import logging
@@ -31,6 +33,8 @@ EXEMPT_PATHS = getattr(
     "AUTHORIZATION_EXEMPT_PATHS",
     ["/api/auth/token/", "/api/auth/token/refresh/", "/admin/", "/api/health/"],
 )
+
+REQUIRED_ROLES_MAP = getattr(settings, "AUTHORIZATION_REQUIRED_ROLES", {})
 
 
 class AuthorizationMiddleware:
@@ -76,11 +80,44 @@ class AuthorizationMiddleware:
                 ),
             )
 
+        # Verifica restrição de roles por path pattern (AUTHORIZATION_REQUIRED_ROLES)
+        required_roles = self._get_required_roles(request.path)
+        if required_roles:
+            user_role_codes = {ur.role.codigoperfil for ur in user_roles}
+            if not user_role_codes.intersection(set(required_roles)):
+                application = getattr(request, "application", None)
+                app_code = application.codigointerno if application else "unknown"
+                security_logger.warning(
+                    "403_FORBIDDEN_ROLE user_id=%s path=%s required_roles=%s user_roles=%s",
+                    request.user.id, request.path, required_roles, list(user_role_codes),
+                )
+                return self._json_response(
+                    status=403,
+                    code="permission_denied",
+                    detail=(
+                        f"Você não possui o perfil necessário para acessar este recurso. "
+                        f"Perfis requeridos: {', '.join(required_roles)}."
+                    ),
+                )
+
         return self.get_response(request)
 
     @staticmethod
     def _is_exempt(path):
         return any(path.startswith(p) for p in EXEMPT_PATHS)
+
+    @staticmethod
+    def _get_required_roles(path):
+        """
+        Retorna a lista de roles requeridas para o path, ou None se não há restrição configurada.
+        Itera sobre AUTHORIZATION_REQUIRED_ROLES em settings.
+        Relê a configuração a cada chamada para suportar @override_settings em testes.
+        """
+        required_roles_map = getattr(settings, "AUTHORIZATION_REQUIRED_ROLES", {})
+        for pattern, roles in required_roles_map.items():
+            if path.startswith(pattern):
+                return roles
+        return None
 
     @staticmethod
     def _json_response(status, code, detail):

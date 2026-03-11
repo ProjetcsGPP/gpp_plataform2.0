@@ -34,6 +34,11 @@ class ApplicationContextMiddleware:
 
     def __call__(self, request):
         request.application = self._resolve_application(request)
+        if request.application is None:
+            security_logger.warning(
+                "APP_CONTEXT_NONE path=%s — application could not be resolved, leaving as None",
+                request.path,
+            )
         response = self.get_response(request)
         return response
 
@@ -67,4 +72,9 @@ class ApplicationContextMiddleware:
             return registry.get(app_code)
 
         # 4. Fallback: portal
-        return registry.get("portal")
+        fallback = registry.get("portal")
+        security_logger.debug(
+            "APP_CONTEXT_FALLBACK path=%s resolved=portal",
+            request.path,
+        )
+        return fallback
