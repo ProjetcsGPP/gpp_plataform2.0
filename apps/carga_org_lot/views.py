@@ -2,9 +2,15 @@
 GPP Plataform 2.0 — Carga Org Lot Views
 FASE 6: Scaffold de APIs com SecureQuerysetMixin obrigatório.
 
-Roles obrigatórias: GESTOR_CARGA (todos os endpoints).
+Todos os endpoints exigem que o usuário possua a role associada
+à aplicação 'carga_org_lot'. A role NÃO está hardcoded: ela é
+lida do banco de dados via _load_carga_roles().
 """
-from rest_framework import viewsets, status
+from __future__ import annotations
+
+from functools import lru_cache
+
+from rest_framework import status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -12,20 +18,43 @@ from rest_framework.response import Response
 from common.mixins import AuditableMixin, SecureQuerysetMixin
 from common.permissions import HasRolePermission
 
-ROLES_CARGA = {"GESTOR_CARGA"}
+# Identificador da aplicação no banco (accounts.Aplicacao.codigointerno)
+_APP_CODE = "carga_org_lot"
 
 
-def _check_carga_role(request):
+@lru_cache(maxsize=1)
+def _load_carga_roles() -> frozenset[str]:
     """
-    Verifica se o usuário possui a role GESTOR_CARGA.
+    Consulta o banco e retorna o conjunto de codigoperfil
+    autorizados para a aplicação carga_org_lot.
+
+    O lru_cache(maxsize=1) garante que a query ao banco é feita
+    apenas uma vez por processo (worker). Para forçar recarregamento:
+        _load_carga_roles.cache_clear()
+    """
+    from apps.accounts.models import Role
+
+    return frozenset(
+        Role.objects.filter(
+            aplicacao__codigointerno=_APP_CODE
+        ).values_list("codigoperfil", flat=True)
+    )
+
+
+def _check_carga_role(request) -> None:
+    """
+    Verifica se o usuário possui alguma role autorizada para carga_org_lot.
     Lança PermissionDenied (403) caso contrário.
     """
     if getattr(request, "is_portal_admin", False):
         return
+
+    allowed = _load_carga_roles()
     user_roles = {r.role.codigoperfil for r in getattr(request, "user_roles", [])}
-    if not user_roles.intersection(ROLES_CARGA):
+
+    if not user_roles.intersection(allowed):
         raise PermissionDenied(
-            "Acesso negado. Role necessária: GESTOR_CARGA"
+            f"Acesso negado. Roles necessárias: {', '.join(sorted(allowed))}"
         )
 
 
@@ -36,7 +65,6 @@ class CargaOrgLotViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
 
     SecureQuerysetMixin garante filtro por orgao (proteção IDOR).
     AuditableMixin preenche created_by / updated_by automaticamente.
-    Todos os endpoints exigem role GESTOR_CARGA.
     """
     permission_classes = [IsAuthenticated, HasRolePermission]
     scope_field = "orgao"
@@ -83,7 +111,8 @@ class CargaOrgLotViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
 
 
 class _EmptyQueryset:
-    """Placeholder para evitar erros enquanto o model não existe."""
+    """Placeholder para evitar erros enquanto o model CargaOrgLot não existe."""
+
     def none(self):
         return self
 

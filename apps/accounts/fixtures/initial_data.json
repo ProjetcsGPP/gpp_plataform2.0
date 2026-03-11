@@ -1,0 +1,172 @@
+[
+  {
+    "model": "accounts.statususuario",
+    "pk": 1,
+    "fields": { "strdescricao": "Ativo" }
+  },
+  {
+    "model": "accounts.statususuario",
+    "pk": 2,
+    "fields": { "strdescricao": "Inativo" }
+  },
+  {
+    "model": "accounts.statususuario",
+    "pk": 3,
+    "fields": { "strdescricao": "Bloqueado" }
+  },
+
+  {
+    "model": "accounts.tipousuario",
+    "pk": 1,
+    "fields": { "strdescricao": "Interno" }
+  },
+  {
+    "model": "accounts.tipousuario",
+    "pk": 2,
+    "fields": { "strdescricao": "Externo" }
+  },
+  {
+    "model": "accounts.tipousuario",
+    "pk": 3,
+    "fields": { "strdescricao": "Serviço" }
+  },
+
+  {
+    "model": "accounts.classificacaousuario",
+    "pk": 1,
+    "fields": { "strdescricao": "Padrão" }
+  },
+  {
+    "model": "accounts.classificacaousuario",
+    "pk": 2,
+    "fields": { "strdescricao": "Gestor" }
+  },
+  {
+    "model": "accounts.classificacaousuario",
+    "pk": 3,
+    "fields": { "strdescricao": "Técnico" }
+  },
+
+  {
+    "model": "accounts.aplicacao",
+    "pk": 1,
+    "fields": {
+      "codigointerno": "portal",
+      "nomeaplicacao": "Portal GPP",
+      "base_url": null,
+      "isshowinportal": true
+    }
+  },
+  {
+    "model": "accounts.aplicacao",
+    "pk": 2,
+    "fields": {
+      "codigointerno": "acoes_pngi",
+      "nomeaplicacao": "Ações PNGI",
+      "base_url": null,
+      "isshowinportal": true
+    }
+  },
+  {
+    "model": "accounts.aplicacao",
+    "pk": 3,
+    "fields": {
+      "codigointerno": "carga_org_lot",
+      "nomeaplicacao": "Carga Org/Lotes",
+      "base_url": null,
+      "isshowinportal": true
+    }
+  },
+
+  {
+    "model": "auth.group",
+    "pk": 1,
+    "fields": { "name": "PORTAL_ADMIN", "permissions": [] }
+  },
+  {
+    "model": "auth.group",
+    "pk": 2,
+    "fields": { "name": "GESTOR_PNGI", "permissions": [] }
+  },
+  {
+    "model": "auth.group",
+    "pk": 3,
+    "fields": { "name": "COORDENADOR_PNGI", "permissions": [] }
+  },
+  {
+    "model": "auth.group",
+    "pk": 4,
+    "fields": { "name": "OPERADOR_ACAO", "permissions": [] }
+  },
+  {
+    "model": "auth.group",
+    "pk": 5,
+    "fields": { "name": "CONSULTOR_PNGI", "permissions": [] }
+  },
+  {
+    "model": "auth.group",
+    "pk": 6,
+    "fields": { "name": "GESTOR_CARGA", "permissions": [] }
+  },
+
+  {
+    "model": "accounts.role",
+    "pk": 1,
+    "fields": {
+      "aplicacao": 1,
+      "nomeperfil": "Administrador do Portal",
+      "codigoperfil": "PORTAL_ADMIN",
+      "group": 1
+    }
+  },
+  {
+    "model": "accounts.role",
+    "pk": 2,
+    "fields": {
+      "aplicacao": 2,
+      "nomeperfil": "Gestor PNGI",
+      "codigoperfil": "GESTOR_PNGI",
+      "group": 2
+    }
+  },
+  {
+    "model": "accounts.role",
+    "pk": 3,
+    "fields": {
+      "aplicacao": 2,
+      "nomeperfil": "Coordenador PNGI",
+      "codigoperfil": "COORDENADOR_PNGI",
+      "group": 3
+    }
+  },
+  {
+    "model": "accounts.role",
+    "pk": 4,
+    "fields": {
+      "aplicacao": 2,
+      "nomeperfil": "Operador de Ação",
+      "codigoperfil": "OPERADOR_ACAO",
+      "group": 4
+    }
+  },
+  {
+    "model": "accounts.role",
+    "pk": 5,
+    "fields": {
+      "aplicacao": 2,
+      "nomeperfil": "Consultor PNGI",
+      "codigoperfil": "CONSULTOR_PNGI",
+      "group": 5
+    }
+  },
+  {
+    "model": "accounts.role",
+    "pk": 6,
+    "fields": {
+      "aplicacao": 3,
+      "nomeperfil": "Gestor de Carga",
+      "codigoperfil": "GESTOR_CARGA",
+      "group": 6
+    }
+  }
+]
