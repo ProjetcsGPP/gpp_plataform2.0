@@ -21,9 +21,9 @@ security_logger = logging.getLogger("gpp.security")
 
 # Mapeamento de prefixo de URL → codigointerno da Aplicacao
 URL_PREFIX_MAP = {
-    "acoes-pngi": "acoes_pngi",
-    "carga-org-lot": "carga_org_lot",
-    "portal": "portal",
+    "acoes-pngi": "ACOES_PNGI",
+    "carga-org-lot": "CARGA_ORG_LOT",
+    "portal": "PORTAL",
     "accounts": "accounts",
 }
 

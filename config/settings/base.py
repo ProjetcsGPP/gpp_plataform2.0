@@ -102,7 +102,7 @@ DATABASES = {
         "HOST": env("DB_HOST", default="localhost"),
         "PORT": env("DB_PORT", default="5432"),
         "OPTIONS": {
-            "options": "-c search_path=public",
+            "options": "-c search_path=public,acoes_pngi,carga_org_lot",
         },
     }
 }
