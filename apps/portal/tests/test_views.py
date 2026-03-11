@@ -1,12 +1,13 @@
 """
 GPP Plataform 2.0 — Portal Views Tests
 FASE 6: testes obrigatórios dos endpoints do portal.
+Usa _patch_security para bypassar os middlewares JWT/Role/Authz.
 """
 from django.contrib.auth.models import User
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
-from rest_framework_simplejwt.tokens import AccessToken
+from unittest.mock import patch
 
 from apps.accounts.models import (
     Aplicacao, Role, StatusUsuario, TipoUsuario,
@@ -40,9 +41,42 @@ def _make_user_with_role(username):
     return user
 
 
-def _auth_header(user):
-    token = AccessToken.for_user(user)
-    return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+def _patch_security(user, is_portal_admin=False):
+    """
+    Faz patch nos 3 middlewares customizados do GPP, injetando
+    request.user, request.user_roles e request.is_portal_admin
+    antes de chegar na view — sem depender de token JWT real.
+    """
+    user_roles = list(UserRole.objects.filter(user=user))
+
+    def patched_jwt_call(self_mw, request):
+        request.user = user
+        request.token_jti = "test-jti"
+        request.is_portal_admin = is_portal_admin
+        return self_mw.get_response(request)
+
+    def patched_role_call(self_mw, request):
+        request.user_roles = user_roles
+        request.is_portal_admin = is_portal_admin
+        return self_mw.get_response(request)
+
+    def patched_authz_call(self_mw, request):
+        return self_mw.get_response(request)
+
+    return [
+        patch(
+            "apps.core.middleware.jwt_authentication.JWTAuthenticationMiddleware.__call__",
+            new=patched_jwt_call,
+        ),
+        patch(
+            "apps.core.middleware.role_context.RoleContextMiddleware.__call__",
+            new=patched_role_call,
+        ),
+        patch(
+            "apps.core.middleware.authorization.AuthorizationMiddleware.__call__",
+            new=patched_authz_call,
+        ),
+    ]
 
 
 class AplicacoesListTest(APITestCase):
@@ -60,10 +94,10 @@ class AplicacoesListTest(APITestCase):
         GET /api/portal/aplicacoes/ autenticado deve retornar 200
         e uma lista de aplicações com isshowinportal=True.
         """
-        #self.client.credentials(**_auth_header(self.user))
-        
-        self.client.force_authenticate(user=self.user)
-        response = self.client.get(self.url)
+        patches = _patch_security(self.user)
+        with patches[0], patches[1], patches[2]:
+            self.client.force_authenticate(user=self.user)
+            response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.data.get("results", response.data)
@@ -90,10 +124,10 @@ class DashboardTest(APITestCase):
         GET /api/portal/dashboard/ deve retornar 'aplicacoes' e 'roles'.
         'roles' deve conter ao menos a role do usuário criado no setUp.
         """
-        #self.client.credentials(**_auth_header(self.user))
-        
-        self.client.force_authenticate(user=self.user)
-        response = self.client.get(self.url)
+        patches = _patch_security(self.user)
+        with patches[0], patches[1], patches[2]:
+            self.client.force_authenticate(user=self.user)
+            response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("aplicacoes", response.data)
