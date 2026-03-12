@@ -2,13 +2,262 @@
 GPP Plataform 2.0 — Ações PNGI
 Todos os models usam schema 'acoes_pngi' no PostgreSQL.
 """
+from django.conf import settings
+from django.db import models
 from common.models import AuditableModel
 
-# Models serão implementados na fase de domínio da app.
-# Exemplo de como declarar com schema próprio:
-#
-# class AcaoPNGI(AuditableModel):
-#     ...
-#     class Meta:
-#         db_table = '"acoes_pngi"."tblacao"'
-#         managed = True
+
+class Eixo(AuditableModel):
+
+    ideixo = models.AutoField(primary_key=True, db_column="ideixo")
+
+    strdescricaoeixo = models.CharField(
+        db_column="strdescricaoeixo",
+        max_length=100
+    )
+
+    stralias = models.CharField(
+        db_column="stralias",
+        max_length=5,
+        unique=True
+    )
+
+    class Meta:
+        db_table = '"acoes_pngi"."tbleixos"'
+        ordering = ["stralias"]
+
+
+class SituacaoAcao(models.Model):
+
+    idsituacaoacao = models.AutoField(primary_key=True, db_column="idsituacaoacao")
+
+    strdescricaosituacao = models.CharField(
+        db_column="strdescricaosituacao",
+        max_length=50,
+        unique=True
+    )
+
+    class Meta:
+        db_table = '"acoes_pngi"."tblsituacaoacao"'
+        ordering = ["strdescricaosituacao"]
+
+
+class TipoEntraveAlerta(models.Model):
+
+    idtipoentravealerta = models.AutoField(
+        primary_key=True,
+        db_column="idtipoentravealerta"
+    )
+
+    strdescricaotipoentravealerta = models.CharField(
+        db_column="strdescricaotipoentravealerta",
+        max_length=50
+    )
+
+    class Meta:
+        db_table = '"acoes_pngi"."tbltipoentravealerta"'
+
+
+class TipoAnotacaoAlinhamento(models.Model):
+
+    idtipoanotacaoalinhamento = models.AutoField(
+        primary_key=True,
+        db_column="idtipoanotacaoalinhamento"
+    )
+
+    strdescricaotipoanotacaoalinhamento = models.CharField(
+        db_column="strdescricaotipoanotacaoalinhamento",
+        max_length=100
+    )
+
+    class Meta:
+        db_table = '"acoes_pngi"."tbltipoanotacaoalinhamento"'
+
+
+class VigenciaPNGI(AuditableModel):
+
+    idvigenciapngi = models.AutoField(
+        primary_key=True,
+        db_column="idvigenciapngi"
+    )
+
+    strdescricao = models.CharField(
+        db_column="strdescricao",
+        max_length=200
+    )
+
+    datiniciovigencia = models.DateField(db_column="datiniciovigencia")
+
+    datfinalvigencia = models.DateField(
+        db_column="datfinalvigencia",
+        null=True,
+        blank=True
+    )
+
+    class Meta:
+        db_table = '"acoes_pngi"."tblvigenciapngi"'
+        ordering = ["-datiniciovigencia"]
+
+
+class UsuarioResponsavel(models.Model):
+
+    idusuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        db_column="idusuario",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="usuario_responsavel_pngi"
+    )
+
+    strtelefone = models.CharField(
+        db_column="strtelefone",
+        max_length=20
+    )
+
+    strorgao = models.CharField(
+        db_column="strorgao",
+        max_length=50
+    )
+
+    class Meta:
+        db_table = '"acoes_pngi"."tblusuarioresponsavel"'
+
+
+class Acoes(AuditableModel):
+
+    idacao = models.AutoField(primary_key=True, db_column="idacao")
+
+    strapelido = models.CharField(
+        db_column="strapelido",
+        max_length=50
+    )
+
+    strdescricaoacao = models.CharField(
+        db_column="strdescricaoacao",
+        max_length=350
+    )
+
+    strdescricaoentrega = models.CharField(
+        db_column="strdescricaoentrega",
+        max_length=100
+    )
+
+    datdataentrega = models.DateTimeField(
+        db_column="datdataentrega",
+        null=True,
+        blank=True
+    )
+
+    idvigenciapngi = models.ForeignKey(
+        VigenciaPNGI,
+        db_column="idvigenciapngi",
+        on_delete=models.PROTECT,
+        related_name="acoes"
+    )
+
+    idtipoentravealerta = models.ForeignKey(
+        TipoEntraveAlerta,
+        db_column="idtipoentravealerta",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="acoes"
+    )
+
+    class Meta:
+        db_table = '"acoes_pngi"."tblacoes"'
+        ordering = ["strapelido"]
+
+
+class AcaoPrazo(AuditableModel):
+
+    idacaoprazo = models.AutoField(primary_key=True, db_column="idacaoprazo")
+
+    idacao = models.ForeignKey(
+        Acoes,
+        db_column="idacao",
+        on_delete=models.CASCADE,
+        related_name="prazos"
+    )
+
+    isacaoprazoativo = models.BooleanField(
+        db_column="isacaoprazoativo",
+        default=True
+    )
+
+    strprazo = models.CharField(
+        db_column="strprazo",
+        max_length=50
+    )
+
+    class Meta:
+        db_table = '"acoes_pngi"."tblacaoprazo"'
+
+
+class AcaoDestaque(AuditableModel):
+
+    idacaodestaque = models.AutoField(
+        primary_key=True,
+        db_column="idacaodestaque"
+    )
+
+    idacao = models.ForeignKey(
+        Acoes,
+        db_column="idacao",
+        on_delete=models.CASCADE,
+        related_name="destaques"
+    )
+
+    datdatadestaque = models.DateTimeField(
+        db_column="datdatadestaque"
+    )
+
+    class Meta:
+        db_table = '"acoes_pngi"."tblacaodestaque"'
+
+
+class AcaoAnotacaoAlinhamento(AuditableModel):
+
+    idacaoanotacaoalinhamento = models.AutoField(
+        primary_key=True,
+        db_column="idacaoanotacaoalinhamento"
+    )
+
+    idacao = models.ForeignKey(
+        Acoes,
+        db_column="idacao",
+        on_delete=models.CASCADE,
+        related_name="anotacoes"
+    )
+
+    idtipoanotacaoalinhamento = models.ForeignKey(
+        TipoAnotacaoAlinhamento,
+        db_column="idtipoanotacaoalinhamento",
+        on_delete=models.PROTECT
+    )
+
+    strdescricao = models.TextField(
+        db_column="strdescricao"
+    )
+
+    class Meta:
+        db_table = '"acoes_pngi"."tblacaoanotacaoalinhamento"'
+
+
+class RelacaoAcaoUsuarioResponsavel(models.Model):
+
+    idacao = models.ForeignKey(
+        Acoes,
+        db_column="idacao",
+        on_delete=models.CASCADE
+    )
+
+    idusuarioresponsavel = models.ForeignKey(
+        UsuarioResponsavel,
+        db_column="idusuarioresponsavel",
+        on_delete=models.CASCADE
+    )
+
+    class Meta:
+        db_table = '"acoes_pngi"."tblrelacaoacaousuarioresponsavel"'
+        unique_together = ("idacao", "idusuarioresponsavel")

@@ -51,19 +51,19 @@
     "model": "accounts.aplicacao",
     "pk": 1,
     "fields": {
-      "codigointerno": "portal",
+      "codigointerno": "PORTAL",
       "nomeaplicacao": "Portal GPP",
-      "base_url": null,
-      "isshowinportal": true
+      "base_url": "http://127.0.0.1:8000/portal/",
+      "isshowinportal": false
     }
   },
   {
     "model": "accounts.aplicacao",
     "pk": 2,
     "fields": {
-      "codigointerno": "acoes_pngi",
+      "codigointerno": "ACOES_PNGI",
       "nomeaplicacao": "Ações PNGI",
-      "base_url": null,
+      "base_url": "http://127.0.0.1:8000/acoes-pngi/",
       "isshowinportal": true
     }
   },
@@ -71,9 +71,9 @@
     "model": "accounts.aplicacao",
     "pk": 3,
     "fields": {
-      "codigointerno": "carga_org_lot",
-      "nomeaplicacao": "Carga Org/Lotes",
-      "base_url": null,
+      "codigointerno": "CARGA_ORG_LOT",
+      "nomeaplicacao": "Carga Única de Organograma e Lotação",
+      "base_url": "http://127.0.0.1:8000/carga_org_lot/",
       "isshowinportal": true
     }
   },
@@ -97,11 +97,6 @@
     "model": "auth.group",
     "pk": 4,
     "fields": { "name": "OPERADOR_ACAO", "permissions": [] }
-  },
-  {
-    "model": "auth.group",
-    "pk": 5,
-    "fields": { "name": "CONSULTOR_PNGI", "permissions": [] }
   },
   {
     "model": "auth.group",
@@ -147,16 +142,6 @@
       "nomeperfil": "Operador de Ação",
       "codigoperfil": "OPERADOR_ACAO",
       "group": 4
-    }
-  },
-  {
-    "model": "accounts.role",
-    "pk": 5,
-    "fields": {
-      "aplicacao": 2,
-      "nomeperfil": "Consultor PNGI",
-      "codigoperfil": "CONSULTOR_PNGI",
-      "group": 5
     }
   },
   {

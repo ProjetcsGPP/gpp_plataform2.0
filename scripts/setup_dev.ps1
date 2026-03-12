@@ -25,7 +25,7 @@ $ErrorActionPreference = "Stop"
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 function Write-Step($num, $msg) {
-    Write-Host ""`n[$num] $msg" -ForegroundColor Cyan
+    Write-Host ""`n[$num] $msg" -ForegroundColor Cyan"
 }
 function Write-Ok($msg)  { Write-Host "  ✔ $msg" -ForegroundColor Green }
 function Write-Warn($msg){ Write-Host "  ⚠ $msg" -ForegroundColor Yellow }
@@ -62,7 +62,7 @@ if (-not (Test-Path ".venv")) {
 
 $pip  = ".venv\Scripts\pip.exe"
 $python = ".venv\Scripts\python.exe"
-$manage = ".venv\Scripts\python.exe manage.py"
+#$manage = ".venv\Scripts\python.exe manage.py"
 
 # ── 2. Instalar dependências ───────────────────────────────────────────────
 Write-Step 2 "Instalando dependências de requirements.txt..."
