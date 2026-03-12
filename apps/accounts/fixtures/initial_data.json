@@ -25,16 +25,11 @@
     "pk": 2,
     "fields": { "strdescricao": "Externo" }
   },
-  {
-    "model": "accounts.tipousuario",
-    "pk": 3,
-    "fields": { "strdescricao": "Serviço" }
-  },
-
+  
   {
     "model": "accounts.classificacaousuario",
     "pk": 1,
-    "fields": { "strdescricao": "Padrão" }
+    "fields": { "strdescricao": "Usuário" }
   },
   {
     "model": "accounts.classificacaousuario",
@@ -44,7 +39,7 @@
   {
     "model": "accounts.classificacaousuario",
     "pk": 3,
-    "fields": { "strdescricao": "Técnico" }
+    "fields": { "strdescricao": "Coordenador" }
   },
 
   {

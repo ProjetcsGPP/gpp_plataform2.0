@@ -2,6 +2,8 @@
 GPP Plataform 2.0 — URL Router Principal
 Cada app registra suas próprias URLs.
 """
+
+from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -26,3 +28,10 @@ urlpatterns = [
     # ── Health check ─────────────────────────────────────────────────────────
     path("api/health/", include("common.urls")),
 ]
+
+# ── Debug Toolbar (apenas em desenvolvimento) ─────────────────────────────────
+if settings.DEBUG:
+    import debug_toolbar
+    urlpatterns = [
+        path("__debug__/", include(debug_toolbar.urls)),
+    ] + urlpatterns
