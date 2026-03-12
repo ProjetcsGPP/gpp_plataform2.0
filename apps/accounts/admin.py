@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import User
 
 from .models import (
     Aplicacao,
@@ -48,25 +48,12 @@ class AplicacaoAdmin(admin.ModelAdmin):
 
 
 # =====================
-# USER PROFILE (com inline de Roles e Atributos)
+# USER PROFILE
 # =====================
 
-class UserRoleInline(admin.TabularInline):
-    model = UserRole
-    extra = 1
-    autocomplete_fields = ("role",)
-    fields = ("aplicacao", "role")
-    verbose_name = "Role do Usuário"
-    verbose_name_plural = "Roles do Usuário"
-
-
-class AttributeInline(admin.TabularInline):
-    model = Attribute
-    extra = 1
-    fields = ("aplicacao", "key", "value")
-    verbose_name = "Atributo ABAC"
-    verbose_name_plural = "Atributos ABAC"
-
+# Os inlines precisam ser registrados no admin.ModelAdmin do auth.User,
+# pois Attribute e UserRole tem FK para auth.User (nao para UserProfile).
+# UserProfileAdmin usa fieldsets e readonly_fields apenas para o perfil em si.
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
@@ -80,9 +67,7 @@ class UserProfileAdmin(admin.ModelAdmin):
     )
     list_filter = ("status_usuario", "tipo_usuario", "classificacao_usuario")
     search_fields = ("user__username", "user__email", "name", "orgao")
-    autocomplete_fields = ("user",)
     readonly_fields = ("datacriacao", "data_alteracao", "idusuariocriacao", "idusuarioalteracao")
-    inlines = [UserRoleInline, AttributeInline]
     fieldsets = (
         ("Identificação", {
             "fields": ("user", "name", "orgao"),
@@ -106,7 +91,6 @@ class RoleAdmin(admin.ModelAdmin):
     list_display = ("codigoperfil", "nomeperfil", "aplicacao", "group")
     list_filter = ("aplicacao",)
     search_fields = ("codigoperfil", "nomeperfil")
-    autocomplete_fields = ("group",)
     ordering = ("aplicacao", "codigoperfil")
     readonly_fields = ("group",)
     fieldsets = (
@@ -125,7 +109,6 @@ class RoleAdmin(admin.ModelAdmin):
     )
 
     def get_readonly_fields(self, request, obj=None):
-        # Permite definir o group apenas na criação; depois é somente leitura
         if obj:
             return self.readonly_fields
         return ()
@@ -136,7 +119,6 @@ class UserRoleAdmin(admin.ModelAdmin):
     list_display = ("user", "aplicacao", "role", "get_group")
     list_filter = ("aplicacao", "role__aplicacao")
     search_fields = ("user__username", "user__email", "role__codigoperfil")
-    autocomplete_fields = ("user", "role")
     ordering = ("user__username", "aplicacao")
 
     @admin.display(description="Grupo Django (auth.Group)")
@@ -153,7 +135,6 @@ class AttributeAdmin(admin.ModelAdmin):
     list_display = ("user", "aplicacao", "key", "value")
     list_filter = ("aplicacao",)
     search_fields = ("user__username", "key", "value")
-    autocomplete_fields = ("user",)
     ordering = ("user__username", "aplicacao", "key")
 
 
