@@ -1,0 +1,70 @@
+[
+  {
+    "model": "accounts.statususuario",
+    "pk": 1,
+    "fields": { "strdescricao": "Ativo" }
+  },
+  {
+    "model": "accounts.tipousuario",
+    "pk": 1,
+    "fields": { "strdescricao": "Interno" }
+  },
+  {
+    "model": "accounts.classificacaousuario",
+    "pk": 1,
+    "fields": { "strdescricao": "Usuário" }
+  },
+
+  {
+    "model": "accounts.aplicacao",
+    "pk": 1,
+    "fields": {
+      "codigointerno": "PORTAL",
+      "nomeaplicacao": "Portal GPP",
+      "base_url": "http://127.0.0.1:8000/portal/",
+      "isshowinportal": true
+    }
+  },
+  {
+    "model": "accounts.aplicacao",
+    "pk": 2,
+    "fields": {
+      "codigointerno": "ACOES_PNGI",
+      "nomeaplicacao": "Ações PNGI",
+      "base_url": "http://127.0.0.1:8000/acoes-pngi/",
+      "isshowinportal": false
+    }
+  },
+
+  {
+    "model": "auth.group",
+    "pk": 1,
+    "fields": { "name": "PORTAL_ADMIN" }
+  },
+  {
+    "model": "auth.group",
+    "pk": 2,
+    "fields": { "name": "GESTOR_PNGI" }
+  },
+
+  {
+    "model": "accounts.role",
+    "pk": 1,
+    "fields": {
+      "aplicacao": 1,
+      "nomeperfil": "Administrador do Portal",
+      "codigoperfil": "PORTAL_ADMIN",
+      "group": 1
+    }
+  },
+  {
+    "model": "accounts.role",
+    "pk": 2,
+    "fields": {
+      "aplicacao": 2,
+      "nomeperfil": "Gestor PNGI",
+      "codigoperfil": "GESTOR_PNGI",
+      "group": 2
+    }
+  }
+]
