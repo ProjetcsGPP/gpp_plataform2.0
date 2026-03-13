@@ -2,6 +2,7 @@
 GPP Plataform 2.0 — Accounts Views
 FASE 6: APIs iniciais — profiles, roles, user-roles, me
 GAP-01: adicionado UserCreateView
+GAP-02: adicionado AplicacaoViewSet
 """
 import logging
 from datetime import datetime, timezone
@@ -20,8 +21,9 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from common.mixins import AuditableMixin, SecureQuerysetMixin
 from common.permissions import HasRolePermission, IsPortalAdmin
 
-from .models import AccountsSession, Role, UserProfile, UserRole
+from .models import AccountsSession, Aplicacao, Role, UserProfile, UserRole
 from .serializers import (
+    AplicacaoSerializer,
     GPPTokenObtainPairSerializer,
     RoleSerializer,
     UserCreateSerializer,
@@ -135,7 +137,7 @@ class MeView(APIView):
         return Response(data)
 
 
-# ─── User Create View (GAP-01) ────────────────────────────────────────────────────
+# ─── User Create View (GAP-01) ───────────────────────────────────────────────────
 
 class UserCreateView(APIView):
     """
@@ -180,7 +182,28 @@ class UserCreateView(APIView):
         )
 
 
-# ─── CRUD ViewSets ─────────────────────────────────────────────────────────────────
+# ─── Aplicacao ViewSet (GAP-02) ───────────────────────────────────────────────────
+
+class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    GET /api/accounts/aplicacoes/
+    GET /api/accounts/aplicacoes/{idaplicacao}/
+
+    Lista e detalha aplicações elegíveis para associação de usuário.
+    R-01: filtra isshowinportal=False — aplicações de portal nunca são retornadas.
+    R-02: acesso exclusivo a PORTAL_ADMIN.
+    R-03: ReadOnlyModelViewSet — POST/PUT/PATCH/DELETE retornam 405 automaticamente.
+    R-04: get_queryset filtrado garante 404 para apps com isshowinportal=True.
+    R-05: ordenação por nomeaplicacao alfabético.
+    """
+    serializer_class = AplicacaoSerializer
+    permission_classes = [IsAuthenticated, IsPortalAdmin]
+
+    def get_queryset(self):
+        return Aplicacao.objects.filter(isshowinportal=False).order_by("nomeaplicacao")
+
+
+# ─── CRUD ViewSets ──────────────────────────────────────────────────────────────────
 
 class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """

@@ -2,6 +2,7 @@
 GPP Plataform 2.0 — Accounts Serializers
 FASE 6: adicionado MeSerializer
 GAP-01: adicionado UserCreateSerializer
+GAP-02: adicionado AplicacaoSerializer
 """
 import logging
 
@@ -79,6 +80,20 @@ class GPPTokenObtainPairSerializer(TokenObtainPairSerializer):
         ).exists()
         token["is_portal_admin"] = is_admin
         return token
+
+
+# ─── Aplicacao ────────────────────────────────────────────────────────────────────────
+
+class AplicacaoSerializer(serializers.ModelSerializer):
+    """
+    GAP-02 — Serializer somente leitura para o model Aplicacao.
+    Expõe apenas campos necessários para associação de usuário.
+    isshowinportal NÃO é exposto — o filtro é feito no ViewSet.
+    """
+
+    class Meta:
+        model = Aplicacao
+        fields = ["idaplicacao", "codigointerno", "nomeaplicacao", "base_url"]
 
 
 # ─── UserProfile ──────────────────────────────────────────────────────────────────────
