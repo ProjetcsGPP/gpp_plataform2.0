@@ -4,6 +4,7 @@ FASE 6: adicionado MeSerializer
 GAP-01: adicionado UserCreateSerializer
 GAP-02: adicionado AplicacaoSerializer
 GAP-03: RoleSerializer enriquecido com campos de aplicacao e group
+GAP-04: UserRoleSerializer.validate() — unicidade (user, aplicacao) + role pertence à app
 """
 import logging
 
@@ -226,12 +227,46 @@ class RoleSerializer(serializers.ModelSerializer):
 # ─── UserRole ──────────────────────────────────────────────────────────────────────
 
 class UserRoleSerializer(serializers.ModelSerializer):
+    """
+    GAP-04 — Validações de negócio:
+    R-01: unicidade por (user, aplicacao) — 1 role por app por usuário.
+    R-02: a role atribuída deve pertencer à aplicacao informada no payload.
+    """
     role_codigo = serializers.CharField(source="role.codigoperfil", read_only=True)
     aplicacao_codigo = serializers.CharField(source="aplicacao.codigointerno", read_only=True)
 
     class Meta:
         model = UserRole
         fields = ["id", "user", "aplicacao", "aplicacao_codigo", "role", "role_codigo"]
+
+    def validate(self, data):
+        user = data.get("user")
+        aplicacao = data.get("aplicacao")
+        role = data.get("role")
+
+        # R-01: unicidade por (user, aplicacao)
+        already_exists = UserRole.objects.filter(
+            user=user,
+            aplicacao=aplicacao,
+        ).exists()
+        if already_exists:
+            raise serializers.ValidationError(
+                {
+                    "non_field_errors": [
+                        f"O usuário '{user.username}' já possui uma role "
+                        f"na aplicação '{aplicacao.codigointerno}'. "
+                        "Remova a role atual antes de atribuir uma nova."
+                    ]
+                }
+            )
+
+        # R-02: a role deve pertencer à aplicacao informada
+        if role.aplicacao != aplicacao:
+            raise serializers.ValidationError(
+                {"role": "A role selecionada não pertence à aplicação informada."}
+            )
+
+        return data
 
 
 # ─── Me Serializer ────────────────────────────────────────────────────────────────

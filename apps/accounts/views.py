@@ -4,10 +4,14 @@ FASE 6: APIs iniciais — profiles, roles, user-roles, me
 GAP-01: adicionado UserCreateView
 GAP-02: adicionado AplicacaoViewSet
 GAP-03: RoleViewSet com filtro por aplicacao_id via query param
+GAP-04: UserRoleSerializer.validate() garante unicidade e role correta
+GAP-05 Fase 4: UserRoleViewSet.create() sincroniza permissões atomicamente
+GAP-05 Fase 5: UserRoleViewSet.destroy() revoga permissões exclusivas atomicamente
 """
 import logging
 from datetime import datetime, timezone
 
+from django.db import transaction
 from django.utils import timezone as dj_timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -31,6 +35,10 @@ from .serializers import (
     UserProfileSerializer,
     UserRoleSerializer,
     MeSerializer,
+)
+from .services.permission_sync import (
+    sync_user_permissions_from_group,
+    revoke_user_permissions_from_group,
 )
 
 security_logger = logging.getLogger("gpp.security")
@@ -287,8 +295,12 @@ class RoleViewSet(viewsets.ReadOnlyModelViewSet):
 class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     Gerencia UserRoles. Apenas PORTAL_ADMIN.
-    - POST: atribui role a usuário.
-    - DELETE: remove role de usuário.
+    - POST: atribui role a usuário + sincroniza permissões atomicamente (GAP-05 Fase 4).
+    - DELETE: remove role de usuário + revoga permissões exclusivas atomicamente (GAP-05 Fase 5).
+
+    R-02: a deleção do UserRole e a revogação de permissões são atômicas —
+          se a revogação falhar, o UserRole não é deletado (rollback).
+    R-05: apenas PORTAL_ADMIN.
     """
     serializer_class = UserRoleSerializer
     permission_classes = [IsAuthenticated, IsPortalAdmin]
@@ -299,17 +311,80 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
             "user", "aplicacao", "role"
         )
 
+    def perform_create(self, serializer):
+        # UserRole não possui campos created_by/updated_by — sobrescreve
+        # AuditableMixin para não repassar esses kwargs ao model.
+        serializer.save()
+
     def create(self, request, *args, **kwargs):
+        """
+        POST /api/accounts/user-roles/
+
+        GAP-04: validação de unicidade e role correta delegada ao serializer.
+        GAP-05 Fase 4: sincronização de permissões dentro de transaction.atomic().
+        R-03: se sync_user_permissions_from_group lançar exceção,
+              o UserRole NÃO é persistido — rollback total.
+        """
         security_logger.info(
             "USERROLE_ASSIGN admin_id=%s payload=%s",
             request.user.id, request.data,
         )
-        return super().create(request, *args, **kwargs)
+        with transaction.atomic():
+            response = super().create(request, *args, **kwargs)
+
+            # Recupera a instância recém-criada para executar o sync
+            userrole_id = response.data.get("id")
+            userrole = UserRole.objects.select_related(
+                "user", "role__group"
+            ).get(pk=userrole_id)
+
+            added = sync_user_permissions_from_group(
+                user=userrole.user,
+                group=userrole.role.group,
+            )
+            security_logger.info(
+                "USERROLE_PERM_SYNC user_id=%s role=%s permissions_added=%s",
+                userrole.user_id,
+                userrole.role.codigoperfil,
+                added,
+            )
+
+        return response
 
     def destroy(self, request, *args, **kwargs):
+        """
+        DELETE /api/accounts/user-roles/{id}/
+
+        GAP-05 Fase 5: revogação de permissões exclusivas dentro de transaction.atomic().
+
+        Regras:
+          R-01: só revoga permissões não cobertas por outros grupos ativos do usuário.
+          R-02: deleção e revogação são atômicas — falha na revogação faz rollback.
+          R-03: role.group=None → revogação ignorada com WARNING, sem 500.
+          R-05: apenas PORTAL_ADMIN (garantido por permission_classes).
+        """
         instance = self.get_object()
+
         security_logger.info(
-            "USERROLE_REMOVE admin_id=%s userrole_id=%s user_id=%s",
+            "USERROLE_REMOVE admin_id=%s userrole_id=%s user_id=%s role=%s app=%s",
             request.user.id, instance.id, instance.user_id,
+            instance.role.codigoperfil,
+            instance.aplicacao.codigointerno if instance.aplicacao else "N/A",
         )
-        return super().destroy(request, *args, **kwargs)
+
+        with transaction.atomic():
+            # Capturar dados antes da deleção (após delete, instance.role pode não resolver FK)
+            user = instance.user
+            group = instance.role.group
+
+            # Deletar o UserRole primeiro
+            response = super().destroy(request, *args, **kwargs)
+
+            # Revogar permissões exclusivas do grupo removido
+            removed = revoke_user_permissions_from_group(user=user, group_removed=group)
+            security_logger.info(
+                "USERROLE_PERM_REVOKE user_id=%s group=%s permissions_removed=%s",
+                user.pk, group.name if group else "None", removed,
+            )
+
+        return response
