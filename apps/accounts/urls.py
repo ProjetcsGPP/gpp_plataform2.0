@@ -6,6 +6,7 @@ from .views import (
     MeView,
     RoleViewSet,
     UserCreateView,
+    UserCreateWithRoleView,
     UserProfileViewSet,
     UserRoleViewSet,
 )
@@ -22,4 +23,5 @@ urlpatterns = [
     path("", include(router.urls)),
     path("me/", MeView.as_view(), name="me"),
     path("users/", UserCreateView.as_view(), name="user-create"),
+    path("users/create-with-role/", UserCreateWithRoleView.as_view(), name="user-create-with-role"),
 ]

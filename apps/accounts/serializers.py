@@ -5,6 +5,7 @@ GAP-01: adicionado UserCreateSerializer
 GAP-02: adicionado AplicacaoSerializer
 GAP-03: RoleSerializer enriquecido com campos de aplicacao e group
 GAP-04: UserRoleSerializer.validate() — unicidade (user, aplicacao) + role pertence à app
+FASE 6: adicionado UserCreateWithRoleSerializer — fluxo orquestrado atômico
 """
 import logging
 
@@ -12,10 +13,20 @@ from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.utils import timezone as dj_timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import Aplicacao, Attribute, Role, UserProfile, UserRole
+from .models import (
+    Aplicacao,
+    Attribute,
+    ClassificacaoUsuario,
+    Role,
+    StatusUsuario,
+    TipoUsuario,
+    UserProfile,
+    UserRole,
+)
 
 security_logger = logging.getLogger("gpp.security")
 
@@ -267,6 +278,146 @@ class UserRoleSerializer(serializers.ModelSerializer):
             )
 
         return data
+
+
+# ─── UserCreateWithRole ───────────────────────────────────────────────────────────────
+
+class UserCreateWithRoleSerializer(serializers.Serializer):
+    """
+    FASE 6 — Criação atômica de auth.User + UserProfile + UserRole + sync de permissões.
+
+    Orquestra em uma única transação as operações das Fases 1 e 4.
+    Apenas PORTAL_ADMIN pode acionar (garantido na view).
+
+    Validações:
+      - Senha via validate_password() (Django)
+      - username e email únicos
+      - aplicacao_id apenas para apps com isshowinportal=False (R-02)
+      - role deve pertencer à aplicacao informada (R-03)
+      - unicidade (user, aplicacao) — herdada da lógica da Fase 4 (R-04)
+
+    Retorno:
+      dict com user_id, username, email, name, orgao, aplicacao, role,
+      permissions_added e datacriacao.
+    """
+
+    # ── Campos auth.User ──────────────────────────────────────────
+    username   = serializers.CharField(max_length=150)
+    email      = serializers.EmailField()
+    password   = serializers.CharField(write_only=True, style={"input_type": "password"})
+    first_name = serializers.CharField(max_length=150, required=False, default="")
+    last_name  = serializers.CharField(max_length=150, required=False, default="")
+
+    # ── Campos UserProfile ────────────────────────────────────────
+    name     = serializers.CharField(max_length=200)
+    orgao    = serializers.CharField(max_length=100)
+    status_usuario = serializers.PrimaryKeyRelatedField(
+        queryset=StatusUsuario.objects.all(), required=False
+    )
+    tipo_usuario = serializers.PrimaryKeyRelatedField(
+        queryset=TipoUsuario.objects.all(), required=False
+    )
+    classificacao_usuario = serializers.PrimaryKeyRelatedField(
+        queryset=ClassificacaoUsuario.objects.all(), required=False
+    )
+
+    # ── Campos de associação ──────────────────────────────────────
+    # R-02: só aceita apps com isshowinportal=False
+    aplicacao_id = serializers.PrimaryKeyRelatedField(
+        queryset=Aplicacao.objects.filter(isshowinportal=False),
+        source="aplicacao",
+    )
+    role_id = serializers.PrimaryKeyRelatedField(
+        queryset=Role.objects.all(),
+        source="role",
+    )
+
+    def validate_username(self, value):
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Este username já está em uso.")
+        return value
+
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Este e-mail já está em uso.")
+        return value
+
+    def validate_password(self, value):
+        try:
+            validate_password(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages))
+        return value
+
+    def validate(self, data):
+        aplicacao = data.get("aplicacao")
+        role = data.get("role")
+
+        # R-03: role deve pertencer à aplicacao informada
+        if role and aplicacao and role.aplicacao != aplicacao:
+            raise serializers.ValidationError(
+                {"role_id": "A role não pertence à aplicação informada."}
+            )
+
+        return data
+
+    def create(self, validated_data):
+        from .services.permission_sync import sync_user_permissions_from_group
+
+        request   = self.context["request"]
+        aplicacao = validated_data["aplicacao"]
+        role      = validated_data["role"]
+
+        # Defaults para FKs opcionais
+        status_usuario        = validated_data.get("status_usuario") or StatusUsuario.objects.get(pk=1)
+        tipo_usuario          = validated_data.get("tipo_usuario") or TipoUsuario.objects.get(pk=1)
+        classificacao_usuario = validated_data.get("classificacao_usuario") or ClassificacaoUsuario.objects.get(pk=1)
+
+        with transaction.atomic():
+            # 1. Criar auth.User
+            user = User.objects.create_user(
+                username=validated_data["username"],
+                email=validated_data["email"],
+                password=validated_data["password"],
+                first_name=validated_data.get("first_name", ""),
+                last_name=validated_data.get("last_name", ""),
+            )
+
+            # 2. Criar UserProfile
+            profile = UserProfile.objects.create(
+                user=user,
+                name=validated_data["name"],
+                orgao=validated_data["orgao"],
+                status_usuario=status_usuario,
+                tipo_usuario=tipo_usuario,
+                classificacao_usuario=classificacao_usuario,
+                idusuariocriacao=request.user,
+            )
+
+            # 3. Criar UserRole
+            UserRole.objects.create(
+                user=user,
+                aplicacao=aplicacao,
+                role=role,
+            )
+
+            # 4. Sincronizar permissões (R-01: rollback total se falhar)
+            permissions_added = sync_user_permissions_from_group(
+                user=user,
+                group=role.group,
+            )
+
+        return {
+            "user_id":          user.id,
+            "username":         user.username,
+            "email":            user.email,
+            "name":             profile.name,
+            "orgao":            profile.orgao,
+            "aplicacao":        aplicacao.codigointerno,
+            "role":             role.codigoperfil,
+            "permissions_added": permissions_added,
+            "datacriacao":      profile.datacriacao,
+        }
 
 
 # ─── Me Serializer ────────────────────────────────────────────────────────────────

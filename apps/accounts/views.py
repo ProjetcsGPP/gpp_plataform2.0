@@ -7,6 +7,7 @@ GAP-03: RoleViewSet com filtro por aplicacao_id via query param
 GAP-04: UserRoleSerializer.validate() garante unicidade e role correta
 GAP-05 Fase 4: UserRoleViewSet.create() sincroniza permissões atomicamente
 GAP-05 Fase 5: UserRoleViewSet.destroy() revoga permissões exclusivas atomicamente
+FASE 6: UserCreateWithRoleView — fluxo orquestrado atômico User+Profile+Role+Sync
 """
 import logging
 from datetime import datetime, timezone
@@ -32,6 +33,7 @@ from .serializers import (
     GPPTokenObtainPairSerializer,
     RoleSerializer,
     UserCreateSerializer,
+    UserCreateWithRoleSerializer,
     UserProfileSerializer,
     UserRoleSerializer,
     MeSerializer,
@@ -191,6 +193,53 @@ class UserCreateView(APIView):
         )
 
 
+# ─── User Create With Role View (FASE 6) ─────────────────────────────────────────
+
+class UserCreateWithRoleView(APIView):
+    """
+    POST /api/accounts/users/create-with-role/
+
+    Endpoint orquestrador da Fase 6.
+    Executa atomicamente: criação de auth.User + UserProfile + UserRole +
+    sincronização de permissões em uma única requisição.
+
+    R-01: transaction.atomic() dentro do serializer — rollback total em qualquer falha.
+    R-02: isshowinportal=False validado pelo queryset do campo aplicacao_id.
+    R-03: role.aplicacao == aplicacao validado no validate() do serializer.
+    R-04: validações de senha, unicidade, e role única por app reaplicadas.
+    R-06: apenas PORTAL_ADMIN.
+    R-07: permissions_added reflete exatamente quantas perms foram adicionadas.
+    """
+    permission_classes = [IsAuthenticated, IsPortalAdmin]
+
+    def post(self, request):
+        serializer = UserCreateWithRoleSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = serializer.save()
+        except Exception as exc:
+            security_logger.error(
+                "USER_CREATE_WITH_ROLE_ERROR admin_id=%s error=%s",
+                request.user.id, str(exc),
+            )
+            raise APIException(
+                detail="Erro interno ao criar usuário com role. Tente novamente."
+            ) from exc
+
+        security_logger.info(
+            "USER_CREATED_WITH_ROLE admin_id=%s new_user_id=%s role=%s app=%s perms_added=%s",
+            request.user.id,
+            result["user_id"],
+            result["role"],
+            result["aplicacao"],
+            result["permissions_added"],
+        )
+        return Response(result, status=status.HTTP_201_CREATED)
+
+
 # ─── Aplicacao ViewSet (GAP-02) ───────────────────────────────────────────────────
 
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
@@ -286,7 +335,6 @@ class RoleViewSet(viewsets.ReadOnlyModelViewSet):
             try:
                 aplicacao_id = int(aplicacao_id)
             except (ValueError, TypeError):
-                # R-02: valor não inteiro → lista vazia, sem 500
                 return Role.objects.none()
             qs = qs.filter(aplicacao_id=aplicacao_id)
         return qs.order_by("nomeperfil")
@@ -300,7 +348,7 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
 
     R-02: a deleção do UserRole e a revogação de permissões são atômicas —
           se a revogação falhar, o UserRole não é deletado (rollback).
-    R-05: apenas PORTAL_ADMIN.
+    R-05: apenas PORTAL_ADMIN (garantido por permission_classes).
     """
     serializer_class = UserRoleSerializer
     permission_classes = [IsAuthenticated, IsPortalAdmin]
@@ -312,8 +360,6 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
         )
 
     def perform_create(self, serializer):
-        # UserRole não possui campos created_by/updated_by — sobrescreve
-        # AuditableMixin para não repassar esses kwargs ao model.
         serializer.save()
 
     def create(self, request, *args, **kwargs):
@@ -332,7 +378,6 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             response = super().create(request, *args, **kwargs)
 
-            # Recupera a instância recém-criada para executar o sync
             userrole_id = response.data.get("id")
             userrole = UserRole.objects.select_related(
                 "user", "role__group"
@@ -373,14 +418,11 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
         )
 
         with transaction.atomic():
-            # Capturar dados antes da deleção (após delete, instance.role pode não resolver FK)
             user = instance.user
             group = instance.role.group
 
-            # Deletar o UserRole primeiro
             response = super().destroy(request, *args, **kwargs)
 
-            # Revogar permissões exclusivas do grupo removido
             removed = revoke_user_permissions_from_group(user=user, group_removed=group)
             security_logger.info(
                 "USERROLE_PERM_REVOKE user_id=%s group=%s permissions_removed=%s",
