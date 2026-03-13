@@ -14,7 +14,7 @@ Padrão de resposta de erro (400):
     Os asserts de T-02/03/04/05 acessam response.data["errors"].
 
 T-08 (rollback):
-    A view captura Exception genérica e relança como APIException(500),
+    A view captura Exception genérica e relênça como APIException(500),
     que o gpp_exception_handler processa sem re-levantar no TestClient.
     O teste usa raise_request_exception=False como garantia extra.
 """
@@ -37,7 +37,7 @@ from apps.accounts.models import (
 from apps.core.tests.utils import patch_security
 
 
-# ── Fixtures helpers ──────────────────────────────────────────────────────────────────────
+# ── Fixtures helpers ───────────────────────────────────────────────────────────
 
 def _bootstrap_lookups():
     """Garante que os registros de lookup PK=1 existam."""
@@ -105,7 +105,7 @@ def _make_plain_user(username="plain_gap01"):
     return user
 
 
-# ── Payload padrão válido ───────────────────────────────────────────────────────────────────
+# ── Payload padrão válido ──────────────────────────────────────────────────────
 
 VALID_PAYLOAD = {
     "username": "joao.silva",
@@ -118,7 +118,7 @@ VALID_PAYLOAD = {
 }
 
 
-# ── Test Case ────────────────────────────────────────────────────────────────────────
+# ── Test Case ─────────────────────────────────────────────────────────────────
 
 class UserCreateEndpointTest(APITestCase):
     """
@@ -134,7 +134,7 @@ class UserCreateEndpointTest(APITestCase):
     def setUp(self):
         self.client = APIClient(raise_request_exception=False)
 
-    # ── T-01 — POST válido ───────────────────────────────────────────────────────
+    # ── T-01 — POST válido ─────────────────────────────────────────────────────
 
     def test_T01_valid_post_creates_user_and_profile(self):
         """T-01: POST válido → 201, User e Profile criados, idusuariocriacao preenchido."""
@@ -164,7 +164,7 @@ class UserCreateEndpointTest(APITestCase):
         self.assertIn("datacriacao", response.data)
         self.assertNotIn("password", response.data)  # write_only
 
-    # ── T-02 — username duplicado ─────────────────────────────────────────────
+    # ── T-02 — username duplicado ──────────────────────────────────────────────
 
     def test_T02_duplicate_username_returns_400(self):
         """T-02: username já existente → 400 com mensagem clara."""
@@ -182,7 +182,7 @@ class UserCreateEndpointTest(APITestCase):
         self.assertIn("username", errors)
         self.assertIn("já está em uso", str(errors["username"]))
 
-    # ── T-03 — email duplicado ────────────────────────────────────────────────
+    # ── T-03 — email duplicado ─────────────────────────────────────────────────
 
     def test_T03_duplicate_email_returns_400(self):
         """T-03: email já existente → 400 com mensagem clara."""
@@ -201,7 +201,7 @@ class UserCreateEndpointTest(APITestCase):
         self.assertIn("email", errors)
         self.assertIn("já está em uso", str(errors["email"]))
 
-    # ── T-04 — senha fraca ──────────────────────────────────────────────────
+    # ── T-04 — senha fraca ─────────────────────────────────────────────────────
 
     def test_T04_weak_password_returns_400(self):
         """T-04: senha '123' → 400 com erro de validação de senha."""
@@ -221,7 +221,7 @@ class UserCreateEndpointTest(APITestCase):
         errors = response.data["errors"]
         self.assertIn("password", errors)
 
-    # ── T-05 — orgao ausente ──────────────────────────────────────────────────
+    # ── T-05 — orgao ausente ───────────────────────────────────────────────────
 
     def test_T05_missing_orgao_returns_400(self):
         """T-05: sem orgao → 400 campo obrigatório."""
@@ -238,7 +238,7 @@ class UserCreateEndpointTest(APITestCase):
         errors = response.data["errors"]
         self.assertIn("orgao", errors)
 
-    # ── T-06 — sem autenticação ───────────────────────────────────────────────
+    # ── T-06 — sem autenticação ────────────────────────────────────────────────
 
     def test_T06_unauthenticated_returns_401(self):
         """
@@ -248,7 +248,7 @@ class UserCreateEndpointTest(APITestCase):
         response = self.client.post(self.url, VALID_PAYLOAD, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    # ── T-07 — autenticado sem PORTAL_ADMIN ──────────────────────────────────
+    # ── T-07 — autenticado sem PORTAL_ADMIN ───────────────────────────────────
 
     def test_T07_non_admin_returns_403(self):
         """
@@ -263,12 +263,12 @@ class UserCreateEndpointTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    # ── T-08 — rollback atômico ─────────────────────────────────────────────
+    # ── T-08 — rollback atômico ────────────────────────────────────────────────
 
     def test_T08_rollback_on_profile_save_failure(self):
         """
         T-08: falha simulada no UserProfile.objects.create → rollback total.
-        A view captura Exception genérica e relança como APIException(500),
+        A view captura Exception genérica e relênça como APIException(500),
         que o gpp_exception_handler processa sem re-levantar no TestClient.
         O User criado dentro do transaction.atomic() não deve persistir (R-01).
         """
@@ -290,7 +290,7 @@ class UserCreateEndpointTest(APITestCase):
         self.assertEqual(User.objects.count(), users_before)
         self.assertFalse(User.objects.filter(username="atomic_t08").exists())
 
-    # ── T-09 — GET não permitido ─────────────────────────────────────────────
+    # ── T-09 — GET não permitido ───────────────────────────────────────────────
 
     def test_T09_get_returns_405(self):
         """
