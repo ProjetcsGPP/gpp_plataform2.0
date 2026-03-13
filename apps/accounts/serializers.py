@@ -3,6 +3,7 @@ GPP Plataform 2.0 — Accounts Serializers
 FASE 6: adicionado MeSerializer
 GAP-01: adicionado UserCreateSerializer
 GAP-02: adicionado AplicacaoSerializer
+GAP-03: RoleSerializer enriquecido com campos de aplicacao e group
 """
 import logging
 
@@ -190,15 +191,36 @@ class UserCreateSerializer(serializers.Serializer):
         }
 
 
-# ─── Role ──────────────────────────────────────────────────────────────────────────
+# ─── Role ─────────────────────────────────────────────────────────────────────────────
 
 class RoleSerializer(serializers.ModelSerializer):
+    """
+    GAP-03 — Serializer enriquecido de Role.
+
+    Expõe campos de Aplicacao e auth.Group desaninhados para que o frontend
+    possa popular seletores sem requisições extras.
+
+    R-06: campos group_id e group_name são allow_null=True para suportar
+    roles legadas criadas antes do signal de auto-criação de group.
+    """
+    aplicacao_id     = serializers.IntegerField(source="aplicacao.idaplicacao", read_only=True)
     aplicacao_codigo = serializers.CharField(source="aplicacao.codigointerno", read_only=True)
-    group_name = serializers.CharField(source="group.name", read_only=True)
+    aplicacao_nome   = serializers.CharField(source="aplicacao.nomeaplicacao", read_only=True)
+    group_id         = serializers.IntegerField(source="group.id", read_only=True, allow_null=True)
+    group_name       = serializers.CharField(source="group.name", read_only=True, allow_null=True)
 
     class Meta:
         model = Role
-        fields = ["id", "aplicacao", "aplicacao_codigo", "nomeperfil", "codigoperfil", "group", "group_name"]
+        fields = [
+            "id",
+            "nomeperfil",
+            "codigoperfil",
+            "aplicacao_id",
+            "aplicacao_codigo",
+            "aplicacao_nome",
+            "group_id",
+            "group_name",
+        ]
 
 
 # ─── UserRole ──────────────────────────────────────────────────────────────────────

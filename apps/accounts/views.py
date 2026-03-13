@@ -3,6 +3,7 @@ GPP Plataform 2.0 — Accounts Views
 FASE 6: APIs iniciais — profiles, roles, user-roles, me
 GAP-01: adicionado UserCreateView
 GAP-02: adicionado AplicacaoViewSet
+GAP-03: RoleViewSet com filtro por aplicacao_id via query param
 """
 import logging
 from datetime import datetime, timezone
@@ -252,10 +253,35 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
 
 
 class RoleViewSet(viewsets.ReadOnlyModelViewSet):
-    """Lista roles. Apenas PORTAL_ADMIN."""
-    queryset = Role.objects.all().select_related("aplicacao", "group")
+    """
+    GET /api/accounts/roles/
+    GET /api/accounts/roles/{id}/
+
+    Lista e detalha roles disponíveis. Acesso exclusivo a PORTAL_ADMIN.
+
+    GAP-03 — Filtragem por aplicacao_id:
+    R-01: sem query param retorna todas as roles (compatibilidade preservada).
+    R-02: aplicacao_id inválido (não inteiro) retorna [] — nunca 500.
+    R-03: aplicacao_id de app inexistente retorna [] — nunca 404.
+    R-04: aplicacao_id de app sem roles retorna [].
+    R-05: apenas PORTAL_ADMIN.
+    R-06: group_id/group_name são allow_null no serializer — roles sem group não quebram.
+    R-07: ordenação por nomeperfil.
+    """
     serializer_class = RoleSerializer
     permission_classes = [IsAuthenticated, IsPortalAdmin]
+
+    def get_queryset(self):
+        qs = Role.objects.all().select_related("aplicacao", "group")
+        aplicacao_id = self.request.query_params.get("aplicacao_id")
+        if aplicacao_id is not None:
+            try:
+                aplicacao_id = int(aplicacao_id)
+            except (ValueError, TypeError):
+                # R-02: valor não inteiro → lista vazia, sem 500
+                return Role.objects.none()
+            qs = qs.filter(aplicacao_id=aplicacao_id)
+        return qs.order_by("nomeperfil")
 
 
 class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
