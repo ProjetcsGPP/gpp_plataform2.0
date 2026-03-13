@@ -33,9 +33,31 @@ from rest_framework.test import APIClient
 from apps.accounts.models import Aplicacao, Role, UserProfile, UserRole
 
 ROLES_LIST_URL = "/api/accounts/roles/"
+TOKEN_URL = "/api/auth/token/"
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────────
+
+def get_jwt_token(username, password="Senha@123"):
+    """
+    Cria um APIClient autenticado com JWT real obtido via /api/auth/token/.
+    Necessário porque o middleware gpp.security valida o token JWT no nível
+    Django (antes do DRF), tornando force_authenticate insuficiente.
+    """
+    client = APIClient()
+    resp = client.post(
+        TOKEN_URL,
+        data={"username": username, "password": password},
+        format="json",
+    )
+    assert resp.status_code == 200, (
+        f"Falha ao obter token JWT para '{username}': "
+        f"{resp.status_code} — {getattr(resp, 'data', resp.content)}"
+    )
+    token = resp.data["access"]
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    return client
+
 
 def make_user(username, is_admin=False):
     """
@@ -97,7 +119,7 @@ def make_role(aplicacao, nome, codigo, group=None):
 
 class TestRoleViewSetFilter(TestCase):
     """
-    Testa filtragem, isolamento, autoriação e métodos HTTP do RoleViewSet.
+    Testa filtragem, isolamento, autorização e métodos HTTP do RoleViewSet.
     """
     fixtures = ["initial_data"]
 
@@ -115,25 +137,23 @@ class TestRoleViewSetFilter(TestCase):
         cls.role_b1 = make_role(cls.app_b, "Leitor",       "TST_READ_B")
         cls.role_b2 = make_role(cls.app_b, "Gravador",     "TST_WRITE_B")
 
-        # Usuários
+        # Usuários (criados uma vez, reutilizados por todos os testes da classe)
         cls.admin_user  = make_user("tst_admin_gap03",  is_admin=True)
         cls.common_user = make_user("tst_common_gap03", is_admin=False)
 
     def setUp(self):
         """
-        APIClient é recriado a cada teste.
-        A autenticação também precisa ser re-aplicada aqui.
-        self.admin_client  → autenticado como PORTAL_ADMIN
-        self.common_client → autenticado sem PORTAL_ADMIN
-        self.anon_client   → sem autenticação
+        APIClient recriado e autenticado via JWT real a cada teste.
+        O middleware gpp.security exige header Authorization: Bearer <token>
+        — force_authenticate não é suficiente pois o middleware atua antes do DRF.
+
+        self.admin_client  → JWT de PORTAL_ADMIN
+        self.common_client → JWT de usuário sem PORTAL_ADMIN
+        self.anon_client   → sem credenciais
         """
-        self.admin_client = APIClient()
-        self.admin_client.force_authenticate(user=self.admin_user)
-
-        self.common_client = APIClient()
-        self.common_client.force_authenticate(user=self.common_user)
-
-        self.anon_client = APIClient()
+        self.admin_client  = get_jwt_token("tst_admin_gap03")
+        self.common_client = get_jwt_token("tst_common_gap03")
+        self.anon_client   = APIClient()
 
     # ── T-09: sem autenticação → 401 ──────────────────────────────
     def test_t09_unauthenticated_returns_401(self):
@@ -231,10 +251,9 @@ class TestRoleSerializerFields(TestCase):
 
     def setUp(self):
         """
-        Recria e autentica o APIClient a cada teste.
+        Recria e autentica o APIClient via JWT real a cada teste.
         """
-        self.client = APIClient()
-        self.client.force_authenticate(user=self.admin_user)
+        self.client = get_jwt_token("tst_admin_ser_gap03")
 
     # ── T-08: todos os campos presentes na resposta ───────────────────
     def test_t08_all_fields_present(self):
@@ -263,8 +282,8 @@ class TestRoleSerializerFields(TestCase):
         with_group = [r for r in response.data if r["codigoperfil"] == "TST_COM_GRP"]
         self.assertEqual(len(with_group), 1)
         item = with_group[0]
-        self.assertEqual(item["group_id"], self.group.id)
-        self.assertEqual(item["group_name"], self.group.name)
-        self.assertEqual(item["aplicacao_id"], self.app.idaplicacao)
-        self.assertEqual(item["aplicacao_codigo"], self.app.codigointerno)
-        self.assertEqual(item["aplicacao_nome"], self.app.nomeaplicacao)
+        self.assertEqual(item["group_id"], cls.group.id)
+        self.assertEqual(item["group_name"], cls.group.name)
+        self.assertEqual(item["aplicacao_id"], cls.app.idaplicacao)
+        self.assertEqual(item["aplicacao_codigo"], cls.app.codigointerno)
+        self.assertEqual(item["aplicacao_nome"], cls.app.nomeaplicacao)
