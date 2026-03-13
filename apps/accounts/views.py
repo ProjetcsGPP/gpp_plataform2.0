@@ -1,6 +1,7 @@
 """
 GPP Plataform 2.0 — Accounts Views
 FASE 6: APIs iniciais — profiles, roles, user-roles, me
+GAP-01: adicionado UserCreateView
 """
 import logging
 from datetime import datetime, timezone
@@ -23,6 +24,7 @@ from .models import AccountsSession, Role, UserProfile, UserRole
 from .serializers import (
     GPPTokenObtainPairSerializer,
     RoleSerializer,
+    UserCreateSerializer,
     UserProfileSerializer,
     UserRoleSerializer,
     MeSerializer,
@@ -131,6 +133,37 @@ class MeView(APIView):
         }).data
 
         return Response(data)
+
+
+# ─── User Create View (GAP-01) ────────────────────────────────────────────────────
+
+class UserCreateView(APIView):
+    """
+    POST /api/accounts/users/
+    Cria atomicamente um auth.User e seu UserProfile.
+    Acesso exclusivo: PORTAL_ADMIN.
+    R-01: transação atômica — rollback total em caso de falha.
+    R-02: idusuariocriacao preenchido com o admin autenticado.
+    R-03: apenas PORTAL_ADMIN.
+    R-07: não cria UserRole — responsabilidade da Fase 4/6.
+    """
+    permission_classes = [IsAuthenticated, IsPortalAdmin]
+
+    def post(self, request):
+        serializer = UserCreateSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        profile = serializer.save()
+        security_logger.info(
+            "USER_CREATED admin_id=%s new_user_id=%s username=%s",
+            request.user.id, profile.user_id, profile.user.username,
+        )
+        return Response(
+            UserCreateSerializer(profile, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # ─── CRUD ViewSets ──────────────────────────────────────────────────────────────────
