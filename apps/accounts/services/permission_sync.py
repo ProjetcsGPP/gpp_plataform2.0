@@ -49,44 +49,56 @@ def sync_user_permissions_from_group(user: User, group: Group) -> int:
     return len(to_add)
 
 
-def revoke_user_permissions_from_group(user: User, group: Group) -> int:
+def revoke_user_permissions_from_group(user: User, group_removed: Group) -> int:
     """
-    Remove do usuário apenas as permissões que eram exclusivas do grupo removido,
-    ou seja, permissões que o usuário não possui via nenhum outro grupo ativo.
+    Remove de auth_user_user_permissions as permissões do grupo removido,
+    exceto aquelas ainda cobertas por outros grupos ativos do usuário.
 
-    ATENÇÃO: Esta função é preparada para a Fase 5 e NÃO é chamada nesta fase.
+    Lógica:
+      1. Buscar todas as roles ativas remanescentes do usuário (excluindo o grupo removido)
+      2. Calcular o conjunto de permissões protegidas (cobertas pelos grupos remanescentes)
+      3. Remover do usuário apenas as permissões do grupo removido que NÃO estão protegidas
+
+    Regras:
+      R-01: nunca revoga permissões cobertas por outros grupos ativos do usuário.
+      R-03: se group_removed=None, registra WARNING e retorna 0 sem exceção.
 
     Returns:
-        int: quantidade de permissões revogadas.
+        int: quantidade de permissões removidas.
     """
-    if group is None:
+    if group_removed is None:
         security_logger.warning(
             "PERM_REVOKE_SKIP user_id=%s reason=group_is_none",
             user.pk,
         )
         return 0
 
-    # Permissões que o usuário tem via outros grupos ativos (excluindo o grupo removido)
-    other_group_perms = set(
+    # Grupos remanescentes do usuário (excluindo o grupo que está sendo removido)
+    remaining_groups = Group.objects.filter(
+        roles__userrole__user=user
+    ).exclude(pk=group_removed.pk).distinct()
+
+    # Permissões protegidas pelos grupos remanescentes
+    protected_perm_ids = set(
         Permission.objects.filter(
-            group__userrole__user=user
-        ).exclude(
-            group=group
+            group__in=remaining_groups
         ).values_list("pk", flat=True)
     )
 
-    group_perms = set(group.permissions.values_list("pk", flat=True))
-    # Apenas revoga permissões que eram exclusivas deste grupo
-    to_revoke = group_perms - other_group_perms
+    # Permissões candidatas à remoção (do grupo removido)
+    candidate_perm_ids = set(
+        group_removed.permissions.values_list("pk", flat=True)
+    )
 
-    if to_revoke:
-        perms = Permission.objects.filter(pk__in=to_revoke)
-        user.user_permissions.remove(*perms)
+    # Remover somente as não protegidas
+    to_remove_ids = candidate_perm_ids - protected_perm_ids
+
+    if to_remove_ids:
+        perms_to_remove = Permission.objects.filter(pk__in=to_remove_ids)
+        user.user_permissions.remove(*perms_to_remove)
         security_logger.info(
-            "PERM_REVOKE user_id=%s group=%s revoked=%s",
-            user.pk,
-            group.name,
-            len(to_revoke),
+            "PERM_REVOKE user_id=%s group=%s removed=%s",
+            user.pk, group_removed.name, len(to_remove_ids),
         )
 
-    return len(to_revoke)
+    return len(to_remove_ids)
