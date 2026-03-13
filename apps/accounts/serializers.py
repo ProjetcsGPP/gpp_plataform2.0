@@ -1,10 +1,15 @@
 """
 GPP Plataform 2.0 — Accounts Serializers
 FASE 6: adicionado MeSerializer
+GAP-01: adicionado UserCreateSerializer
+GAP-02: adicionado AplicacaoSerializer
 """
 import logging
 
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
@@ -77,6 +82,20 @@ class GPPTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
 
+# ─── Aplicacao ────────────────────────────────────────────────────────────────────────
+
+class AplicacaoSerializer(serializers.ModelSerializer):
+    """
+    GAP-02 — Serializer somente leitura para o model Aplicacao.
+    Expõe apenas campos necessários para associação de usuário.
+    isshowinportal NÃO é exposto — o filtro é feito no ViewSet.
+    """
+
+    class Meta:
+        model = Aplicacao
+        fields = ["idaplicacao", "codigointerno", "nomeaplicacao", "base_url"]
+
+
 # ─── UserProfile ──────────────────────────────────────────────────────────────────────
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -91,6 +110,84 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "orgao", "datacriacao", "data_alteracao",
         ]
         read_only_fields = ["user_id", "datacriacao", "data_alteracao"]
+
+
+# ─── UserCreate ───────────────────────────────────────────────────────────────────────
+
+class UserCreateSerializer(serializers.Serializer):
+    """
+    GAP-01 — Criação atômica de auth.User + UserProfile.
+    Apenas PORTAL_ADMIN pode acionar este serializer (garantido na view).
+    """
+    # ── Campos auth.User ──────────────────────────────────────────
+    username = serializers.CharField(max_length=150)
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, style={"input_type": "password"})
+    first_name = serializers.CharField(max_length=150, required=False, default="")
+    last_name = serializers.CharField(max_length=150, required=False, default="")
+
+    # ── Campos UserProfile ────────────────────────────────────────
+    name = serializers.CharField(max_length=200)
+    orgao = serializers.CharField(max_length=100)
+    status_usuario = serializers.IntegerField(required=False, default=1)
+    tipo_usuario = serializers.IntegerField(required=False, default=1)
+    classificacao_usuario = serializers.IntegerField(required=False, default=1)
+
+    # ── Saída (read) ──────────────────────────────────────────────
+    user_id = serializers.IntegerField(read_only=True, source="user.id")
+    datacriacao = serializers.DateTimeField(read_only=True)
+
+    def validate_username(self, value):
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Este username já está em uso.")
+        return value
+
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Este e-mail já está em uso.")
+        return value
+
+    def validate_password(self, value):
+        try:
+            validate_password(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages))
+        return value
+
+    def create(self, validated_data):
+        request = self.context["request"]
+        with transaction.atomic():
+            user = User.objects.create_user(
+                username=validated_data["username"],
+                email=validated_data["email"],
+                password=validated_data["password"],
+                first_name=validated_data.get("first_name", ""),
+                last_name=validated_data.get("last_name", ""),
+            )
+            profile = UserProfile.objects.create(
+                user=user,
+                name=validated_data["name"],
+                orgao=validated_data["orgao"],
+                status_usuario_id=validated_data.get("status_usuario", 1),
+                tipo_usuario_id=validated_data.get("tipo_usuario", 1),
+                classificacao_usuario_id=validated_data.get("classificacao_usuario", 1),
+                idusuariocriacao=request.user,
+            )
+        return profile
+
+    def to_representation(self, instance):
+        """Formata a saída a partir de um UserProfile já criado."""
+        return {
+            "user_id": instance.user_id,
+            "username": instance.user.username,
+            "email": instance.user.email,
+            "name": instance.name,
+            "orgao": instance.orgao,
+            "status_usuario": instance.status_usuario_id,
+            "tipo_usuario": instance.tipo_usuario_id,
+            "classificacao_usuario": instance.classificacao_usuario_id,
+            "datacriacao": instance.datacriacao,
+        }
 
 
 # ─── Role ──────────────────────────────────────────────────────────────────────────
