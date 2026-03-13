@@ -274,13 +274,11 @@ class TestUserRoleRevoke(TestCase):
     # ── T-05: falha simulada na revogação → 500 + rollback (UserRole não deletado) ──
     def test_t05_revocation_failure_triggers_rollback(self):
         """
-        APIClient captura exceções internamente e retorna HTTP 500 — nunca relança.
-        Por isso NÃO usamos assertRaises: verificamos o status_code=500 e que
-        o UserRole persiste no banco (rollback do transaction.atomic()).
-
-        O mock deve apontar para o nome importado na VIEW
-        ('apps.accounts.views.revoke_user_permissions_from_group'),
-        não para o módulo de origem, pois é o binding que a view usa em runtime.
+        Falha na revogação deve causar rollback do transaction.atomic():
+        - A exceção simula erro interno na revogação
+        - O UserRole NÃO é deletado
+        Importante: o mock deve apontar para o nome importado na view
+        ('apps.accounts.views.revoke_user_permissions_from_group').
         """
         target_user = make_user("tst_target_t05")
         ur = self._create_userrole(target_user, self.role_a, self.app_a)
@@ -290,18 +288,15 @@ class TestUserRoleRevoke(TestCase):
             "apps.accounts.views.revoke_user_permissions_from_group",
             side_effect=Exception("Erro simulado na revogação"),
         ):
-            response = self.admin_client.delete(f"{USER_ROLES_URL}{ur_pk}/")
+            with self.assertRaises(Exception):
+                self.admin_client.delete(f"{USER_ROLES_URL}{ur_pk}/")
 
-        # APIClient retorna 500 — nunca propaga a exceção ao test runner
-        self.assertEqual(
-            response.status_code, 500,
-            f"Esperado 500, obtido {response.status_code}",
-        )
-        # UserRole NÃO deve ter sido deletado — rollback total garantido pelo atomic()
+        # UserRole NÃO deve ter sido deletado — rollback total
         self.assertTrue(
             UserRole.objects.filter(pk=ur_pk).exists(),
             "UserRole deveria existir após rollback causado pela falha na revogação",
         )
+
 
     # ── T-09: auth_user_user_permissions após remoção ────────────────
     def test_t09_user_permissions_reflect_remaining_roles(self):
