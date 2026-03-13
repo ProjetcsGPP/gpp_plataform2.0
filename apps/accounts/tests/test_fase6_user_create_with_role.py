@@ -194,7 +194,8 @@ class TestUserCreateWithRoleView(TestCase):
         payload["username"] = "joao.dup"
         resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("username", resp.data)
+        
+        self.assertIn("username", resp.data.get("errors", {}))
 
     # ── T-05: senha fraca → 400 ───────────────────────────────────────
     def test_t05_weak_password_returns_400(self):
@@ -202,7 +203,8 @@ class TestUserCreateWithRoleView(TestCase):
         payload["password"] = "123"
         resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("password", resp.data)
+        
+        self.assertIn("password", resp.data.get("errors", {}))
 
     # ── T-06: falha no sync → rollback total ──────────────────────────
     def test_t06_sync_failure_triggers_rollback(self):
