@@ -6,7 +6,7 @@ Cenários cobertos (T-01..T-10):
   T-02  DELETE UserRole com permissão compartilhada       → 204, permissão compartilhada mantida
   T-03  Usuário com 2 roles em apps diferentes; remove 1  → permissões não sobrepostas removidas
   T-04  DELETE com role.group=None                        → 204, sem erro, WARNING logado
-  T-05  Falha simulada na revogação (mock)                → UserRole NÃO deletado (rollback)
+  T-05  Falha simulada na revogação (mock)                → 500, UserRole NÃO deletado (rollback)
   T-06  DELETE sem autenticação                           → 401
   T-07  DELETE autenticado sem PORTAL_ADMIN               → 403
   T-08  DELETE de UserRole inexistente                    → 404
@@ -26,8 +26,10 @@ Notas de implementação:
   - setUpClass obtém token JWT uma única vez para evitar throttling (429).
   - make_role_without_group() desconecta o signal auto_create_group_for_role
     para garantir group=None persistido (cenário T-04).
-  - transaction.atomic() envolve destroy() — mock de side_effect em remove()
-    força rollback total (cenário T-05).
+  - T-05: APIClient nunca relança exceções — captura internamente e retorna HTTP 500.
+    O mock deve apontar para o nome importado na VIEW (apps.accounts.views),
+    não para o módulo de origem (apps.accounts.services.permission_sync).
+    A verificação é feita pelo status_code=500 + persistência do UserRole no banco.
 """
 from unittest.mock import patch
 
@@ -180,7 +182,6 @@ class TestUserRoleRevoke(TestCase):
 
     def _user_perm_ids(self, user):
         """Retorna set de pk de permissões diretas do usuário (cache limpo)."""
-        # Recarregar do banco para limpar cache do ORM
         user.refresh_from_db()
         return set(user.user_permissions.values_list("pk", flat=True))
 
@@ -207,7 +208,6 @@ class TestUserRoleRevoke(TestCase):
         target_user = make_user("tst_target_t01")
         ur = self._create_userrole(target_user, self.role_a, self.app_a)
 
-        # Confirmar que permissões foram sincronizadas
         perm_ids_before = self._user_perm_ids(target_user)
         self.assertIn(self.perm_exclusive_a.pk, perm_ids_before)
         self.assertIn(self.perm_shared.pk, perm_ids_before)
@@ -216,10 +216,8 @@ class TestUserRoleRevoke(TestCase):
         self.assertEqual(response.status_code, 204)
 
         perm_ids_after = self._user_perm_ids(target_user)
-        # Permissão exclusiva deve ter sido removida
+        # Sem outro grupo ativo, ambas as permissões do grupo A devem ser removidas
         self.assertNotIn(self.perm_exclusive_a.pk, perm_ids_after)
-        # Permissão compartilhada — sem outro grupo ativo, também deve ter sido removida
-        # (neste cenário o usuário não tem role_b)
         self.assertNotIn(self.perm_shared.pk, perm_ids_after)
 
     # ── T-02: DELETE com permissão compartilhada → 204, compartilhada mantida ──
@@ -228,7 +226,6 @@ class TestUserRoleRevoke(TestCase):
         ur_a = self._create_userrole(target_user, self.role_a, self.app_a)
         ur_b = self._create_userrole(target_user, self.role_b, self.app_b)
 
-        # Ambas as permissões compartilhadas devem estar presentes
         perm_ids_before = self._user_perm_ids(target_user)
         self.assertIn(self.perm_shared.pk, perm_ids_before)
 
@@ -237,11 +234,8 @@ class TestUserRoleRevoke(TestCase):
         self.assertEqual(response.status_code, 204)
 
         perm_ids_after = self._user_perm_ids(target_user)
-        # Permissão exclusiva do grupo A deve ter sido removida
         self.assertNotIn(self.perm_exclusive_a.pk, perm_ids_after)
-        # Permissão compartilhada deve ser MANTIDA (ainda coberta por group_b)
         self.assertIn(self.perm_shared.pk, perm_ids_after)
-        # Permissão exclusiva do grupo B deve permanecer
         self.assertIn(self.perm_exclusive_b.pk, perm_ids_after)
 
     # ── T-03: 2 roles em apps diferentes; remove 1 ────────────────────
@@ -254,13 +248,9 @@ class TestUserRoleRevoke(TestCase):
         self.assertEqual(response.status_code, 204)
 
         perm_ids_after = self._user_perm_ids(target_user)
-        # Permissão exclusiva de B deve ter sido removida
         self.assertNotIn(self.perm_exclusive_b.pk, perm_ids_after)
-        # Permissão exclusiva de A deve permanecer
         self.assertIn(self.perm_exclusive_a.pk, perm_ids_after)
-        # Permissão compartilhada deve permanecer (ainda coberta por group_a)
         self.assertIn(self.perm_shared.pk, perm_ids_after)
-        # UserRole de B não deve mais existir
         self.assertFalse(UserRole.objects.filter(pk=ur_b.pk).exists())
 
     # ── T-04: DELETE com role.group=None → 204, sem erro, WARNING logado ──
@@ -275,50 +265,59 @@ class TestUserRoleRevoke(TestCase):
             response = self.admin_client.delete(f"{USER_ROLES_URL}{ur.pk}/")
 
         self.assertEqual(response.status_code, 204)
-        # UserRole deve ter sido deletado
         self.assertFalse(UserRole.objects.filter(pk=ur.pk).exists())
-        # Log WARNING deve ter sido gerado
         self.assertTrue(
             any("PERM_REVOKE_SKIP" in msg for msg in log_ctx.output),
             "Esperado log WARNING PERM_REVOKE_SKIP",
         )
 
-    # ── T-05: falha simulada na revogação → rollback (UserRole não deletado) ──
+    # ── T-05: falha simulada na revogação → 500 + rollback (UserRole não deletado) ──
     def test_t05_revocation_failure_triggers_rollback(self):
+        """
+        APIClient captura exceções internamente e retorna HTTP 500 — nunca relança.
+        Por isso NÃO usamos assertRaises: verificamos o status_code=500 e que
+        o UserRole persiste no banco (rollback do transaction.atomic()).
+
+        O mock deve apontar para o nome importado na VIEW
+        ('apps.accounts.views.revoke_user_permissions_from_group'),
+        não para o módulo de origem, pois é o binding que a view usa em runtime.
+        """
         target_user = make_user("tst_target_t05")
         ur = self._create_userrole(target_user, self.role_a, self.app_a)
         ur_pk = ur.pk
 
         with patch(
-            "apps.accounts.services.permission_sync.revoke_user_permissions_from_group",
+            "apps.accounts.views.revoke_user_permissions_from_group",
             side_effect=Exception("Erro simulado na revogação"),
         ):
-            with self.assertRaises(Exception):
-                self.admin_client.delete(f"{USER_ROLES_URL}{ur_pk}/")
+            response = self.admin_client.delete(f"{USER_ROLES_URL}{ur_pk}/")
 
-        # UserRole NÃO deve ter sido deletado — rollback total
+        # APIClient retorna 500 — nunca propaga a exceção ao test runner
+        self.assertEqual(
+            response.status_code, 500,
+            f"Esperado 500, obtido {response.status_code}",
+        )
+        # UserRole NÃO deve ter sido deletado — rollback total garantido pelo atomic()
         self.assertTrue(
             UserRole.objects.filter(pk=ur_pk).exists(),
-            "UserRole deveria existir após rollback",
+            "UserRole deveria existir após rollback causado pela falha na revogação",
         )
 
-    # ── T-09: auth_user_user_permissions após T-01 ───────────────────
+    # ── T-09: auth_user_user_permissions após remoção ────────────────
     def test_t09_user_permissions_reflect_remaining_roles(self):
         target_user = make_user("tst_target_t09")
         ur_a = self._create_userrole(target_user, self.role_a, self.app_a)
         ur_b = self._create_userrole(target_user, self.role_b, self.app_b)
 
-        # Remover role_a
         response = self.admin_client.delete(f"{USER_ROLES_URL}{ur_a.pk}/")
         self.assertEqual(response.status_code, 204)
 
         perm_ids_after = self._user_perm_ids(target_user)
 
-        # Permissões esperadas: somente as do group_b
+        # Permissões do group_b devem estar presentes
         expected_perm_ids = set(
             self.group_b.permissions.values_list("pk", flat=True)
         )
-        # As permissões do grupo B devem estar presentes
         self.assertTrue(
             expected_perm_ids.issubset(perm_ids_after),
             "Permissões do grupo B devem permanecer",
@@ -331,11 +330,9 @@ class TestUserRoleRevoke(TestCase):
         target_user = make_user("tst_target_t10")
         ur = self._create_userrole(target_user, self.role_a, self.app_a)
 
-        # Confirmar que tem permissões antes
         perm_ids_before = self._user_perm_ids(target_user)
         self.assertGreater(len(perm_ids_before), 0)
 
-        # Remover a única role
         response = self.admin_client.delete(f"{USER_ROLES_URL}{ur.pk}/")
         self.assertEqual(response.status_code, 204)
 
@@ -372,7 +369,7 @@ class TestRevokePermissionUnit(TestCase):
         cls.role_y = make_role(cls.app, "Role Y", "TST_UNIT_ROLE_Y", group=cls.group_y)
 
     def _make_user_with_roles(self, username, roles):
-        """Cria usuário e atribui lista de (role, aplicacao) com sync."""
+        """Cria usuário e atribui lista de roles com sync de permissões."""
         from apps.accounts.services.permission_sync import sync_user_permissions_from_group
         user = make_user(username)
         for role in roles:
@@ -399,11 +396,8 @@ class TestRevokePermissionUnit(TestCase):
         user = self._make_user_with_roles("tst_unit_shared", [self.role_x, self.role_y])
         revoke_user_permissions_from_group(user=user, group_removed=self.group_x)
         perm_ids = set(user.user_permissions.values_list("pk", flat=True))
-        # Permissão compartilhada deve ser mantida (coberta por group_y)
         self.assertIn(self.perm_xy.pk, perm_ids)
-        # Permissão exclusiva de X deve ser removida
         self.assertNotIn(self.perm_x.pk, perm_ids)
-        # Permissão exclusiva de Y deve permanecer
         self.assertIn(self.perm_y.pk, perm_ids)
 
     def test_revoke_returns_count_of_removed_permissions(self):
