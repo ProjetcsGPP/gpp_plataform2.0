@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from django.utils import timezone as dj_timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -142,7 +142,11 @@ class UserCreateView(APIView):
     POST /api/accounts/users/
     Cria atomicamente um auth.User e seu UserProfile.
     Acesso exclusivo: PORTAL_ADMIN.
-    R-01: transação atômica — rollback total em caso de falha.
+
+    R-01: transaction.atomic() no serializer — rollback total em falha.
+          Exceções genéricas (ex: DB error) são capturadas aqui e
+          convertidas para APIException(500) para que o gpp_exception_handler
+          as processe corretamente sem re-levantar no TestClient.
     R-02: idusuariocriacao preenchido com o admin autenticado.
     R-03: apenas PORTAL_ADMIN.
     R-07: não cria UserRole — responsabilidade da Fase 4/6.
@@ -155,7 +159,17 @@ class UserCreateView(APIView):
             context={"request": request},
         )
         serializer.is_valid(raise_exception=True)
-        profile = serializer.save()
+        try:
+            profile = serializer.save()
+        except Exception as exc:
+            security_logger.error(
+                "USER_CREATE_ERROR admin_id=%s error=%s",
+                request.user.id, str(exc),
+            )
+            raise APIException(
+                detail="Erro interno ao criar usuário. Tente novamente."
+            ) from exc
+
         security_logger.info(
             "USER_CREATED admin_id=%s new_user_id=%s username=%s",
             request.user.id, profile.user_id, profile.user.username,
@@ -166,7 +180,7 @@ class UserCreateView(APIView):
         )
 
 
-# ─── CRUD ViewSets ──────────────────────────────────────────────────────────────────
+# ─── CRUD ViewSets ─────────────────────────────────────────────────────────────────
 
 class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """

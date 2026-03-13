@@ -2,12 +2,21 @@
 GPP Plataform 2.0 — Accounts Tests: UserCreate (GAP-01)
 Cobre cenários T-01 a T-10 conforme especificação da Fase 1.
 
-Padrão de autenticação nos testes:
+Padrão de autenticação:
     O JWTAuthenticationMiddleware processa o request antes do DRF e retorna
-    401 via JsonResponse caso não encontre token válido — mesmo com
-    force_authenticate ativo. Por isso todos os testes autenticados usam
-    patch_security(), que faz mock dos 3 middlewares customizados
-    (JWT, RoleContext, Authorization), seguindo o padrão de test_views.py.
+    401 via JsonResponse sem token válido — mesmo com force_authenticate.
+    Todos os testes autenticados usam patch_security() para bypassar os 3
+    middlewares customizados (JWT, RoleContext, Authorization).
+
+Padrão de resposta de erro (400):
+    O gpp_exception_handler envolve todos os erros DRF no envelope:
+        {"success": False, "status_code": <N>, "errors": <detalhe>}
+    Os asserts de T-02/03/04/05 acessam response.data["errors"].
+
+T-08 (rollback):
+    A view captura Exception genérica e relênça como APIException(500),
+    que o gpp_exception_handler processa sem re-levantar no TestClient.
+    O teste usa raise_request_exception=False como garantia extra.
 """
 from unittest.mock import patch
 
@@ -114,10 +123,6 @@ VALID_PAYLOAD = {
 class UserCreateEndpointTest(APITestCase):
     """
     Testes T-01 a T-10 para POST /api/accounts/users/.
-
-    Todos os cenários autenticados utilizam patch_security() para bypassar
-    o JWTAuthenticationMiddleware, RoleContextMiddleware e
-    AuthorizationMiddleware — sem necessidade de token JWT real.
     """
 
     @classmethod
@@ -127,7 +132,7 @@ class UserCreateEndpointTest(APITestCase):
         cls.plain_user = _make_plain_user()
 
     def setUp(self):
-        self.client = APIClient()
+        self.client = APIClient(raise_request_exception=False)
 
     # ── T-01 — POST válido ─────────────────────────────────────────────────────
 
@@ -153,7 +158,7 @@ class UserCreateEndpointTest(APITestCase):
         # Verifica que UserRole NÃO foi criado (R-07)
         self.assertFalse(UserRole.objects.filter(user=user).exists())
 
-        # Verifica shape da resposta 201
+        # Verifica shape da resposta 201 (sem envelope — sucesso não é envolvido)
         self.assertEqual(response.data["username"], "joao.silva")
         self.assertEqual(response.data["email"], "joao@exemplo.com")
         self.assertIn("datacriacao", response.data)
@@ -164,7 +169,7 @@ class UserCreateEndpointTest(APITestCase):
     def test_T02_duplicate_username_returns_400(self):
         """T-02: username já existente → 400 com mensagem clara."""
         User.objects.create_user(username="joao.duplicado", password="Xyz@2026!")
-        payload = {**VALID_PAYLOAD, "username": "joao.duplicado", "email": "unique@test.com"}
+        payload = {**VALID_PAYLOAD, "username": "joao.duplicado", "email": "unique_t02@test.com"}
 
         patches = patch_security(self.admin, is_portal_admin=True)
         with patches[0], patches[1], patches[2]:
@@ -172,17 +177,19 @@ class UserCreateEndpointTest(APITestCase):
             response = self.client.post(self.url, payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("username", response.data)
-        self.assertIn("já está em uso", str(response.data["username"]))
+        # gpp_exception_handler envolve erros em {"success": False, "errors": {...}}
+        errors = response.data["errors"]
+        self.assertIn("username", errors)
+        self.assertIn("já está em uso", str(errors["username"]))
 
     # ── T-03 — email duplicado ─────────────────────────────────────────────────
 
     def test_T03_duplicate_email_returns_400(self):
         """T-03: email já existente → 400 com mensagem clara."""
         User.objects.create_user(
-            username="outro_user", password="Xyz@2026!", email="dup@test.com"
+            username="outro_user_t03", password="Xyz@2026!", email="dup_t03@test.com"
         )
-        payload = {**VALID_PAYLOAD, "username": "unique_user_t03", "email": "dup@test.com"}
+        payload = {**VALID_PAYLOAD, "username": "unique_user_t03", "email": "dup_t03@test.com"}
 
         patches = patch_security(self.admin, is_portal_admin=True)
         with patches[0], patches[1], patches[2]:
@@ -190,8 +197,9 @@ class UserCreateEndpointTest(APITestCase):
             response = self.client.post(self.url, payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("email", response.data)
-        self.assertIn("já está em uso", str(response.data["email"]))
+        errors = response.data["errors"]
+        self.assertIn("email", errors)
+        self.assertIn("já está em uso", str(errors["email"]))
 
     # ── T-04 — senha fraca ─────────────────────────────────────────────────────
 
@@ -210,7 +218,8 @@ class UserCreateEndpointTest(APITestCase):
             response = self.client.post(self.url, payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("password", response.data)
+        errors = response.data["errors"]
+        self.assertIn("password", errors)
 
     # ── T-05 — orgao ausente ───────────────────────────────────────────────────
 
@@ -226,15 +235,15 @@ class UserCreateEndpointTest(APITestCase):
             response = self.client.post(self.url, payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("orgao", response.data)
+        errors = response.data["errors"]
+        self.assertIn("orgao", errors)
 
     # ── T-06 — sem autenticação ────────────────────────────────────────────────
 
     def test_T06_unauthenticated_returns_401(self):
         """
         T-06: request sem autenticação → 401.
-        NÃO usa patch_security — testa o comportamento real do middleware
-        quando nenhuma credencial é fornecida.
+        NÃO usa patch_security — testa o middleware real sem credencial.
         """
         response = self.client.post(self.url, VALID_PAYLOAD, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -243,9 +252,9 @@ class UserCreateEndpointTest(APITestCase):
 
     def test_T07_non_admin_returns_403(self):
         """
-        T-07: usuário autenticado mas sem role PORTAL_ADMIN → 403.
-        patch_security com is_portal_admin=False injeta request.is_portal_admin=False,
-        fazendo IsPortalAdmin.has_permission() retornar False → 403.
+        T-07: usuário autenticado mas sem PORTAL_ADMIN → 403.
+        patch_security com is_portal_admin=False injeta request.is_portal_admin=False;
+        IsPortalAdmin.has_permission() lê esse atributo e retorna False → 403.
         """
         patches = patch_security(self.plain_user, is_portal_admin=False)
         with patches[0], patches[1], patches[2]:
@@ -259,6 +268,8 @@ class UserCreateEndpointTest(APITestCase):
     def test_T08_rollback_on_profile_save_failure(self):
         """
         T-08: falha simulada no UserProfile.objects.create → rollback total.
+        A view captura Exception genérica e relênça como APIException(500),
+        que o gpp_exception_handler processa sem re-levantar no TestClient.
         O User criado dentro do transaction.atomic() não deve persistir (R-01).
         """
         payload = {**VALID_PAYLOAD, "username": "atomic_t08", "email": "atomic_t08@test.com"}
@@ -273,9 +284,9 @@ class UserCreateEndpointTest(APITestCase):
             ):
                 response = self.client.post(self.url, payload, format="json")
 
-        # View deve retornar qualquer status não-2xx
-        self.assertNotEqual(response.status_code, status.HTTP_201_CREATED)
-        # User NÃO deve ter sido persistido — rollback garantido pelo atomic() (R-01)
+        # View converte Exception → APIException(500)
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # User NÃO deve ter persistido — rollback garantido pelo atomic() (R-01)
         self.assertEqual(User.objects.count(), users_before)
         self.assertFalse(User.objects.filter(username="atomic_t08").exists())
 
@@ -284,7 +295,7 @@ class UserCreateEndpointTest(APITestCase):
     def test_T09_get_returns_405(self):
         """
         T-09: GET /api/accounts/users/ → 405 Method Not Allowed.
-        UserCreateView só implementa .post() — DRF rejeita outros métodos com 405.
+        UserCreateView só implementa .post() — DRF rejeita outros métodos.
         """
         patches = patch_security(self.admin, is_portal_admin=True)
         with patches[0], patches[1], patches[2]:
@@ -298,8 +309,8 @@ class UserCreateEndpointTest(APITestCase):
     def test_T10_profiles_viewset_rejects_post(self):
         """
         T-10: POST /api/accounts/profiles/ → 405.
-        UserProfileViewSet tem http_method_names = ['get', 'patch', 'head', 'options'].
-        Este teste garante que a adição de UserCreateView não alterou o ViewSet.
+        http_method_names = ['get', 'patch', 'head', 'options'] — POST bloqueado.
+        Garante que a adição de UserCreateView não alterou o ViewSet existente.
         """
         profiles_url = reverse("accounts:userprofile-list")
 
