@@ -308,6 +308,11 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
             "user", "aplicacao", "role"
         )
 
+    def perform_create(self, serializer):
+        # UserRole não possui campos created_by/updated_by — sobrescreve
+        # AuditableMixin para não repassar esses kwargs ao model.
+        serializer.save()
+        
     def create(self, request, *args, **kwargs):
         """
         POST /api/accounts/user-roles/

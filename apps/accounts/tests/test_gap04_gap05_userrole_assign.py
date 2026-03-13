@@ -215,7 +215,8 @@ class TestUserRoleAssign(TestCase):
             format="json",
         )
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("non_field_errors", resp.data)
+        errors = resp.data.get("errors", resp.data)
+        self.assertIn("non_field_errors", errors)
 
     # ── T-03: role de aplicacao diferente → 400 ──────────────────────
     def test_t03_role_wrong_app_returns_400(self):
@@ -226,7 +227,8 @@ class TestUserRoleAssign(TestCase):
             format="json",
         )
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("role", resp.data)
+        errors = resp.data.get("errors", resp.data)
+        self.assertIn("role", errors)
 
     # ── T-05: role com group=None → 201 + sem perms + log WARNING ─────
     def test_t05_role_no_group_creates_userrole_without_perms(self):
