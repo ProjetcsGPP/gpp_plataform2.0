@@ -4,10 +4,13 @@ FASE 6: APIs iniciais — profiles, roles, user-roles, me
 GAP-01: adicionado UserCreateView
 GAP-02: adicionado AplicacaoViewSet
 GAP-03: RoleViewSet com filtro por aplicacao_id via query param
+GAP-04: UserRoleSerializer.validate() garante unicidade e role correta
+GAP-05: UserRoleViewSet.create() sincroniza permissões atomicamente
 """
 import logging
 from datetime import datetime, timezone
 
+from django.db import transaction
 from django.utils import timezone as dj_timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -32,6 +35,7 @@ from .serializers import (
     UserRoleSerializer,
     MeSerializer,
 )
+from .services.permission_sync import sync_user_permissions_from_group
 
 security_logger = logging.getLogger("gpp.security")
 
@@ -287,8 +291,13 @@ class RoleViewSet(viewsets.ReadOnlyModelViewSet):
 class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     Gerencia UserRoles. Apenas PORTAL_ADMIN.
-    - POST: atribui role a usuário.
-    - DELETE: remove role de usuário.
+    - POST: atribui role a usuário + sincroniza permissões atomicamente (GAP-05).
+    - DELETE: remove role de usuário (revogação de permissões é Fase 5).
+
+    R-03: a criação do UserRole e o sync de permissões são atômicos —
+          se o sync falhar, o UserRole é revertido (rollback).
+    R-06: DELETE não revoga permissões nesta fase — log WARNING registrado.
+    R-07: apenas PORTAL_ADMIN.
     """
     serializer_class = UserRoleSerializer
     permission_classes = [IsAuthenticated, IsPortalAdmin]
@@ -300,16 +309,55 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
         )
 
     def create(self, request, *args, **kwargs):
+        """
+        POST /api/accounts/user-roles/
+
+        GAP-04: validação de unicidade e role correta delegada ao serializer.
+        GAP-05: sincronização de permissões dentro de transaction.atomic().
+        R-03: se sync_user_permissions_from_group lançar exceção,
+              o UserRole NÃO é persistido — rollback total.
+        """
         security_logger.info(
             "USERROLE_ASSIGN admin_id=%s payload=%s",
             request.user.id, request.data,
         )
-        return super().create(request, *args, **kwargs)
+        with transaction.atomic():
+            response = super().create(request, *args, **kwargs)
+
+            # Recupera a instância recém-criada para executar o sync
+            userrole_id = response.data.get("id")
+            userrole = UserRole.objects.select_related(
+                "user", "role__group"
+            ).get(pk=userrole_id)
+
+            added = sync_user_permissions_from_group(
+                user=userrole.user,
+                group=userrole.role.group,
+            )
+            security_logger.info(
+                "USERROLE_PERM_SYNC user_id=%s role=%s permissions_added=%s",
+                userrole.user_id,
+                userrole.role.codigoperfil,
+                added,
+            )
+
+        return response
 
     def destroy(self, request, *args, **kwargs):
+        """
+        DELETE /api/accounts/user-roles/{id}/
+
+        R-06: permissões NÃO são revogadas nesta fase.
+        Log WARNING registrado para rastreabilidade.
+        """
         instance = self.get_object()
         security_logger.info(
             "USERROLE_REMOVE admin_id=%s userrole_id=%s user_id=%s",
             request.user.id, instance.id, instance.user_id,
+        )
+        security_logger.warning(
+            "USERROLE_PERM_REVOKE_PENDING userrole_id=%s user_id=%s role=%s "
+            "reason=fase5_not_implemented",
+            instance.id, instance.user_id, instance.role.codigoperfil,
         )
         return super().destroy(request, *args, **kwargs)
