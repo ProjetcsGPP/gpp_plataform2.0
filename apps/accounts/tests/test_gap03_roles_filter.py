@@ -23,22 +23,21 @@ Dependências de fixture: apps/accounts/fixtures/initial_data.json
     accounts.role        pk=1 (PORTAL_ADMIN / app=1)  pk=2 (GESTOR_PNGI / app=2)
     accounts.aplicacao   pk=1 (PORTAL)  pk=2 (ACOES_PNGI)  pk=3 (CARGA_ORG_LOT)
 
-Correções aplicadas v3:
+Correções aplicadas v4:
   1. common_user recebe UserRole com Role pk=2 (GESTOR_PNGI / ACOES_PNGI) para que
-     o GPPTokenObtainPairView emita o token (exige ao menos 1 role). O usuário não
-     tem PORTAL_ADMIN, então o endpoint /roles/ retorna 403 — cenário T-10.
-  2. Token JWT obtido uma única vez por classe em setUpClass, reutilizado nos
-     setUp via client.credentials(). Evita throttling (429) por múltiplas chamadas
-     ao endpoint de token a cada teste.
-  3. response.data paginado: a view usa paginação padrão do DRF, portanto
-     response.data é um dict {count, next, previous, results}. Todos os acessos
-     à lista de itens usam _get_results(response) que trata ambos os formatos.
+     GPPTokenObtainPairView emita token. Não tem PORTAL_ADMIN → /roles/ retorna 403.
+  2. Token JWT obtido uma única vez por classe em setUpClass. Evita throttling (429).
+  3. _get_results() trata response.data paginado {count, results} ou lista direta.
+  4. make_role_without_group() desconecta o signal auto_create_group_for_role antes
+     de salvar a role e reconecta logo em seguida, garantindo group=None persistido.
 """
 from django.contrib.auth.models import Group, User
+from django.db.models.signals import post_save
 from django.test import TestCase
 from rest_framework.test import APIClient
 
 from apps.accounts.models import Aplicacao, Role, UserProfile, UserRole
+from apps.accounts.signals import auto_create_group_for_role
 
 ROLES_LIST_URL = "/api/accounts/roles/"
 TOKEN_URL      = "/api/auth/token/"
@@ -83,9 +82,9 @@ def make_user(username, role_pk=None):
     """
     Cria auth.User + UserProfile.
     role_pk: pk da Role da fixture a atribuir via UserRole.
-      - pk=1 → PORTAL_ADMIN (app PORTAL)  → satisfaz IsPortalAdmin
+      - pk=1 → PORTAL_ADMIN (app PORTAL)    → satisfaz IsPortalAdmin
       - pk=2 → GESTOR_PNGI (app ACOES_PNGI) → passa no token mas não em IsPortalAdmin
-      - None → nenhuma role (token não emitido pelo GPPTokenObtainPairView)
+      - None → nenhuma role
     """
     user = User.objects.create_user(
         username=username,
@@ -117,12 +116,36 @@ def make_aplicacao(codigo, nome):
 
 
 def make_role(aplicacao, nome, codigo, group=None):
+    """
+    Cria uma Role com group já definido (signal não interfere pois
+    auto_create_group_for_role só age quando created=True E group is None).
+    """
     return Role.objects.create(
         aplicacao=aplicacao,
         nomeperfil=nome,
         codigoperfil=codigo,
         group=group,
     )
+
+
+def make_role_without_group(aplicacao, nome, codigo):
+    """
+    Cria uma Role com group=None desconectando temporariamente o signal
+    auto_create_group_for_role, que normalmente auto-preencheria o campo.
+    O signal é reconectado imediatamente após o save.
+    Usado para testar o cenário T-07 (R-06): dados legados onde group é None.
+    """
+    post_save.disconnect(auto_create_group_for_role, sender=Role)
+    try:
+        role = Role.objects.create(
+            aplicacao=aplicacao,
+            nomeperfil=nome,
+            codigoperfil=codigo,
+            group=None,
+        )
+    finally:
+        post_save.connect(auto_create_group_for_role, sender=Role)
+    return role
 
 
 # ─── TestRoleViewSetFilter (T-01..T-06, T-09..T-11) ──────────────────────────
@@ -145,26 +168,16 @@ class TestRoleViewSetFilter(TestCase):
         cls.role_b1 = make_role(cls.app_b, "Leitor",       "TST_READ_B")
         cls.role_b2 = make_role(cls.app_b, "Gravador",     "TST_WRITE_B")
 
-        # role_pk=1 → PORTAL_ADMIN (satisfaz IsPortalAdmin)
-        # role_pk=2 → GESTOR_PNGI (passa no token mas NÃO em IsPortalAdmin → 403)
         cls.admin_user  = make_user("tst_admin_gap03",  role_pk=1)
         cls.common_user = make_user("tst_common_gap03", role_pk=2)
 
     @classmethod
     def setUpClass(cls):
-        """
-        Obtém os tokens JWT uma única vez para toda a classe.
-        Evita rate limiting (429) por múltiplas chamadas ao endpoint de token.
-        """
-        super().setUpClass()
-        # Os tokens são obtidos APÓS setUpTestData (chamado dentro de super())
+        super().setUpClass()  # dispara setUpTestData
         cls._admin_token  = _fetch_token("tst_admin_gap03")
         cls._common_token = _fetch_token("tst_common_gap03")
 
     def setUp(self):
-        """
-        Recria os clientes a cada teste reutilizando o token já obtido.
-        """
         self.admin_client  = _make_authenticated_client(self._admin_token)
         self.common_client = _make_authenticated_client(self._common_token)
         self.anon_client   = APIClient()
@@ -225,16 +238,12 @@ class TestRoleViewSetFilter(TestCase):
     def test_t06_isolation_between_apps(self):
         resp_a = self.admin_client.get(ROLES_LIST_URL, {"aplicacao_id": self.app_a.idaplicacao})
         resp_b = self.admin_client.get(ROLES_LIST_URL, {"aplicacao_id": self.app_b.idaplicacao})
-
         self.assertEqual(resp_a.status_code, 200)
         self.assertEqual(resp_b.status_code, 200)
-
         results_a = _get_results(resp_a)
         results_b = _get_results(resp_b)
-
         self.assertEqual(len(results_a), 3)
         self.assertEqual(len(results_b), 2)
-
         ids_a = {r["id"] for r in results_a}
         ids_b = {r["id"] for r in results_b}
         self.assertTrue(ids_a.isdisjoint(ids_b), "Roles das apps A e B não devem se misturar")
@@ -261,16 +270,15 @@ class TestRoleSerializerFields(TestCase):
     def setUpTestData(cls):
         cls.app   = make_aplicacao("TST_APP_SER", "App Serializer Test")
         cls.group = Group.objects.create(name="tst_grp_ser")
+        # role com group real (signal não interfere pois group != None)
         cls.role_with_group = make_role(cls.app, "Com Grupo", "TST_COM_GRP", group=cls.group)
-        cls.role_no_group   = make_role(cls.app, "Sem Grupo", "TST_SEM_GRP", group=None)
+        # role com group=None: signal desconectado durante o save
+        cls.role_no_group = make_role_without_group(cls.app, "Sem Grupo", "TST_SEM_GRP")
         cls.admin_user = make_user("tst_admin_ser_gap03", role_pk=1)
 
     @classmethod
     def setUpClass(cls):
-        """
-        Obtém o token JWT uma única vez para toda a classe.
-        """
-        super().setUpClass()
+        super().setUpClass()  # dispara setUpTestData
         cls._admin_token = _fetch_token("tst_admin_ser_gap03")
 
     def setUp(self):
@@ -303,8 +311,8 @@ class TestRoleSerializerFields(TestCase):
         with_group = [r for r in results if r["codigoperfil"] == "TST_COM_GRP"]
         self.assertEqual(len(with_group), 1)
         item = with_group[0]
-        self.assertEqual(item["group_id"],       self.group.id)
-        self.assertEqual(item["group_name"],     self.group.name)
-        self.assertEqual(item["aplicacao_id"],   self.app.idaplicacao)
+        self.assertEqual(item["group_id"],         self.group.id)
+        self.assertEqual(item["group_name"],       self.group.name)
+        self.assertEqual(item["aplicacao_id"],     self.app.idaplicacao)
         self.assertEqual(item["aplicacao_codigo"], self.app.codigointerno)
         self.assertEqual(item["aplicacao_nome"],   self.app.nomeaplicacao)
