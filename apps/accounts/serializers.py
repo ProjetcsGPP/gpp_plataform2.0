@@ -17,6 +17,8 @@ from django.utils import timezone as dj_timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
+from .services.permission_sync import sync_user_permissions_from_group
+
 from .models import (
     Aplicacao,
     Attribute,
@@ -362,7 +364,6 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
         return data
 
     def create(self, validated_data):
-        from .services.permission_sync import sync_user_permissions_from_group
 
         request   = self.context["request"]
         aplicacao = validated_data["aplicacao"]

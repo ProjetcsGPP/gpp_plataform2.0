@@ -94,7 +94,7 @@ class TestUserCreateWithRoleView(TestCase):
     Testa o endpoint POST /api/accounts/users/create-with-role/
     para todos os cenários T-01..T-11.
     """
-    fixtures = ["initial_data"]
+    fixtures = ["fase6_initial_data"]
 
     @classmethod
     def setUpTestData(cls):
