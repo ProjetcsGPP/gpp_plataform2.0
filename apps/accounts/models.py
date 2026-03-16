@@ -245,8 +245,8 @@ class UserRole(models.Model):
         managed = True
         constraints = [
             models.UniqueConstraint(
-                fields=["user", "aplicacao", "role"],
-                name="uq_userrole_user_aplicacao_role",
+                fields=["user", "aplicacao"],
+                name="uq_userrole_user_aplicacao",  # Fase 7: substituída constraint tripla
             )
         ]
         verbose_name = "User Role"
