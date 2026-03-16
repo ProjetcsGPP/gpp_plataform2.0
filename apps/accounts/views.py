@@ -8,7 +8,7 @@ GAP-04: UserRoleSerializer.validate() garante unicidade e role correta
 GAP-05 Fase 4: UserRoleViewSet.create() sincroniza permissões atomicamente
 GAP-05 Fase 5: UserRoleViewSet.destroy() revoga permissões exclusivas atomicamente
 FASE 6: UserCreateWithRoleView — fluxo orquestrado atômico User+Profile+Role+Sync
-DYN-SCOPE: user_can_manage_target_user — escopo por aplicação para gestores
+DYN-SCOPE: escopo por aplicação centralizado em AuthorizationService
 """
 import logging
 from datetime import datetime, timezone
@@ -47,7 +47,7 @@ from .services.permission_sync import (
 security_logger = logging.getLogger("gpp.security")
 
 
-# ─── Auth Views ───────────────────────────────────────────────────────────────────────────────
+# ─── Auth Views ───────────────────────────────────────────────────────────────────────────────────
 
 class GPPTokenObtainPairView(TokenObtainPairView):
     """
@@ -118,7 +118,7 @@ class TokenRevokeView(APIView):
         return Response({"detail": "Sessão encerrada com sucesso."}, status=status.HTTP_200_OK)
 
 
-# ─── Me View ───────────────────────────────────────────────────────────────────────────────
+# ─── Me View ───────────────────────────────────────────────────────────────────────────────────
 
 class MeView(APIView):
     """
@@ -149,7 +149,7 @@ class MeView(APIView):
         return Response(data)
 
 
-# ─── User Create View (GAP-01) ──────────────────────────────────────────────────────────
+# ─── User Create View (GAP-01) ─────────────────────────────────────────────────────────
 
 class UserCreateView(APIView):
     """
@@ -221,7 +221,7 @@ class UserCreateView(APIView):
         )
 
 
-# ─── User Create With Role View (FASE 6) ──────────────────────────────────────────────────
+# ─── User Create With Role View (FASE 6) ──────────────────────────────────────────────
 
 class UserCreateWithRoleView(APIView):
     """
@@ -237,10 +237,10 @@ class UserCreateWithRoleView(APIView):
     R-04: validações de senha, unicidade, e role única por app reaplicadas.
     R-06: CanCreateUser — lê ClassificacaoUsuario.pode_criar_usuario via AuthorizationService.
     R-07: permissions_added reflete exatamente quantas perms foram adicionadas.
-    DYN-SCOPE: user_can_manage_target_user — gestores só podem criar usuários
-               em aplicações onde possuírem role. A aplicação é lida do banco
+    DYN-SCOPE: user_can_create_user_in_application — gestores só podem criar usuários
+               em aplicações onde possuem UserRole. A aplicação é lida do banco
                via aplicacao_id validado pelo serializer, nunca da request direta.
-               Verificamos o gestor contra a aplicação alvo usando UserRole existentes.
+               Autorização centralizada em AuthorizationService.
     """
     permission_classes = [IsAuthenticated, CanCreateUser]
 
@@ -251,30 +251,23 @@ class UserCreateWithRoleView(APIView):
         )
         serializer.is_valid(raise_exception=True)
 
-        # DYN-SCOPE: verifica se o gestor possui role na aplicação alvo.
+        # DYN-SCOPE: delega verificação de escopo ao AuthorizationService.
         # A aplicação é extraída dos dados validados pelo serializer (banco),
         # nunca diretamente da request, evitando manipulação.
-        aplicacao_alvo = serializer.validated_data.get("aplicacao_id")
-        if aplicacao_alvo is not None:
+        aplicacao_destino = serializer.validated_data.get("aplicacao_id")
+        if aplicacao_destino is not None:
             from apps.accounts.services.authorization_service import AuthorizationService
-            from apps.accounts.models import UserRole as _UserRole
             service = AuthorizationService(request.user)
-            if not service._is_portal_admin():
-                # Gestor: verifica se possui UserRole na aplicação alvo
-                gestor_tem_role_na_app = _UserRole.objects.filter(
-                    user=request.user,
-                    aplicacao=aplicacao_alvo,
-                ).exists()
-                if not gestor_tem_role_na_app:
-                    security_logger.warning(
-                        "USER_CREATE_WITH_ROLE_SCOPE_DENIED admin_id=%s aplicacao_id=%s "
-                        "reason=gestor_no_role_in_target_app",
-                        request.user.id,
-                        getattr(aplicacao_alvo, "pk", aplicacao_alvo),
-                    )
-                    raise PermissionDenied(
-                        "Você não tem permissão para criar usuários nesta aplicação."
-                    )
+            if not service.user_can_create_user_in_application(aplicacao_destino):
+                security_logger.warning(
+                    "USER_CREATE_WITH_ROLE_SCOPE_DENIED admin_id=%s aplicacao_id=%s "
+                    "reason=no_permission_in_target_app",
+                    request.user.id,
+                    getattr(aplicacao_destino, "pk", aplicacao_destino),
+                )
+                raise PermissionDenied(
+                    "Você só pode criar usuários nas aplicações que gerencia."
+                )
 
         try:
             result = serializer.save()
@@ -298,7 +291,7 @@ class UserCreateWithRoleView(APIView):
         return Response(result, status=status.HTTP_201_CREATED)
 
 
-# ─── Aplicacao ViewSet (GAP-02) ─────────────────────────────────────────────────────────────
+# ─── Aplicacao ViewSet (GAP-02) ───────────────────────────────────────────────────────────────────
 
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -319,7 +312,7 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
         return Aplicacao.objects.filter(isshowinportal=False).order_by("nomeaplicacao")
 
 
-# ─── CRUD ViewSets ────────────────────────────────────────────────────────────────────────────
+# ─── CRUD ViewSets ────────────────────────────────────────────────────────────────────────────────────
 
 class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """
@@ -357,19 +350,26 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
         CanEditUser (no permission_classes) já garante que o usuário pode
         editar usuários em geral. Esta verificação adicional garante proteção
         IDOR: usuário sem is_portal_admin só edita o próprio perfil.
-        Gestores (pode_editar_usuario=True) editam qualquer perfil.
+        Gestores (pode_editar_usuario=True) editam apenas perfis de usuários
+        pertencentes às aplicações que também gerenciam (escopo por aplicação).
         """
         instance = self.get_object()
         from apps.accounts.services.authorization_service import AuthorizationService
         service = AuthorizationService(request.user)
-        can_edit_any = service._is_portal_admin() or getattr(request, "is_portal_admin", False)
-        if not can_edit_any and instance.user != request.user:
+
+        # Permite auto-edição do próprio perfil sem restrição de escopo
+        if instance.user == request.user:
+            return super().partial_update(request, *args, **kwargs)
+
+        # Para edição de outro usuário, delega ao AuthorizationService
+        if not service.user_can_edit_target_user(instance.user):
             security_logger.warning(
                 "PROFILE_PATCH_DENIED user_id=%s target_user_id=%s "
-                "reason=idor_protection",
+                "reason=no_edit_permission_or_no_app_intersection",
                 request.user.id, instance.user_id,
             )
-            raise PermissionDenied("Você só pode editar o próprio perfil.")
+            raise PermissionDenied("Você não tem permissão para editar este perfil.")
+
         return super().partial_update(request, *args, **kwargs)
 
 
