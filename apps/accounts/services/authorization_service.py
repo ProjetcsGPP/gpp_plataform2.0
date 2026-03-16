@@ -111,7 +111,6 @@ class AuthorizationService:
         """Retorna as roles ativas do usuário para esta app."""
         return self._load_roles()
 
-
     # ─── Verificações internas ──────────────────────────────────────────────
 
     def _is_portal_admin(self) -> bool:
@@ -165,7 +164,6 @@ class AuthorizationService:
             )
             return False
 
-        
         result = bool(classificacao.pode_criar_usuario)
         log_level = security_logger.info if result else security_logger.warning
         log_level(
@@ -213,6 +211,122 @@ class AuthorizationService:
             result,
         )
         return result
+
+    def user_can_create_user_in_application(self, aplicacao) -> bool:
+        """
+        Verifica se o usuário pode criar um novo usuário em uma aplicação específica.
+
+        Hierarquia:
+          1. PORTAL_ADMIN → True (acesso irrestrito)
+          2. user_can_create_users() == False → False (fail-closed)
+          3. Gestor → True somente se possuir UserRole na aplicacao informada
+
+        Args:
+            aplicacao: instância de Aplicacao alvo da criação.
+
+        Returns:
+            True se permitido, False caso contrário.
+        """
+        if self._is_portal_admin():
+            security_logger.info(
+                "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s app=%s reason=portal_admin",
+                self.user.id,
+                getattr(aplicacao, "codigointerno", aplicacao),
+            )
+            return True
+
+        if not self.user_can_create_users():
+            security_logger.warning(
+                "AUTHZ_CREATE_IN_APP_DENY user_id=%s app=%s reason=no_create_permission",
+                self.user.id,
+                getattr(aplicacao, "codigointerno", aplicacao),
+            )
+            return False
+
+        from apps.accounts.models import UserRole
+
+        has_role = UserRole.objects.filter(
+            user=self.user,
+            aplicacao=aplicacao,
+        ).exists()
+
+        if has_role:
+            security_logger.info(
+                "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s app=%s reason=has_role_in_app",
+                self.user.id,
+                getattr(aplicacao, "codigointerno", aplicacao),
+            )
+        else:
+            security_logger.warning(
+                "AUTHZ_CREATE_IN_APP_DENY user_id=%s app=%s reason=no_role_in_app",
+                self.user.id,
+                getattr(aplicacao, "codigointerno", aplicacao),
+            )
+
+        return has_role
+
+    def user_can_edit_target_user(self, target_user) -> bool:
+        """
+        Verifica se o usuário autenticado pode editar o target_user,
+        aplicando escopo por aplicação para gestores.
+
+        Hierarquia:
+          1. PORTAL_ADMIN → True (acesso irrestrito)
+          2. user_can_edit_users() == False → False (fail-closed)
+          3. Gestor → True somente se existir interseção entre as aplicações
+             do gestor e as aplicações do target_user via UserRole
+
+        Segurança:
+          - Toda validação é baseada exclusivamente em UserRole no banco.
+          - Evita manipulação de parâmetros da requisição.
+
+        Performance:
+          - Executa uma única query com subquery IN, resolvida no banco.
+
+        Args:
+            target_user: instância de auth.User que se deseja editar.
+
+        Returns:
+            True se permitido, False caso contrário.
+        """
+        if self._is_portal_admin():
+            security_logger.info(
+                "AUTHZ_EDIT_TARGET_ALLOW user_id=%s target_user_id=%s reason=portal_admin",
+                self.user.id, target_user.id,
+            )
+            return True
+
+        if not self.user_can_edit_users():
+            security_logger.warning(
+                "AUTHZ_EDIT_TARGET_DENY user_id=%s target_user_id=%s "
+                "reason=no_edit_permission",
+                self.user.id, target_user.id,
+            )
+            return False
+
+        from apps.accounts.models import UserRole
+
+        gestor_apps = UserRole.objects.filter(user=self.user).values("aplicacao")
+
+        has_intersection = UserRole.objects.filter(
+            user=target_user,
+            aplicacao__in=gestor_apps,
+        ).exists()
+
+        if has_intersection:
+            security_logger.info(
+                "AUTHZ_EDIT_TARGET_ALLOW user_id=%s target_user_id=%s "
+                "reason=app_intersection",
+                self.user.id, target_user.id,
+            )
+        else:
+            security_logger.warning(
+                "AUTHZ_EDIT_TARGET_DENY user_id=%s target_user_id=%s "
+                "reason=no_app_intersection",
+                self.user.id, target_user.id,
+            )
+
+        return has_intersection
 
     def user_can_manage_target_user(self, target_user) -> bool:
         """
