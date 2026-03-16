@@ -212,6 +212,74 @@ class AuthorizationService:
         )
         return result
 
+    def user_can_manage_target_user(self, target_user) -> bool:
+        """
+        Verifica se o usuário autenticado pode gerenciar (criar/editar) o target_user,
+        aplicando escopo por aplicação para gestores.
+
+        Regras:
+          1. PORTAL_ADMIN → True (acesso irrestrito a todas as aplicações)
+          2. Gestor sem user_can_edit_users() → False (fail-closed)
+          3. Gestor com user_can_edit_users() → True somente se existir interseção
+             entre as aplicações do gestor e as aplicações do target_user via UserRole.
+
+        Segurança:
+          - A aplicação alvo NUNCA é obtida da request.
+          - Toda validação é baseada exclusivamente em UserRole no banco.
+          - Isso evita manipulação de parâmetros da requisição.
+
+        Performance:
+          - Executa uma única query com subquery IN, resolvida no banco.
+          - Escala bem mesmo com muitos UserRole registrados.
+
+        Args:
+            target_user: instância de auth.User que se deseja gerenciar.
+
+        Returns:
+            True se o acesso for permitido, False caso contrário.
+        """
+        # 1. PORTAL_ADMIN tem acesso irrestrito
+        if self._is_portal_admin():
+            security_logger.info(
+                "AUTHZ_MANAGE_USER_ALLOW user_id=%s target_user_id=%s reason=portal_admin",
+                self.user.id, target_user.id,
+            )
+            return True
+
+        # 2. Gestor sem permissão de edição → nega imediatamente
+        if not self.user_can_edit_users():
+            security_logger.warning(
+                "AUTHZ_MANAGE_USER_DENY user_id=%s target_user_id=%s "
+                "reason=no_edit_permission",
+                self.user.id, target_user.id,
+            )
+            return False
+
+        # 3. Verifica interseção de aplicações via UserRole (DB-only, sem request)
+        from apps.accounts.models import UserRole
+
+        gestor_apps = UserRole.objects.filter(user=self.user).values("aplicacao")
+
+        has_intersection = UserRole.objects.filter(
+            user=target_user,
+            aplicacao__in=gestor_apps,
+        ).exists()
+
+        if has_intersection:
+            security_logger.info(
+                "AUTHZ_MANAGE_USER_ALLOW user_id=%s target_user_id=%s "
+                "reason=app_intersection",
+                self.user.id, target_user.id,
+            )
+        else:
+            security_logger.warning(
+                "AUTHZ_MANAGE_USER_DENY user_id=%s target_user_id=%s "
+                "reason=no_app_intersection",
+                self.user.id, target_user.id,
+            )
+
+        return has_intersection
+
     def _has_valid_role(self) -> bool:
         """
         Verifica no banco se o usuário tem ao menos 1 UserRole
