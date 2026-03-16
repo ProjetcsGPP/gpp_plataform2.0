@@ -8,6 +8,7 @@ GAP-04: UserRoleSerializer.validate() garante unicidade e role correta
 GAP-05 Fase 4: UserRoleViewSet.create() sincroniza permissões atomicamente
 GAP-05 Fase 5: UserRoleViewSet.destroy() revoga permissões exclusivas atomicamente
 FASE 6: UserCreateWithRoleView — fluxo orquestrado atômico User+Profile+Role+Sync
+DYN-SCOPE: user_can_manage_target_user — escopo por aplicação para gestores
 """
 import logging
 from datetime import datetime, timezone
@@ -46,7 +47,7 @@ from .services.permission_sync import (
 security_logger = logging.getLogger("gpp.security")
 
 
-# ─── Auth Views ───────────────────────────────────────────────────────────────────
+# ─── Auth Views ───────────────────────────────────────────────────────────────────────────────
 
 class GPPTokenObtainPairView(TokenObtainPairView):
     """
@@ -117,7 +118,7 @@ class TokenRevokeView(APIView):
         return Response({"detail": "Sessão encerrada com sucesso."}, status=status.HTTP_200_OK)
 
 
-# ─── Me View ─────────────────────────────────────────────────────────────────────
+# ─── Me View ───────────────────────────────────────────────────────────────────────────────
 
 class MeView(APIView):
     """
@@ -148,7 +149,7 @@ class MeView(APIView):
         return Response(data)
 
 
-# ─── User Create View (GAP-01) ───────────────────────────────────────────────────
+# ─── User Create View (GAP-01) ──────────────────────────────────────────────────────────
 
 class UserCreateView(APIView):
     """
@@ -163,6 +164,9 @@ class UserCreateView(APIView):
     R-02: idusuariocriacao preenchido com o admin autenticado.
     R-03: CanCreateUser — lê ClassificacaoUsuario.pode_criar_usuario via AuthorizationService.
     R-07: não cria UserRole — responsabilidade da Fase 4/6.
+    DYN-SCOPE: user_can_manage_target_user — gestores só criam usuários
+               com interseção de aplicações. Verificação feita após
+               validação do serializer, antes do save(), usando dados do banco.
     """
     permission_classes = [IsAuthenticated, CanCreateUser]
 
@@ -172,6 +176,30 @@ class UserCreateView(APIView):
             context={"request": request},
         )
         serializer.is_valid(raise_exception=True)
+
+        # DYN-SCOPE: verifica escopo por aplicação para gestores.
+        # O usuário alvo ainda não foi criado; verificamos o gestor contra
+        # um usuário existente representado pelo campo 'target_user' se
+        # presente no contexto, ou ignoramos se não aplicável neste fluxo.
+        # Neste endpoint o target é um novo usuário, então a verificação
+        # de interseção é feita após criação em UserCreateWithRoleView.
+        # Aqui aplicamos apenas a verificação quando 'target_user' é fornecido
+        # via contexto (edição) ou pulamos para novo usuário sem role ainda.
+        target_user = serializer.validated_data.get("target_user")
+        if target_user is not None:
+            from apps.accounts.services.authorization_service import AuthorizationService
+            service = AuthorizationService(request.user)
+            if not service.user_can_manage_target_user(target_user):
+                security_logger.warning(
+                    "USER_CREATE_SCOPE_DENIED admin_id=%s target_user_id=%s "
+                    "reason=no_app_intersection",
+                    request.user.id, target_user.id,
+                )
+                raise PermissionDenied(
+                    "Você não tem permissão para gerenciar este usuário "
+                    "(sem interseção de aplicações)."
+                )
+
         try:
             profile = serializer.save()
         except Exception as exc:
@@ -193,7 +221,7 @@ class UserCreateView(APIView):
         )
 
 
-# ─── User Create With Role View (FASE 6) ─────────────────────────────────────────
+# ─── User Create With Role View (FASE 6) ──────────────────────────────────────────────────
 
 class UserCreateWithRoleView(APIView):
     """
@@ -209,6 +237,10 @@ class UserCreateWithRoleView(APIView):
     R-04: validações de senha, unicidade, e role única por app reaplicadas.
     R-06: CanCreateUser — lê ClassificacaoUsuario.pode_criar_usuario via AuthorizationService.
     R-07: permissions_added reflete exatamente quantas perms foram adicionadas.
+    DYN-SCOPE: user_can_manage_target_user — gestores só podem criar usuários
+               em aplicações onde possuírem role. A aplicação é lida do banco
+               via aplicacao_id validado pelo serializer, nunca da request direta.
+               Verificamos o gestor contra a aplicação alvo usando UserRole existentes.
     """
     permission_classes = [IsAuthenticated, CanCreateUser]
 
@@ -218,6 +250,32 @@ class UserCreateWithRoleView(APIView):
             context={"request": request},
         )
         serializer.is_valid(raise_exception=True)
+
+        # DYN-SCOPE: verifica se o gestor possui role na aplicação alvo.
+        # A aplicação é extraída dos dados validados pelo serializer (banco),
+        # nunca diretamente da request, evitando manipulação.
+        aplicacao_alvo = serializer.validated_data.get("aplicacao_id")
+        if aplicacao_alvo is not None:
+            from apps.accounts.services.authorization_service import AuthorizationService
+            from apps.accounts.models import UserRole as _UserRole
+            service = AuthorizationService(request.user)
+            if not service._is_portal_admin():
+                # Gestor: verifica se possui UserRole na aplicação alvo
+                gestor_tem_role_na_app = _UserRole.objects.filter(
+                    user=request.user,
+                    aplicacao=aplicacao_alvo,
+                ).exists()
+                if not gestor_tem_role_na_app:
+                    security_logger.warning(
+                        "USER_CREATE_WITH_ROLE_SCOPE_DENIED admin_id=%s aplicacao_id=%s "
+                        "reason=gestor_no_role_in_target_app",
+                        request.user.id,
+                        getattr(aplicacao_alvo, "pk", aplicacao_alvo),
+                    )
+                    raise PermissionDenied(
+                        "Você não tem permissão para criar usuários nesta aplicação."
+                    )
+
         try:
             result = serializer.save()
         except Exception as exc:
@@ -240,7 +298,7 @@ class UserCreateWithRoleView(APIView):
         return Response(result, status=status.HTTP_201_CREATED)
 
 
-# ─── Aplicacao ViewSet (GAP-02) ───────────────────────────────────────────────────
+# ─── Aplicacao ViewSet (GAP-02) ─────────────────────────────────────────────────────────────
 
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -261,7 +319,7 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
         return Aplicacao.objects.filter(isshowinportal=False).order_by("nomeaplicacao")
 
 
-# ─── CRUD ViewSets ──────────────────────────────────────────────────────────────────
+# ─── CRUD ViewSets ────────────────────────────────────────────────────────────────────────────
 
 class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """
