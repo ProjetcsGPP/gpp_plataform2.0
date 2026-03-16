@@ -111,6 +111,7 @@ class AuthorizationService:
         """Retorna as roles ativas do usuário para esta app."""
         return self._load_roles()
 
+
     # ─── Verificações internas ──────────────────────────────────────────────
 
     def _is_portal_admin(self) -> bool:
@@ -164,6 +165,7 @@ class AuthorizationService:
             )
             return False
 
+        
         result = bool(classificacao.pode_criar_usuario)
         log_level = security_logger.info if result else security_logger.warning
         log_level(
