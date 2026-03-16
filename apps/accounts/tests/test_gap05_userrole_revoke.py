@@ -30,6 +30,14 @@ Notas de implementação:
     O mock deve apontar para o nome importado na VIEW (apps.accounts.views),
     não para o módulo de origem (apps.accounts.services.permission_sync).
     A verificação é feita pelo status_code=500 + persistência do UserRole no banco.
+
+Fase 7 — fix:
+  TestRevokePermissionUnit usava role_x e role_y na mesma aplicação (cls.app).
+  Com a nova UniqueConstraint(user, aplicacao), isso causa IntegrityError ao
+  tentar atribuir duas roles ao mesmo usuário na mesma app.
+  Correção: role_x → cls.app_x; role_y → cls.app_y (apps separadas).
+  Isso não altera a semântica do teste: a função revoke_user_permissions_from_group
+  opera sobre permissões de grupos, independente de qual app a role pertence.
 """
 from unittest.mock import patch
 
@@ -344,12 +352,20 @@ class TestRevokePermissionUnit(TestCase):
     """
     Testes unitários diretos de revoke_user_permissions_from_group().
     Verificam a lógica de exclusividade sem passar pela API.
+
+    Fase 7 — fix: role_x e role_y agora pertencem a apps DISTINTAS (app_x e app_y)
+    para respeitar a UniqueConstraint(user, aplicacao). A semântica dos testes é
+    preservada pois revoke_user_permissions_from_group opera sobre grupos/permissões,
+    não sobre a aplicação em si.
     """
     fixtures = ["initial_data"]
 
     @classmethod
     def setUpTestData(cls):
-        cls.app = make_aplicacao("TST_UNIT_REVOKE", "App Unit Revoke")
+        # Fase 7: duas apps distintas para role_x e role_y
+        cls.app_x = make_aplicacao("TST_UNIT_REVOKE_X", "App Unit Revoke X")
+        cls.app_y = make_aplicacao("TST_UNIT_REVOKE_Y", "App Unit Revoke Y")
+
         cls.group_x = Group.objects.create(name="tst_grp_unit_x")
         cls.group_y = Group.objects.create(name="tst_grp_unit_y")
 
@@ -360,11 +376,15 @@ class TestRevokePermissionUnit(TestCase):
         cls.group_x.permissions.add(cls.perm_x, cls.perm_xy)
         cls.group_y.permissions.add(cls.perm_y, cls.perm_xy)
 
-        cls.role_x = make_role(cls.app, "Role X", "TST_UNIT_ROLE_X", group=cls.group_x)
-        cls.role_y = make_role(cls.app, "Role Y", "TST_UNIT_ROLE_Y", group=cls.group_y)
+        # role_x → app_x / role_y → app_y  (constraint: user só pode ter 1 role por app)
+        cls.role_x = make_role(cls.app_x, "Role X", "TST_UNIT_ROLE_X", group=cls.group_x)
+        cls.role_y = make_role(cls.app_y, "Role Y", "TST_UNIT_ROLE_Y", group=cls.group_y)
 
     def _make_user_with_roles(self, username, roles):
-        """Cria usuário e atribui lista de roles com sync de permissões."""
+        """
+        Cria usuário e atribui lista de roles com sync de permissões.
+        Cada role deve pertencer a uma app distinta (constraint Fase 7).
+        """
         from apps.accounts.services.permission_sync import sync_user_permissions_from_group
         user = make_user(username)
         for role in roles:
@@ -388,6 +408,7 @@ class TestRevokePermissionUnit(TestCase):
 
     def test_revoke_preserves_shared_permission_when_other_group_active(self):
         """R-04: permissão compartilhada é preservada quando outro grupo cobre."""
+        # role_x → app_x, role_y → app_y: apps distintas, sem violação de constraint
         user = self._make_user_with_roles("tst_unit_shared", [self.role_x, self.role_y])
         revoke_user_permissions_from_group(user=user, group_removed=self.group_x)
         perm_ids = set(user.user_permissions.values_list("pk", flat=True))

@@ -286,11 +286,11 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
         if getattr(self.request, "is_portal_admin", False):
             return UserProfile.objects.all().select_related(
                 "user", "status_usuario", "tipo_usuario"
-            )
+            ).order_by('user__username')
         # Usuário comum: apenas o próprio profile
         return UserProfile.objects.filter(user=user).select_related(
             "user", "status_usuario", "tipo_usuario"
-        )
+        ).order_by('user__username')
 
     def partial_update(self, request, *args, **kwargs):
         """
