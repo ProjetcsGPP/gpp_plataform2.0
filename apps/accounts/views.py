@@ -25,7 +25,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from common.mixins import AuditableMixin, SecureQuerysetMixin
-from common.permissions import HasRolePermission, IsPortalAdmin
+from common.permissions import CanCreateUser, CanEditUser, HasRolePermission, IsPortalAdmin
 
 from .models import AccountsSession, Aplicacao, Role, UserProfile, UserRole
 from .serializers import (
@@ -154,17 +154,17 @@ class UserCreateView(APIView):
     """
     POST /api/accounts/users/
     Cria atomicamente um auth.User e seu UserProfile.
-    Acesso exclusivo: PORTAL_ADMIN.
+    Acesso: ClassificacaoUsuario.pode_criar_usuario=True (ou PORTAL_ADMIN bootstrap).
 
     R-01: transaction.atomic() no serializer — rollback total em falha.
           Exceções genéricas (ex: DB error) são capturadas aqui e
           convertidas para APIException(500) para que o gpp_exception_handler
           as processe corretamente sem re-levantar no TestClient.
     R-02: idusuariocriacao preenchido com o admin autenticado.
-    R-03: apenas PORTAL_ADMIN.
+    R-03: CanCreateUser — lê ClassificacaoUsuario.pode_criar_usuario via AuthorizationService.
     R-07: não cria UserRole — responsabilidade da Fase 4/6.
     """
-    permission_classes = [IsAuthenticated, IsPortalAdmin]
+    permission_classes = [IsAuthenticated, CanCreateUser]
 
     def post(self, request):
         serializer = UserCreateSerializer(
@@ -207,10 +207,10 @@ class UserCreateWithRoleView(APIView):
     R-02: isshowinportal=False validado pelo queryset do campo aplicacao_id.
     R-03: role.aplicacao == aplicacao validado no validate() do serializer.
     R-04: validações de senha, unicidade, e role única por app reaplicadas.
-    R-06: apenas PORTAL_ADMIN.
+    R-06: CanCreateUser — lê ClassificacaoUsuario.pode_criar_usuario via AuthorizationService.
     R-07: permissions_added reflete exatamente quantas perms foram adicionadas.
     """
-    permission_classes = [IsAuthenticated, IsPortalAdmin]
+    permission_classes = [IsAuthenticated, CanCreateUser]
 
     def post(self, request):
         serializer = UserCreateWithRoleSerializer(
@@ -273,7 +273,7 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
     Para PORTAL_ADMIN o escopo é bypassado manualmente em get_queryset.
     """
     serializer_class = UserProfileSerializer
-    permission_classes = [IsAuthenticated, HasRolePermission]
+    permission_classes = [IsAuthenticated, HasRolePermission, CanEditUser]
     http_method_names = ["get", "patch", "head", "options"]
 
     # SecureQuerysetMixin: campos de escopo
@@ -295,17 +295,23 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
     def partial_update(self, request, *args, **kwargs):
         """
         PATCH /api/accounts/profiles/{id}/
-        Usuário comum só pode editar o próprio profile.
-        PORTAL_ADMIN pode editar qualquer profile.
+
+        CanEditUser (no permission_classes) já garante que o usuário pode
+        editar usuários em geral. Esta verificação adicional garante proteção
+        IDOR: usuário sem is_portal_admin só edita o próprio perfil.
+        Gestores (pode_editar_usuario=True) editam qualquer perfil.
         """
         instance = self.get_object()
-        if not getattr(request, "is_portal_admin", False):
-            if instance.user != request.user:
-                security_logger.warning(
-                    "PROFILE_PATCH_DENIED user_id=%s target_user_id=%s",
-                    request.user.id, instance.user_id,
-                )
-                raise PermissionDenied("Você só pode editar o próprio perfil.")
+        from apps.accounts.services.authorization_service import AuthorizationService
+        service = AuthorizationService(request.user)
+        can_edit_any = service._is_portal_admin() or getattr(request, "is_portal_admin", False)
+        if not can_edit_any and instance.user != request.user:
+            security_logger.warning(
+                "PROFILE_PATCH_DENIED user_id=%s target_user_id=%s "
+                "reason=idor_protection",
+                request.user.id, instance.user_id,
+            )
+            raise PermissionDenied("Você só pode editar o próprio perfil.")
         return super().partial_update(request, *args, **kwargs)
 
 
