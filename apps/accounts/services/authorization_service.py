@@ -251,9 +251,23 @@ class AuthorizationService:
             )
             return False
 
-        user_apps = self._get_user_applications()
+        #user_apps = self._get_user_applications()
 
-        has_role = aplicacao.id in user_apps
+        #has_role = aplicacao.id in user_apps
+        
+        from apps.accounts.models import UserRole
+
+        has_role = UserRole.objects.filter(
+            user=self.user,
+            aplicacao=aplicacao,
+        ).exists()
+
+        #security_logger.warning(
+        #    "DEBUG_SCOPE_CHECK user_id=%s app=%s has_role=%s",
+        #    self.user.id,
+        #    getattr(aplicacao, "codigointerno", aplicacao),
+        #    has_role,
+        #)
 
         if has_role:
             security_logger.info(

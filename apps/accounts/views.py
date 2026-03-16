@@ -254,7 +254,9 @@ class UserCreateWithRoleView(APIView):
         # DYN-SCOPE: delega verificação de escopo ao AuthorizationService.
         # A aplicação é extraída dos dados validados pelo serializer (banco),
         # nunca diretamente da request, evitando manipulação.
-        aplicacao_destino = serializer.validated_data.get("aplicacao_id")
+        #aplicacao_destino = serializer.validated_data.get("aplicacao_id")
+        aplicacao_destino = serializer.validated_data["aplicacao"]
+        
         if aplicacao_destino is not None:
             from apps.accounts.services.authorization_service import AuthorizationService
             service = AuthorizationService(request.user)
