@@ -8,6 +8,8 @@ Classes disponíveis:
   - CanPermission       : delega ao AuthorizationService.can(required_permission)
   - IsPortalAdmin       : verifica se o user tem role PORTAL_ADMIN
   - ObjectPermission    : has_object_permission para proteção anti-IDOR
+  - CanCreateUser       : verifica se o user pode criar usuários
+  - CanEditUser         : verifica se o user pode editar usuários
 
 Uso nas views:
     class MinhaView(APIView):
@@ -228,3 +230,63 @@ def require_permission(permission_codename: str, context: dict = None):
             return func(request, *args, **kwargs)
         return wrapper
     return decorator
+
+
+# ─── CanCreateUser ──────────────────────────────────────────────────────────
+
+class CanCreateUser(BasePermission):
+    """
+    Permite criação de usuário se:
+      1. PORTAL_ADMIN (bootstrap/compatibilidade), OU
+      2. ClassificacaoUsuario.pode_criar_usuario == True
+
+    Fonte de verdade: AuthorizationService.user_can_create_users()
+    Não contém lógica própria — delega completamente ao service.
+
+    Uso:
+        class UserCreateView(APIView):
+            permission_classes = [IsAuthenticated, CanCreateUser]
+    """
+    message = "Você não tem permissão para criar usuários."
+
+    def has_permission(self, request: Request, view) -> bool:
+        if not request.user or not request.user.is_authenticated:
+            return False
+        service = AuthorizationService(request.user)
+        result = service.user_can_create_users()
+        if not result:
+            security_logger.warning(
+                "DRF_DENY CanCreateUser user_id=%s path=%s",
+                request.user.id, request.path,
+            )
+        return result
+
+
+# ─── CanEditUser ────────────────────────────────────────────────────────────
+
+class CanEditUser(BasePermission):
+    """
+    Permite edição de usuário se:
+      1. PORTAL_ADMIN (bootstrap/compatibilidade), OU
+      2. ClassificacaoUsuario.pode_editar_usuario == True
+
+    Fonte de verdade: AuthorizationService.user_can_edit_users()
+    Não contém lógica própria — delega completamente ao service.
+
+    Uso:
+        class UserProfileViewSet(ModelViewSet):
+            permission_classes = [IsAuthenticated, CanEditUser]
+    """
+    message = "Você não tem permissão para editar usuários."
+
+    def has_permission(self, request: Request, view) -> bool:
+        if not request.user or not request.user.is_authenticated:
+            return False
+        service = AuthorizationService(request.user)
+        result = service.user_can_edit_users()
+        if not result:
+            security_logger.warning(
+                "DRF_DENY CanEditUser user_id=%s path=%s",
+                request.user.id, request.path,
+            )
+        return result
