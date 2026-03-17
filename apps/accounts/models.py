@@ -86,11 +86,27 @@ class TipoUsuario(models.Model):
 
 
 class ClassificacaoUsuario(models.Model):
-    """Classificação do usuário."""
+    """
+    Classificação do usuário.
+
+    Os campos pode_criar_usuario e pode_editar_usuario controlam
+    autorização de gerenciamento de usuários na plataforma.
+    São lidos pelo AuthorizationService — nunca por hard code de role.
+    """
     idclassificacaousuario = models.SmallIntegerField(
         primary_key=True, db_column="idclassificacaousuario"
     )
     strdescricao = models.CharField(max_length=100, db_column="strdescricao")
+    pode_criar_usuario = models.BooleanField(
+        default=False,
+        db_column="pode_criar_usuario",
+        help_text="Permite criar novos usuários na plataforma.",
+    )
+    pode_editar_usuario = models.BooleanField(
+        default=False,
+        db_column="pode_editar_usuario",
+        help_text="Permite editar usuários existentes na plataforma.",
+    )
 
     class Meta:
         db_table = "tblclassificacaousuario"

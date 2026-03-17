@@ -8,15 +8,18 @@ GAP-04: UserRoleSerializer.validate() garante unicidade e role correta
 GAP-05 Fase 4: UserRoleViewSet.create() sincroniza permissões atomicamente
 GAP-05 Fase 5: UserRoleViewSet.destroy() revoga permissões exclusivas atomicamente
 FASE 6: UserCreateWithRoleView — fluxo orquestrado atômico User+Profile+Role+Sync
+DYN-SCOPE: escopo por aplicação centralizado em AuthorizationService
+FIX: except Exception substituído por captura específica (DatabaseError/IntegrityError/OperationalError)
+     ValidationError e PermissionDenied propagam normalmente para respostas 400/403 corretas
 """
 import logging
 from datetime import datetime, timezone
 
-from django.db import transaction
+from django.db import DatabaseError, IntegrityError, OperationalError, transaction
 from django.utils import timezone as dj_timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, PermissionDenied
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError as DRFValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -25,7 +28,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from common.mixins import AuditableMixin, SecureQuerysetMixin
-from common.permissions import HasRolePermission, IsPortalAdmin
+from common.permissions import CanCreateUser, CanEditUser, HasRolePermission, IsPortalAdmin
 
 from .models import AccountsSession, Aplicacao, Role, UserProfile, UserRole
 from .serializers import (
@@ -46,7 +49,7 @@ from .services.permission_sync import (
 security_logger = logging.getLogger("gpp.security")
 
 
-# ─── Auth Views ───────────────────────────────────────────────────────────────────
+# ─── Auth Views ───────────────────────────────────────────────────────────────────────────────────
 
 class GPPTokenObtainPairView(TokenObtainPairView):
     """
@@ -117,7 +120,7 @@ class TokenRevokeView(APIView):
         return Response({"detail": "Sessão encerrada com sucesso."}, status=status.HTTP_200_OK)
 
 
-# ─── Me View ─────────────────────────────────────────────────────────────────────
+# ─── Me View ───────────────────────────────────────────────────────────────────────────────────
 
 class MeView(APIView):
     """
@@ -148,23 +151,24 @@ class MeView(APIView):
         return Response(data)
 
 
-# ─── User Create View (GAP-01) ───────────────────────────────────────────────────
+# ─── User Create View (GAP-01) ─────────────────────────────────────────────────────────
 
 class UserCreateView(APIView):
     """
     POST /api/accounts/users/
     Cria atomicamente um auth.User e seu UserProfile.
-    Acesso exclusivo: PORTAL_ADMIN.
+    Acesso: ClassificacaoUsuario.pode_criar_usuario=True (ou PORTAL_ADMIN bootstrap).
 
     R-01: transaction.atomic() no serializer — rollback total em falha.
-          Exceções genéricas (ex: DB error) são capturadas aqui e
-          convertidas para APIException(500) para que o gpp_exception_handler
-          as processe corretamente sem re-levantar no TestClient.
     R-02: idusuariocriacao preenchido com o admin autenticado.
-    R-03: apenas PORTAL_ADMIN.
+    R-03: CanCreateUser — lê ClassificacaoUsuario.pode_criar_usuario via AuthorizationService.
     R-07: não cria UserRole — responsabilidade da Fase 4/6.
+    DYN-SCOPE: user_can_manage_target_user — gestores só criam usuários
+               com interseção de aplicações.
+    FIX: captura apenas exceções de infraestrutura (DatabaseError, IntegrityError, OperationalError).
+         ValidationError e PermissionDenied propagam para respostas 400/403 corretas.
     """
-    permission_classes = [IsAuthenticated, IsPortalAdmin]
+    permission_classes = [IsAuthenticated, CanCreateUser]
 
     def post(self, request):
         serializer = UserCreateSerializer(
@@ -172,9 +176,28 @@ class UserCreateView(APIView):
             context={"request": request},
         )
         serializer.is_valid(raise_exception=True)
+
+        target_user = serializer.validated_data.get("target_user")
+        if target_user is not None:
+            from apps.accounts.services.authorization_service import AuthorizationService
+            service = AuthorizationService(request.user)
+            if not service.user_can_manage_target_user(target_user):
+                security_logger.warning(
+                    "USER_CREATE_SCOPE_DENIED admin_id=%s target_user_id=%s "
+                    "reason=no_app_intersection",
+                    request.user.id, target_user.id,
+                )
+                raise PermissionDenied(
+                    "Você não tem permissão para gerenciar este usuário "
+                    "(sem interseção de aplicações)."
+                )
+
         try:
             profile = serializer.save()
-        except Exception as exc:
+        except (DRFValidationError, PermissionDenied):
+            # Deixa propagar — DRF converte automaticamente para 400/403
+            raise
+        except (DatabaseError, IntegrityError, OperationalError) as exc:
             security_logger.error(
                 "USER_CREATE_ERROR admin_id=%s error=%s",
                 request.user.id, str(exc),
@@ -193,7 +216,7 @@ class UserCreateView(APIView):
         )
 
 
-# ─── User Create With Role View (FASE 6) ─────────────────────────────────────────
+# ─── User Create With Role View (FASE 6) ──────────────────────────────────────────────
 
 class UserCreateWithRoleView(APIView):
     """
@@ -207,10 +230,14 @@ class UserCreateWithRoleView(APIView):
     R-02: isshowinportal=False validado pelo queryset do campo aplicacao_id.
     R-03: role.aplicacao == aplicacao validado no validate() do serializer.
     R-04: validações de senha, unicidade, e role única por app reaplicadas.
-    R-06: apenas PORTAL_ADMIN.
+    R-06: CanCreateUser — lê ClassificacaoUsuario.pode_criar_usuario via AuthorizationService.
     R-07: permissions_added reflete exatamente quantas perms foram adicionadas.
+    DYN-SCOPE: user_can_create_user_in_application — gestores só podem criar usuários
+               em aplicações onde possuem UserRole.
+    FIX: captura apenas exceções de infraestrutura (DatabaseError, IntegrityError, OperationalError).
+         ValidationError e PermissionDenied propagam para respostas 400/403 corretas.
     """
-    permission_classes = [IsAuthenticated, IsPortalAdmin]
+    permission_classes = [IsAuthenticated, CanCreateUser]
 
     def post(self, request):
         serializer = UserCreateWithRoleSerializer(
@@ -218,12 +245,34 @@ class UserCreateWithRoleView(APIView):
             context={"request": request},
         )
         serializer.is_valid(raise_exception=True)
+
+        # DYN-SCOPE: aplicação extraída dos dados validados pelo serializer (banco),
+        # nunca diretamente da request, evitando manipulação.
+        aplicacao_destino = serializer.validated_data["aplicacao"]
+
+        if aplicacao_destino is not None:
+            from apps.accounts.services.authorization_service import AuthorizationService
+            service = AuthorizationService(request.user)
+            if not service.user_can_create_user_in_application(aplicacao_destino):
+                security_logger.warning(
+                    "USER_CREATE_WITH_ROLE_SCOPE_DENIED admin_id=%s aplicacao_id=%s "
+                    "reason=no_permission_in_target_app",
+                    request.user.id,
+                    getattr(aplicacao_destino, "pk", aplicacao_destino),
+                )
+                raise PermissionDenied(
+                    "Você só pode criar usuários nas aplicações que gerencia."
+                )
+
         try:
             result = serializer.save()
-        except Exception as exc:
-            security_logger.error(
-                "USER_CREATE_WITH_ROLE_ERROR admin_id=%s error=%s",
-                request.user.id, str(exc),
+        except (DRFValidationError, PermissionDenied):
+            # Deixa propagar — DRF converte automaticamente para 400/403
+            raise
+        except (DatabaseError, IntegrityError, OperationalError) as exc:
+            security_logger.exception(
+                "USER_CREATE_WITH_ROLE_ERROR admin_id=%s",
+                request.user.id,
             )
             raise APIException(
                 detail="Erro interno ao criar usuário com role. Tente novamente."
@@ -240,7 +289,7 @@ class UserCreateWithRoleView(APIView):
         return Response(result, status=status.HTTP_201_CREATED)
 
 
-# ─── Aplicacao ViewSet (GAP-02) ───────────────────────────────────────────────────
+# ─── Aplicacao ViewSet (GAP-02) ───────────────────────────────────────────────────────────────────
 
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -261,7 +310,7 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
         return Aplicacao.objects.filter(isshowinportal=False).order_by("nomeaplicacao")
 
 
-# ─── CRUD ViewSets ──────────────────────────────────────────────────────────────────
+# ─── CRUD ViewSets ────────────────────────────────────────────────────────────────────────────────────
 
 class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """
@@ -273,7 +322,7 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
     Para PORTAL_ADMIN o escopo é bypassado manualmente em get_queryset.
     """
     serializer_class = UserProfileSerializer
-    permission_classes = [IsAuthenticated, HasRolePermission]
+    permission_classes = [IsAuthenticated, HasRolePermission, CanEditUser]
     http_method_names = ["get", "patch", "head", "options"]
 
     # SecureQuerysetMixin: campos de escopo
@@ -295,17 +344,30 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
     def partial_update(self, request, *args, **kwargs):
         """
         PATCH /api/accounts/profiles/{id}/
-        Usuário comum só pode editar o próprio profile.
-        PORTAL_ADMIN pode editar qualquer profile.
+
+        CanEditUser (no permission_classes) já garante que o usuário pode
+        editar usuários em geral. Esta verificação adicional garante proteção
+        IDOR: usuário sem is_portal_admin só edita o próprio perfil.
+        Gestores (pode_editar_usuario=True) editam apenas perfis de usuários
+        pertencentes às aplicações que também gerenciam (escopo por aplicação).
         """
         instance = self.get_object()
-        if not getattr(request, "is_portal_admin", False):
-            if instance.user != request.user:
-                security_logger.warning(
-                    "PROFILE_PATCH_DENIED user_id=%s target_user_id=%s",
-                    request.user.id, instance.user_id,
-                )
-                raise PermissionDenied("Você só pode editar o próprio perfil.")
+        from apps.accounts.services.authorization_service import AuthorizationService
+        service = AuthorizationService(request.user)
+
+        # Permite auto-edição do próprio perfil sem restrição de escopo
+        if instance.user == request.user:
+            return super().partial_update(request, *args, **kwargs)
+
+        # Para edição de outro usuário, delega ao AuthorizationService
+        if not service.user_can_edit_target_user(instance.user):
+            security_logger.warning(
+                "PROFILE_PATCH_DENIED user_id=%s target_user_id=%s "
+                "reason=no_edit_permission_or_no_app_intersection",
+                request.user.id, instance.user_id,
+            )
+            raise PermissionDenied("Você não tem permissão para editar este perfil.")
+
         return super().partial_update(request, *args, **kwargs)
 
 

@@ -1,0 +1,29 @@
+[
+  {
+    "model": "accounts.classificacaousuario",
+    "pk": 1,
+    "fields": {
+      "strdescricao": "Gestor",
+      "pode_criar_usuario": true,
+      "pode_editar_usuario": true
+    }
+  },
+  {
+    "model": "accounts.classificacaousuario",
+    "pk": 2,
+    "fields": {
+      "strdescricao": "Coordenador",
+      "pode_criar_usuario": false,
+      "pode_editar_usuario": false
+    }
+  },
+  {
+    "model": "accounts.classificacaousuario",
+    "pk": 3,
+    "fields": {
+      "strdescricao": "Usu\u00e1rio",
+      "pode_criar_usuario": false,
+      "pode_editar_usuario": false
+    }
+  }
+]

@@ -1,6 +1,6 @@
 """
 GPP Plataform 2.0 — Accounts Tests: UserCreate (GAP-01)
-Cobre cenários T-01 a T-10 conforme especificação da Fase 1.
+Cobre cenários T-01 a T-11 conforme especificação das Fases 1 e 7.
 
 Padrão de autenticação:
     O JWTAuthenticationMiddleware processa o request antes do DRF e retorna
@@ -17,6 +17,16 @@ T-08 (rollback):
     A view captura Exception genérica e relênça como APIException(500),
     que o gpp_exception_handler processa sem re-levantar no TestClient.
     O teste usa raise_request_exception=False como garantia extra.
+
+T-07 (sem permissão — FASE 7):
+    Após migração para CanCreateUser, a permissão é determinada por
+    ClassificacaoUsuario.pode_criar_usuario. plain_user tem classificacao_id=1
+    com pode_criar_usuario=False → 403.
+
+T-11 (gestor sem PORTAL_ADMIN — FASE 7):
+    Gestor com ClassificacaoUsuario.pode_criar_usuario=True pode criar usuário
+    sem possuir a role PORTAL_ADMIN — confirma que o acesso não depende mais
+    de is_portal_admin.
 """
 from unittest.mock import patch
 
@@ -44,7 +54,12 @@ def _bootstrap_lookups():
     StatusUsuario.objects.get_or_create(idstatususuario=1, defaults={"strdescricao": "Ativo"})
     TipoUsuario.objects.get_or_create(idtipousuario=1, defaults={"strdescricao": "Padrão"})
     ClassificacaoUsuario.objects.get_or_create(
-        idclassificacaousuario=1, defaults={"strdescricao": "Padrão"}
+        idclassificacaousuario=1,
+        defaults={
+            "strdescricao": "Padrão",
+            "pode_criar_usuario": False,   # default seguro
+            "pode_editar_usuario": False,
+        },
     )
 
 
@@ -83,6 +98,7 @@ def _make_admin_user(username="admin_gap01"):
 def _make_plain_user(username="plain_gap01"):
     """
     Cria User + UserProfile com role USER (não-admin).
+    ClassificacaoUsuario PK=1 tem pode_criar_usuario=False (default seguro).
     R-06: usa User.objects.create_user() diretamente.
     """
     _bootstrap_lookups()
@@ -105,6 +121,32 @@ def _make_plain_user(username="plain_gap01"):
     return user
 
 
+def _make_gestor_user(username="gestor_gap01"):
+    """
+    Cria usuário com ClassificacaoUsuario.pode_criar_usuario=True.
+    Substitui a dependência de PORTAL_ADMIN para testes de criação de usuário.
+    """
+    _bootstrap_lookups()
+    classificacao_gestor, _ = ClassificacaoUsuario.objects.get_or_create(
+        idclassificacaousuario=10,
+        defaults={
+            "strdescricao": "Gestor",
+            "pode_criar_usuario": True,
+            "pode_editar_usuario": True,
+        },
+    )
+    user = User.objects.create_user(username=username, password="Gestor@2026!")
+    UserProfile.objects.create(
+        user=user,
+        name=username,
+        orgao="SEDU",
+        status_usuario_id=1,
+        tipo_usuario_id=1,
+        classificacao_usuario=classificacao_gestor,
+    )
+    return user
+
+
 # ── Payload padrão válido ──────────────────────────────────────────────────────
 
 VALID_PAYLOAD = {
@@ -122,14 +164,15 @@ VALID_PAYLOAD = {
 
 class UserCreateEndpointTest(APITestCase):
     """
-    Testes T-01 a T-10 para POST /api/accounts/users/.
+    Testes T-01 a T-11 para POST /api/accounts/users/.
     """
 
     @classmethod
     def setUpTestData(cls):
         cls.url = reverse("accounts:user-create")
-        cls.admin = _make_admin_user()
-        cls.plain_user = _make_plain_user()
+        cls.admin = _make_admin_user()       # PORTAL_ADMIN — mantido para T-01 (bootstrap)
+        cls.gestor = _make_gestor_user()     # Novo: ClassificacaoUsuario.pode_criar_usuario=True
+        cls.plain_user = _make_plain_user()  # pode_criar_usuario=False
 
     def setUp(self):
         self.client = APIClient(raise_request_exception=False)
@@ -248,19 +291,18 @@ class UserCreateEndpointTest(APITestCase):
         response = self.client.post(self.url, VALID_PAYLOAD, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    # ── T-07 — autenticado sem PORTAL_ADMIN ───────────────────────────────────
+    # ── T-07 — usuário sem permissão (CanCreateUser) ───────────────────────────
 
-    def test_T07_non_admin_returns_403(self):
+    def test_T07_usuario_sem_permissao_retorna_403(self):
         """
-        T-07: usuário autenticado mas sem PORTAL_ADMIN → 403.
-        patch_security com is_portal_admin=False injeta request.is_portal_admin=False;
-        IsPortalAdmin.has_permission() lê esse atributo e retorna False → 403.
+        T-07: usuário com ClassificacaoUsuario.pode_criar_usuario=False → 403.
+        CanCreateUser lê a flag do banco via AuthorizationService.
+        patch_security não injeta is_portal_admin=True para não fazer bypass.
         """
         patches = patch_security(self.plain_user, is_portal_admin=False)
         with patches[0], patches[1], patches[2]:
             self.client.force_authenticate(user=self.plain_user)
             response = self.client.post(self.url, VALID_PAYLOAD, format="json")
-
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     # ── T-08 — rollback atômico ────────────────────────────────────────────────
@@ -320,3 +362,22 @@ class UserCreateEndpointTest(APITestCase):
             response = self.client.post(profiles_url, VALID_PAYLOAD, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    # ── T-11 — Gestor (sem PORTAL_ADMIN) pode criar usuário ───────────────────
+
+    def test_T11_gestor_pode_criar_usuario(self):
+        """
+        T-11: Gestor com pode_criar_usuario=True → 201 (ou 400 de validação).
+        Confirma que o acesso NÃO depende mais de PORTAL_ADMIN.
+        """
+        patches = patch_security(self.gestor, is_portal_admin=False)
+        with patches[0], patches[1], patches[2]:
+            self.client.force_authenticate(user=self.gestor)
+            payload = {**VALID_PAYLOAD, "username": "novo_t11", "email": "t11@test.com"}
+            response = self.client.post(self.url, payload, format="json")
+        # 201 criado ou 400 validação — nunca 403
+        self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn(
+            response.status_code,
+            [status.HTTP_201_CREATED, status.HTTP_400_BAD_REQUEST],
+        )

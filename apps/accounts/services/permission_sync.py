@@ -6,15 +6,15 @@ GAP-05 — Responsabilidade:
   revoke_user_permissions_from_group: remove permissões exclusivas de um grupo removido (Fase 5)
 """
 import logging
-
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
+from typing import Any
 
 security_logger = logging.getLogger("gpp.security")
 User = get_user_model()
 
 
-def sync_user_permissions_from_group(user: User, group: Group) -> int:
+def sync_user_permissions_from_group(user: Any, group: Group) -> int:
     """
     Copia as permissões de auth_group_permissions para auth_user_user_permissions.
 
@@ -49,7 +49,7 @@ def sync_user_permissions_from_group(user: User, group: Group) -> int:
     return len(to_add)
 
 
-def revoke_user_permissions_from_group(user: User, group_removed: Group) -> int:
+def revoke_user_permissions_from_group(user: Any, group_removed: Group) -> int:
     """
     Remove de auth_user_user_permissions as permissões do grupo removido,
     exceto aquelas ainda cobertas por outros grupos ativos do usuário.
