@@ -5,7 +5,9 @@ Responsabilidade:
     Encapsula as regras de negócio de autorização de usuários como camada
     de domínio puro. Não conhece request, DRF nem views.
 
-Usage (SOMENTE via AuthorizationService):
+Usage:
+    Pode ser utilizada diretamente ou via AuthorizationService.
+
     policy = UserPolicy(user)
     policy.can_create_user()
     policy.can_edit_user()
@@ -38,7 +40,6 @@ class UserPolicy:
     # ─────────────────────────────────────────────
 
     def can_create_user(self) -> bool:
-        """Espelha exatamente AuthorizationService.user_can_create_users."""
 
         if self._is_portal_admin():
             security_logger.info(
@@ -70,7 +71,6 @@ class UserPolicy:
         return result
 
     def can_edit_user(self) -> bool:
-        """Espelha exatamente AuthorizationService.user_can_edit_users."""
 
         if self._is_portal_admin():
             security_logger.info(
@@ -102,7 +102,6 @@ class UserPolicy:
         return result
 
     def can_create_user_in_application(self, aplicacao) -> bool:
-        """Espelha exatamente AuthorizationService.user_can_create_user_in_application."""
 
         app_code = getattr(aplicacao, "codigointerno", None) or str(aplicacao)
 
@@ -145,7 +144,6 @@ class UserPolicy:
         return has_role
 
     def can_edit_target_user(self, target_user) -> bool:
-        """Espelha exatamente AuthorizationService.user_can_edit_target_user."""
 
         if self._is_portal_admin():
             security_logger.info(
@@ -181,7 +179,6 @@ class UserPolicy:
         return has_intersection
 
     def can_manage_target_user(self, target_user) -> bool:
-        """Espelha exatamente AuthorizationService.user_can_manage_target_user."""
 
         if self._is_portal_admin():
             security_logger.info(
