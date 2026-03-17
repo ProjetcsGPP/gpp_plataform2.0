@@ -37,9 +37,8 @@ class AuthorizationService:
         self._attributes: Optional[dict] = None
         self._roles: Optional[list] = None
 
-        # caches internos por request
+        # cache interno por request
         self._is_admin: Optional[bool] = None
-        self._user_apps: Optional[set] = None
 
     # ─────────────────────────────────────────────
     # API pública
@@ -134,7 +133,8 @@ class AuthorizationService:
         return self._policy().can_manage_target_user(target_user)
 
     # ─────────────────────────────────────────────
-    # PORTAL ADMIN (mantido para uso interno do can())
+    # PORTAL ADMIN — usado por can() e por core/permissions.py
+    # (IsPortalAdmin, ObjectPermission)
     # ─────────────────────────────────────────────
 
     def _is_portal_admin(self) -> bool:
@@ -150,36 +150,6 @@ class AuthorizationService:
         ).exists()
 
         return self._is_admin
-
-    # ─────────────────────────────────────────────
-    # Helpers de aplicação (mantidos para _has_application_intersection via Policy)
-    # ─────────────────────────────────────────────
-
-    def _get_user_applications(self) -> set:
-
-        if self._user_apps is not None:
-            return self._user_apps
-
-        from apps.accounts.models import UserRole
-
-        self._user_apps = set(
-            UserRole.objects
-            .filter(user=self.user)
-            .values_list("aplicacao_id", flat=True)
-        )
-
-        return self._user_apps
-
-    def _has_application_intersection(self, target_user) -> bool:
-
-        from apps.accounts.models import UserRole
-
-        user_apps = self._get_user_applications()
-
-        return UserRole.objects.filter(
-            user=target_user,
-            aplicacao_id__in=user_apps,
-        ).exists()
 
     # ─────────────────────────────────────────────
     # RBAC / ABAC
