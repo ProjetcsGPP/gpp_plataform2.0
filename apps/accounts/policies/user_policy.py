@@ -104,11 +104,13 @@ class UserPolicy:
     def can_create_user_in_application(self, aplicacao) -> bool:
         """Espelha exatamente AuthorizationService.user_can_create_user_in_application."""
 
+        app_code = aplicacao.codigointerno if hasattr(aplicacao, "codigointerno") else str(aplicacao)
+
         if self._is_portal_admin():
             security_logger.info(
                 "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s app=%s reason=portal_admin",
                 self.user.id,
-                getattr(aplicacao, "codigointerno", aplicacao),
+                app_code,
             )
             return True
 
@@ -116,7 +118,7 @@ class UserPolicy:
             security_logger.warning(
                 "AUTHZ_CREATE_IN_APP_DENY user_id=%s app=%s reason=no_create_permission",
                 self.user.id,
-                getattr(aplicacao, "codigointerno", aplicacao),
+                app_code,
             )
             return False
 
@@ -131,13 +133,13 @@ class UserPolicy:
             security_logger.info(
                 "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s app=%s reason=has_role_in_app",
                 self.user.id,
-                getattr(aplicacao, "codigointerno", aplicacao),
+                app_code,
             )
         else:
             security_logger.warning(
                 "AUTHZ_CREATE_IN_APP_DENY user_id=%s app=%s reason=no_role_in_app",
                 self.user.id,
-                getattr(aplicacao, "codigointerno", aplicacao),
+                app_code,
             )
 
         return has_role
@@ -234,7 +236,7 @@ class UserPolicy:
     def _get_classificacao(self):
         try:
             return self.user.profile.classificacao_usuario
-        except Exception:
+        except AttributeError:
             return None
 
     def _get_user_applications(self) -> set:
