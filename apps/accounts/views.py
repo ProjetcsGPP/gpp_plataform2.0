@@ -9,15 +9,17 @@ GAP-05 Fase 4: UserRoleViewSet.create() sincroniza permissões atomicamente
 GAP-05 Fase 5: UserRoleViewSet.destroy() revoga permissões exclusivas atomicamente
 FASE 6: UserCreateWithRoleView — fluxo orquestrado atômico User+Profile+Role+Sync
 DYN-SCOPE: escopo por aplicação centralizado em AuthorizationService
+FIX: except Exception substituído por captura específica (DatabaseError/IntegrityError/OperationalError)
+     ValidationError e PermissionDenied propagam normalmente para respostas 400/403 corretas
 """
 import logging
 from datetime import datetime, timezone
 
-from django.db import transaction
+from django.db import DatabaseError, IntegrityError, OperationalError, transaction
 from django.utils import timezone as dj_timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, PermissionDenied
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError as DRFValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -158,15 +160,13 @@ class UserCreateView(APIView):
     Acesso: ClassificacaoUsuario.pode_criar_usuario=True (ou PORTAL_ADMIN bootstrap).
 
     R-01: transaction.atomic() no serializer — rollback total em falha.
-          Exceções genéricas (ex: DB error) são capturadas aqui e
-          convertidas para APIException(500) para que o gpp_exception_handler
-          as processe corretamente sem re-levantar no TestClient.
     R-02: idusuariocriacao preenchido com o admin autenticado.
     R-03: CanCreateUser — lê ClassificacaoUsuario.pode_criar_usuario via AuthorizationService.
     R-07: não cria UserRole — responsabilidade da Fase 4/6.
     DYN-SCOPE: user_can_manage_target_user — gestores só criam usuários
-               com interseção de aplicações. Verificação feita após
-               validação do serializer, antes do save(), usando dados do banco.
+               com interseção de aplicações.
+    FIX: captura apenas exceções de infraestrutura (DatabaseError, IntegrityError, OperationalError).
+         ValidationError e PermissionDenied propagam para respostas 400/403 corretas.
     """
     permission_classes = [IsAuthenticated, CanCreateUser]
 
@@ -177,14 +177,6 @@ class UserCreateView(APIView):
         )
         serializer.is_valid(raise_exception=True)
 
-        # DYN-SCOPE: verifica escopo por aplicação para gestores.
-        # O usuário alvo ainda não foi criado; verificamos o gestor contra
-        # um usuário existente representado pelo campo 'target_user' se
-        # presente no contexto, ou ignoramos se não aplicável neste fluxo.
-        # Neste endpoint o target é um novo usuário, então a verificação
-        # de interseção é feita após criação em UserCreateWithRoleView.
-        # Aqui aplicamos apenas a verificação quando 'target_user' é fornecido
-        # via contexto (edição) ou pulamos para novo usuário sem role ainda.
         target_user = serializer.validated_data.get("target_user")
         if target_user is not None:
             from apps.accounts.services.authorization_service import AuthorizationService
@@ -202,7 +194,10 @@ class UserCreateView(APIView):
 
         try:
             profile = serializer.save()
-        except Exception as exc:
+        except (DRFValidationError, PermissionDenied):
+            # Deixa propagar — DRF converte automaticamente para 400/403
+            raise
+        except (DatabaseError, IntegrityError, OperationalError) as exc:
             security_logger.error(
                 "USER_CREATE_ERROR admin_id=%s error=%s",
                 request.user.id, str(exc),
@@ -238,9 +233,9 @@ class UserCreateWithRoleView(APIView):
     R-06: CanCreateUser — lê ClassificacaoUsuario.pode_criar_usuario via AuthorizationService.
     R-07: permissions_added reflete exatamente quantas perms foram adicionadas.
     DYN-SCOPE: user_can_create_user_in_application — gestores só podem criar usuários
-               em aplicações onde possuem UserRole. A aplicação é lida do banco
-               via aplicacao_id validado pelo serializer, nunca da request direta.
-               Autorização centralizada em AuthorizationService.
+               em aplicações onde possuem UserRole.
+    FIX: captura apenas exceções de infraestrutura (DatabaseError, IntegrityError, OperationalError).
+         ValidationError e PermissionDenied propagam para respostas 400/403 corretas.
     """
     permission_classes = [IsAuthenticated, CanCreateUser]
 
@@ -251,12 +246,10 @@ class UserCreateWithRoleView(APIView):
         )
         serializer.is_valid(raise_exception=True)
 
-        # DYN-SCOPE: delega verificação de escopo ao AuthorizationService.
-        # A aplicação é extraída dos dados validados pelo serializer (banco),
+        # DYN-SCOPE: aplicação extraída dos dados validados pelo serializer (banco),
         # nunca diretamente da request, evitando manipulação.
-        #aplicacao_destino = serializer.validated_data.get("aplicacao_id")
         aplicacao_destino = serializer.validated_data["aplicacao"]
-        
+
         if aplicacao_destino is not None:
             from apps.accounts.services.authorization_service import AuthorizationService
             service = AuthorizationService(request.user)
@@ -273,7 +266,10 @@ class UserCreateWithRoleView(APIView):
 
         try:
             result = serializer.save()
-        except Exception as exc:
+        except (DRFValidationError, PermissionDenied):
+            # Deixa propagar — DRF converte automaticamente para 400/403
+            raise
+        except (DatabaseError, IntegrityError, OperationalError) as exc:
             security_logger.exception(
                 "USER_CREATE_WITH_ROLE_ERROR admin_id=%s",
                 request.user.id,

@@ -6,6 +6,8 @@ GAP-02: adicionado AplicacaoSerializer
 GAP-03: RoleSerializer enriquecido com campos de aplicacao e group
 GAP-04: UserRoleSerializer.validate() — unicidade (user, aplicacao) + role pertence à app
 FASE 6: adicionado UserCreateWithRoleSerializer — fluxo orquestrado atômico
+FIX: FK fallback via filter().first() + ValidationError 400 explícito (elimina DoesNotExist → 500)
+FIX: prints de debug removidos
 """
 import logging
 
@@ -31,6 +33,22 @@ from .models import (
 )
 
 security_logger = logging.getLogger("gpp.security")
+
+
+# ─── Helpers internos ─────────────────────────────────────────────────────────
+
+def _get_fk_or_400(model, pk, field_name):
+    """
+    Busca instância por PK via filter().first().
+    Lança ValidationError 400 explícito se não encontrada,
+    evitando DoesNotExist não tratado → 500.
+    """
+    obj = model.objects.filter(pk=pk).first()
+    if obj is None:
+        raise serializers.ValidationError(
+            {field_name: f"Registro com pk={pk} não encontrado."}
+        )
+    return obj
 
 
 # ─── JWT Token Serializer customizado ─────────────────────────────────────────────────
@@ -169,6 +187,23 @@ class UserCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(list(exc.messages))
         return value
 
+    def validate(self, data):
+        """
+        Valida existência das FKs de perfil antes da transação.
+        Garante 400 explícito em vez de IntegrityError → 500.
+        """
+        for field, model in [
+            ("status_usuario", StatusUsuario),
+            ("tipo_usuario", TipoUsuario),
+            ("classificacao_usuario", ClassificacaoUsuario),
+        ]:
+            pk = data.get(field, 1)
+            if not model.objects.filter(pk=pk).exists():
+                raise serializers.ValidationError(
+                    {field: f"Registro com pk={pk} não encontrado."}
+                )
+        return data
+
     def create(self, validated_data):
         request = self.context["request"]
         with transaction.atomic():
@@ -297,6 +332,7 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
       - aplicacao_id apenas para apps com isshowinportal=False (R-02)
       - role deve pertencer à aplicacao informada (R-03)
       - unicidade (user, aplicacao) — herdada da lógica da Fase 4 (R-04)
+      - FKs de perfil validadas antes da transação para garantir 400 em vez de 500 (FIX)
 
     Retorno:
       dict com user_id, username, email, name, orgao, aplicacao, role,
@@ -361,22 +397,28 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
                 {"role_id": "A role não pertence à aplicação informada."}
             )
 
+        # FIX: valida existência das FKs de perfil opcionais antes de entrar na transação.
+        # PrimaryKeyRelatedField com required=False retorna None quando omitido.
+        # Se o default pk=1 não existir, retorna ValidationError 400 em vez de
+        # DoesNotExist / KeyError → 500 dentro do atomic().
+        if data.get("status_usuario") is None:
+            _get_fk_or_400(StatusUsuario, 1, "status_usuario")
+        if data.get("tipo_usuario") is None:
+            _get_fk_or_400(TipoUsuario, 1, "tipo_usuario")
+        if data.get("classificacao_usuario") is None:
+            _get_fk_or_400(ClassificacaoUsuario, 1, "classificacao_usuario")
+
         return data
 
     def create(self, validated_data):
-        
-        print("STATUS:", validated_data.get("status_usuario"), type(validated_data.get("status_usuario")))
-        print("TIPO:", validated_data.get("tipo_usuario"), type(validated_data.get("tipo_usuario")))
-        print("CLASS:", validated_data.get("classificacao_usuario"), type(validated_data.get("classificacao_usuario")))
-
         request   = self.context["request"]
         aplicacao = validated_data["aplicacao"]
         role      = validated_data["role"]
 
-        # campos de profile obrigatórios (R-01)
-        status_usuario = validated_data["status_usuario"]
-        tipo_usuario = validated_data["tipo_usuario"]
-        classificacao_usuario = validated_data["classificacao_usuario"]
+        # Usa instância validada ou busca o default pk=1 (existência já garantida em validate())
+        status_usuario        = validated_data.get("status_usuario") or StatusUsuario.objects.get(pk=1)
+        tipo_usuario          = validated_data.get("tipo_usuario") or TipoUsuario.objects.get(pk=1)
+        classificacao_usuario = validated_data.get("classificacao_usuario") or ClassificacaoUsuario.objects.get(pk=1)
 
         with transaction.atomic():
             # 1. Criar auth.User
@@ -413,15 +455,15 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
             )
 
         return {
-            "user_id":          user.id,
-            "username":         user.username,
-            "email":            user.email,
-            "name":             profile.name,
-            "orgao":            profile.orgao,
-            "aplicacao":        aplicacao.codigointerno,
-            "role":             role.codigoperfil,
+            "user_id":           user.id,
+            "username":          user.username,
+            "email":             user.email,
+            "name":              profile.name,
+            "orgao":             profile.orgao,
+            "aplicacao":         aplicacao.codigointerno,
+            "role":              role.codigoperfil,
             "permissions_added": permissions_added,
-            "datacriacao":      profile.datacriacao,
+            "datacriacao":       profile.datacriacao,
         }
 
 
