@@ -250,20 +250,13 @@ class AuthorizationService:
                 getattr(aplicacao, "codigointerno", aplicacao),
             )
             return False
-        
+
         from apps.accounts.models import UserRole
 
         has_role = UserRole.objects.filter(
             user=self.user,
             aplicacao=aplicacao,
         ).exists()
-
-        #security_logger.warning(
-        #    "DEBUG_SCOPE_CHECK user_id=%s app=%s has_role=%s",
-        #    self.user.id,
-        #    getattr(aplicacao, "codigointerno", aplicacao),
-        #    has_role,
-        #)
 
         if has_role:
             security_logger.info(
