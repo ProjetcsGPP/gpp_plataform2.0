@@ -274,9 +274,9 @@ class UserCreateWithRoleView(APIView):
         try:
             result = serializer.save()
         except Exception as exc:
-            security_logger.error(
-                "USER_CREATE_WITH_ROLE_ERROR admin_id=%s error=%s",
-                request.user.id, str(exc),
+            security_logger.exception(
+                "USER_CREATE_WITH_ROLE_ERROR admin_id=%s",
+                request.user.id,
             )
             raise APIException(
                 detail="Erro interno ao criar usuário com role. Tente novamente."

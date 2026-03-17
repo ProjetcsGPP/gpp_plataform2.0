@@ -31,7 +31,15 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from apps.accounts.models import Aplicacao, Role, UserProfile, UserRole
+from apps.accounts.models import (
+    UserProfile,
+    UserRole,
+    ClassificacaoUsuario,
+    StatusUsuario,
+    TipoUsuario,
+    Aplicacao,
+    Role,
+)
 
 CREATE_WITH_ROLE_URL = "/api/accounts/users/create-with-role/"
 USER_ROLES_URL       = "/api/accounts/user-roles/"
@@ -72,7 +80,7 @@ def _make_user(username, role_pk, password="Senha@123"):
     return user
 
 
-def _valid_payload(aplicacao_id, role_id, suffix=""):
+def _valid_payload(self, aplicacao_id, role_id, suffix=""):
     """Gera um payload válido único para cada chamada."""
     return {
         "username":   f"joao.silva{suffix}",
@@ -82,6 +90,9 @@ def _valid_payload(aplicacao_id, role_id, suffix=""):
         "last_name":  "Silva",
         "name":       "João Silva",
         "orgao":      "SEDU",
+        "status_usuario": self.status.idstatususuario,
+        "tipo_usuario": self.tipo.idtipousuario,
+        "classificacao_usuario": self.classificacao_gestor.idclassificacaousuario,
         "aplicacao_id": aplicacao_id,
         "role_id":      role_id,
     }
@@ -112,6 +123,22 @@ class TestUserCreateWithRoleView(TestCase):
         cls.app_portal   = Aplicacao.objects.get(pk=1)
         # role pk=1 pertence à app pk=1 (PORTAL) → "wrong app" para T-03
         cls.role_portal  = Role.objects.get(pk=1)
+        
+        # Lookups básicos
+        cls.status, _ = StatusUsuario.objects.get_or_create(
+            idstatususuario=1, defaults={"strdescricao": "Ativo"}
+        )
+        cls.tipo, _ = TipoUsuario.objects.get_or_create(
+            idtipousuario=1, defaults={"strdescricao": "Padrão"}
+        )
+
+        # Classificação com permissão
+        cls.classificacao_gestor = ClassificacaoUsuario.objects.create(
+            idclassificacaousuario=100,
+            strdescricao="Gestor",
+            pode_criar_usuario=True,
+            pode_editar_usuario=True,
+        )
 
     @classmethod
     def setUpClass(cls):
@@ -128,7 +155,7 @@ class TestUserCreateWithRoleView(TestCase):
     def test_t09_unauthenticated_returns_401(self):
         resp = self.anon_client.post(
             CREATE_WITH_ROLE_URL,
-            _valid_payload(self.app_valida.idaplicacao, self.role_valida.id, "_t09"),
+            _valid_payload(self, self.app_valida.idaplicacao, self.role_valida.id, "_t09"),
             format="json",
         )
         self.assertEqual(resp.status_code, 401)
@@ -137,14 +164,14 @@ class TestUserCreateWithRoleView(TestCase):
     def test_t10_no_portal_admin_returns_403(self):
         resp = self.common_client.post(
             CREATE_WITH_ROLE_URL,
-            _valid_payload(self.app_valida.idaplicacao, self.role_valida.id, "_t10"),
+            _valid_payload(self, self.app_valida.idaplicacao, self.role_valida.id, "_t10"),
             format="json",
         )
         self.assertEqual(resp.status_code, 403)
 
     # ── T-01: POST válido → 201 com payload correto ───────────────────
     def test_t01_valid_post_returns_201(self):
-        payload = _valid_payload(self.app_valida.idaplicacao, self.role_valida.id, "_t01")
+        payload = _valid_payload(self, self.app_valida.idaplicacao, self.role_valida.id, "_t01")
         resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
         self.assertEqual(resp.status_code, 201, resp.data)
 
@@ -165,7 +192,7 @@ class TestUserCreateWithRoleView(TestCase):
 
     # ── T-02: aplicacao_id com isshowinportal=True → 400 ─────────────
     def test_t02_portal_app_returns_400(self):
-        payload = _valid_payload(self.app_portal.idaplicacao, self.role_portal.id, "_t02")
+        payload = _valid_payload(self, self.app_portal.idaplicacao, self.role_portal.id, "_t02")
         resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
         self.assertEqual(resp.status_code, 400)
 
@@ -175,7 +202,7 @@ class TestUserCreateWithRoleView(TestCase):
         # Mas estamos enviando aplicacao_id=app_valida (pk=2)
         # → app_valida passa no queryset (isshowinportal=False)
         # → mas role_portal.aplicacao != app_valida → validate() deve rejeitar
-        payload = _valid_payload(
+        payload = _valid_payload(self, 
             self.app_valida.idaplicacao,
             self.role_portal.id,  # role pertence à app PORTAL, não à ACOES_PNGI
             "_t03"
@@ -190,7 +217,7 @@ class TestUserCreateWithRoleView(TestCase):
     def test_t04_duplicate_username_returns_400(self):
         # Criar usuário com o mesmo username antes
         User.objects.create_user(username="joao.dup", password="x", email="dup@dup.com")
-        payload = _valid_payload(self.app_valida.idaplicacao, self.role_valida.id, "_t04")
+        payload = _valid_payload(self, self.app_valida.idaplicacao, self.role_valida.id, "_t04")
         payload["username"] = "joao.dup"
         resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
         self.assertEqual(resp.status_code, 400)
@@ -199,7 +226,7 @@ class TestUserCreateWithRoleView(TestCase):
 
     # ── T-05: senha fraca → 400 ───────────────────────────────────────
     def test_t05_weak_password_returns_400(self):
-        payload = _valid_payload(self.app_valida.idaplicacao, self.role_valida.id, "_t05")
+        payload = _valid_payload(self, self.app_valida.idaplicacao, self.role_valida.id, "_t05")
         payload["password"] = "123"
         resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
         self.assertEqual(resp.status_code, 400)
@@ -208,7 +235,7 @@ class TestUserCreateWithRoleView(TestCase):
 
     # ── T-06: falha no sync → rollback total ──────────────────────────
     def test_t06_sync_failure_triggers_rollback(self):
-        payload = _valid_payload(self.app_valida.idaplicacao, self.role_valida.id, "_t06")
+        payload = _valid_payload(self, self.app_valida.idaplicacao, self.role_valida.id, "_t06")
         sync_path = "apps.accounts.serializers.sync_user_permissions_from_group"
         with patch(sync_path, side_effect=Exception("sync falhou")):
             resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
@@ -224,7 +251,7 @@ class TestUserCreateWithRoleView(TestCase):
 
     # ── T-07: falha no UserRole.create → rollback total ──────────────
     def test_t07_userrole_failure_triggers_rollback(self):
-        payload = _valid_payload(self.app_valida.idaplicacao, self.role_valida.id, "_t07")
+        payload = _valid_payload(self, self.app_valida.idaplicacao, self.role_valida.id, "_t07")
         role_path = "apps.accounts.models.UserRole.objects.create"
         with patch(role_path, side_effect=Exception("userrole criação falhou")):
             resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
@@ -234,7 +261,7 @@ class TestUserCreateWithRoleView(TestCase):
 
     # ── T-08: permissões presentes após T-01 ──────────────────────────
     def test_t08_permissions_added_after_creation(self):
-        payload = _valid_payload(self.app_valida.idaplicacao, self.role_valida.id, "_t08")
+        payload = _valid_payload(self, self.app_valida.idaplicacao, self.role_valida.id, "_t08")
         resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
         self.assertEqual(resp.status_code, 201, resp.data)
 
@@ -252,7 +279,7 @@ class TestUserCreateWithRoleView(TestCase):
     # ── T-11: T-01 + segunda role em app diferente → 201 ─────────────
     def test_t11_second_role_in_different_app_returns_201(self):
         # Passo 1: criar usuário via create-with-role na app_valida
-        payload_1 = _valid_payload(self.app_valida.idaplicacao, self.role_valida.id, "_t11")
+        payload_1 = _valid_payload(self, self.app_valida.idaplicacao, self.role_valida.id, "_t11")
         resp1 = self.admin_client.post(CREATE_WITH_ROLE_URL, payload_1, format="json")
         self.assertEqual(resp1.status_code, 201, resp1.data)
 

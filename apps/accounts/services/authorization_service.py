@@ -250,10 +250,6 @@ class AuthorizationService:
                 getattr(aplicacao, "codigointerno", aplicacao),
             )
             return False
-
-        #user_apps = self._get_user_applications()
-
-        #has_role = aplicacao.id in user_apps
         
         from apps.accounts.models import UserRole
 

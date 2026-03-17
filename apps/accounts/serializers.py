@@ -364,15 +364,19 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
         return data
 
     def create(self, validated_data):
+        
+        print("STATUS:", validated_data.get("status_usuario"), type(validated_data.get("status_usuario")))
+        print("TIPO:", validated_data.get("tipo_usuario"), type(validated_data.get("tipo_usuario")))
+        print("CLASS:", validated_data.get("classificacao_usuario"), type(validated_data.get("classificacao_usuario")))
 
         request   = self.context["request"]
         aplicacao = validated_data["aplicacao"]
         role      = validated_data["role"]
 
-        # Defaults para FKs opcionais
-        status_usuario        = validated_data.get("status_usuario") or StatusUsuario.objects.get(pk=1)
-        tipo_usuario          = validated_data.get("tipo_usuario") or TipoUsuario.objects.get(pk=1)
-        classificacao_usuario = validated_data.get("classificacao_usuario") or ClassificacaoUsuario.objects.get(pk=1)
+        # campos de profile obrigatórios (R-01)
+        status_usuario = validated_data["status_usuario"]
+        tipo_usuario = validated_data["tipo_usuario"]
+        classificacao_usuario = validated_data["classificacao_usuario"]
 
         with transaction.atomic():
             # 1. Criar auth.User

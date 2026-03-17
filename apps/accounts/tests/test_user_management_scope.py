@@ -31,6 +31,7 @@ from apps.accounts.models import (
     UserProfile,
     UserRole,
 )
+
 from apps.accounts.services.authorization_service import AuthorizationService
 from apps.core.tests.utils import patch_security
 
@@ -213,6 +214,22 @@ class UserCanManageTargetUserDBTests(TestCase):
         _assign_role(cls.target_mesma_app, cls.role_a, cls.app_a)
         # Target outra app está apenas em APP_B → sem interseção
         _assign_role(cls.target_outra_app, cls.role_b, cls.app_b)
+        
+        
+        cls.status, _ = StatusUsuario.objects.get_or_create(
+            idstatususuario=1, defaults={"strdescricao": "Ativo"}
+        )
+        cls.tipo, _ = TipoUsuario.objects.get_or_create(
+            idtipousuario=1, defaults={"strdescricao": "Padrão"}
+        )
+        cls.classificacao, _ = ClassificacaoUsuario.objects.get_or_create(
+            idclassificacaousuario=999,
+            defaults={
+                "strdescricao": "Classificacao Teste",
+                "pode_criar_usuario": True,
+                "pode_editar_usuario": True,
+            },
+        )
         # Target sem role não tem UserRole algum → sem interseção
 
     def test_gestor_pode_gerenciar_usuario_mesma_app(self):
@@ -291,6 +308,22 @@ class UserManagementScopeIntegrationTests(APITestCase):
         # Associações de role
         _assign_role(cls.gestor, cls.role_propria, cls.app_propria)
         _assign_role(cls.admin, cls.role_portal_admin, cls.app_propria)
+        
+        
+        cls.status, _ = StatusUsuario.objects.get_or_create(
+            idstatususuario=1, defaults={"strdescricao": "Ativo"}
+        )
+        cls.tipo, _ = TipoUsuario.objects.get_or_create(
+            idtipousuario=1, defaults={"strdescricao": "Padrão"}
+        )
+        cls.classificacao, _ = ClassificacaoUsuario.objects.get_or_create(
+            idclassificacaousuario=999,
+            defaults={
+                "strdescricao": "Classificacao Teste",
+                "pode_criar_usuario": True,
+                "pode_editar_usuario": True,
+            },
+        )
 
     def setUp(self):
         self.client = APIClient(raise_request_exception=False)
@@ -304,6 +337,12 @@ class UserManagementScopeIntegrationTests(APITestCase):
             "last_name": "Test",
             "name": f"Scope Test {suffix}",
             "orgao": "SEDU",
+
+            # 🔥 NOVO (OBRIGATÓRIO)
+            "status_usuario": self.status.idstatususuario,
+            "tipo_usuario": self.tipo.idtipousuario,
+            "classificacao_usuario": self.classificacao.idclassificacaousuario,
+
             "aplicacao_id": aplicacao_id,
             "role_id": role_id,
         }
