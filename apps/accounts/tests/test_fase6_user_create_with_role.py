@@ -149,16 +149,59 @@ class TestUserCreateWithRoleView(TestCase):
             pode_editar_usuario=True,
         )
 
+        # ── Dados para T-16 ──────────────────────────────────────────
+        # App destino diferente de app_valida (T-16 usa app_valida como alvo)
+        cls.app_outra = Aplicacao.objects.create(
+            codigointerno="APP_OUTRA_T16",
+            nomeaplicacao="App Outra T16",
+            base_url="http://outra-t16.test",
+            isshowinportal=False,
+        )
+        cls.role_outra = Role.objects.create(
+            aplicacao=cls.app_outra,
+            nomeperfil="Role Outra T16",
+            codigoperfil="ROLE_OUTRA_T16",
+        )
+        # ClassificacaoUsuario com pode_criar_usuario=True para o gestor do T-16
+        cls.classificacao_t16 = ClassificacaoUsuario.objects.create(
+            idclassificacaousuario=201,
+            strdescricao="GestorPodecriarT16",
+            pode_criar_usuario=True,
+            pode_editar_usuario=False,
+        )
+        # Gestor que TEM UserRole (em app_outra), MAS não tem acesso à app_valida
+        cls.gestor_t16 = User.objects.create_user(
+            username="gestor_t16", password="Senha@123",
+            email="gestort16@test.com",
+        )
+        UserProfile.objects.create(
+            user=cls.gestor_t16,
+            name="Gestor T16",
+            orgao="SEDU",
+            status_usuario=cls.status,
+            tipo_usuario=cls.tipo,
+            classificacao_usuario=cls.classificacao_t16,
+            idusuariocriacao=cls.gestor_t16,
+        )
+        # Role em app_outra → consegue autenticar, mas NÃO tem acesso à app_valida
+        UserRole.objects.create(
+            user=cls.gestor_t16,
+            role=cls.role_outra,
+            aplicacao=cls.app_outra,
+        )
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls._admin_token  = _fetch_token("fase6_admin")
         cls._common_token = _fetch_token("fase6_common")
+        cls._gestor_t16_token = _fetch_token("gestor_t16")
 
     def setUp(self):
         self.admin_client  = _make_client(self._admin_token)
         self.common_client = _make_client(self._common_token)
         self.anon_client   = _make_client()
+        self.gestor_t16_client = _make_client(self._gestor_t16_token)
 
     # ── T-09: sem autenticação → 401 ────────────────────────────────
     def test_t09_unauthenticated_returns_401(self):
@@ -235,12 +278,23 @@ class TestUserCreateWithRoleView(TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("password", resp.data.get("errors", {}))
 
-    # ── T-06: falha no sync → rollback total ───────────────────────────
+    # ── T-06: falha no sync → 500 + rollback total ─────────────────────
     def test_t06_sync_failure_triggers_rollback(self):
+        """
+        Exception genérica lançada pelo mock escapa do except (DatabaseError…)
+        na view. O Django Test Client faz re-raise por padrão; desativamos isso
+        para capturar o 500 como resposta HTTP e verificar o rollback.
+        """
         payload = _valid_payload(self.app_valida.idaplicacao, self.role_valida.id, "_t06")
         sync_path = "apps.accounts.serializers.sync_user_permissions_from_group"
-        with patch(sync_path, side_effect=Exception("sync falhou")):
-            resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
+        old_raise = self.admin_client.raise_request_exception
+        self.admin_client.raise_request_exception = False
+        try:
+            with patch(sync_path, side_effect=Exception("sync falhou")):
+                resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
+        finally:
+            self.admin_client.raise_request_exception = old_raise
+
         self.assertEqual(resp.status_code, 500)
         self.assertFalse(User.objects.filter(username=payload["username"]).exists())
         self.assertFalse(
@@ -248,12 +302,23 @@ class TestUserCreateWithRoleView(TestCase):
             .filter(user__username=payload["username"]).exists()
         )
 
-    # ── T-07: falha no UserRole.create → rollback total ────────────────
+    # ── T-07: falha no UserRole.create → 500 + rollback total ──────────
     def test_t07_userrole_failure_triggers_rollback(self):
+        """
+        Exception genérica lançada pelo mock escapa do except (DatabaseError…)
+        na view. Desativamos raise_request_exception para capturar o 500 HTTP
+        e verificar que nenhum objeto ficou no banco (rollback atômico).
+        """
         payload = _valid_payload(self.app_valida.idaplicacao, self.role_valida.id, "_t07")
         role_path = "apps.accounts.models.UserRole.objects.create"
-        with patch(role_path, side_effect=Exception("userrole criação falhou")):
-            resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
+        old_raise = self.admin_client.raise_request_exception
+        self.admin_client.raise_request_exception = False
+        try:
+            with patch(role_path, side_effect=Exception("userrole criação falhou")):
+                resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
+        finally:
+            self.admin_client.raise_request_exception = old_raise
+
         self.assertEqual(resp.status_code, 500)
         self.assertFalse(User.objects.filter(username=payload["username"]).exists())
 
@@ -313,53 +378,39 @@ class TestUserCreateWithRoleView(TestCase):
     # ── T-15: FK padrão inexistente → 400, não 500 ──────────────────────
     def test_t15_missing_default_fk_returns_400_not_500(self):
         """
-        Se status_usuario pk=1 não existir no banco e o campo não for enviado,
-        o serializer deve retornar 400 (ValidationError explícito via _get_fk_or_400),
-        nunca 500 (DoesNotExist / KeyError não tratado).
+        Simula FK de status_usuario inexistente usando pk=99999 diretamente no
+        payload. Não deleta registros do banco (evita ProtectedError por relações
+        existentes em outros usuários do setUpTestData).
+        O serializer deve retornar 400 via _get_fk_or_400, nunca 500.
         """
-        StatusUsuario.objects.filter(pk=1).delete()
         payload = _valid_payload(
             self.app_valida.idaplicacao,
             self.role_valida.id,
             "_t15",
-            # status_usuario omitido → serializer tenta default pk=1
+            status_id=99999,  # pk inexistente → _get_fk_or_400 retorna 400
         )
         resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
         self.assertNotEqual(resp.status_code, 500, "Não deve gerar 500 por FK ausente")
         self.assertEqual(resp.status_code, 400, resp.data)
 
-    # ── T-16: gestor com pode_criar=True sem role na app → 403 ────────────
+    # ── T-16: gestor com pode_criar=True sem role na app destino → 403 ───
     def test_t16_gestor_partial_permission_returns_403(self):
         """
-        Gestor com pode_criar_usuario=True mas sem UserRole na aplicação destino
-        deve receber 403 (sem acesso à app), nunca 201.
+        Gestor com pode_criar_usuario=True e UserRole em APP_OUTRA_T16,
+        mas SEM UserRole em app_valida (ACOES_PNGI).
+        A authorization_service deve negar (403) por falta de acesso à aplicação destino.
+        O gestor consegue autenticar (tem role em outra app) mas não pode criar
+        usuários em uma app na qual não tem acesso.
         """
-        class_gestor_sem_app = ClassificacaoUsuario.objects.create(
-            idclassificacaousuario=200,
-            strdescricao="GestorSemApp",
-            pode_criar_usuario=True,
-            pode_editar_usuario=False,
-        )
-        gestor = User.objects.create_user(
-            username="gestor_sem_app_t16", password="Senha@123",
-            email="gestorsem@test.com",
-        )
-        UserProfile.objects.create(
-            user=gestor, name="Gestor Sem App", orgao="SEDU",
-            status_usuario_id=1, tipo_usuario_id=1,
-            classificacao_usuario=class_gestor_sem_app,
-            idusuariocriacao=gestor,
-        )
-        # Sem UserRole → não é PORTAL_ADMIN, sem acesso à app_valida
-        token = _fetch_token("gestor_sem_app_t16")
-        client = _make_client(token)
-
         payload = _valid_payload(
-            self.app_valida.idaplicacao, self.role_valida.id, "_t16",
-            status_id=self.status.pk, tipo_id=self.tipo.pk,
-            class_id=class_gestor_sem_app.pk,
+            self.app_valida.idaplicacao,   # app destino: ACOES_PNGI
+            self.role_valida.id,           # role pertence à app_valida
+            "_t16",
+            status_id=self.status.pk,
+            tipo_id=self.tipo.pk,
+            class_id=self.classificacao_t16.pk,
         )
-        resp = client.post(CREATE_WITH_ROLE_URL, payload, format="json")
+        resp = self.gestor_t16_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
         self.assertEqual(resp.status_code, 403, resp.data)
 
     # ── T-17: email duplicado → 400 ────────────────────────────────────
