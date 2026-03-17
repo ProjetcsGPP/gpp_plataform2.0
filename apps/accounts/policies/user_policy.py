@@ -104,7 +104,7 @@ class UserPolicy:
     def can_create_user_in_application(self, aplicacao) -> bool:
         """Espelha exatamente AuthorizationService.user_can_create_user_in_application."""
 
-        app_code = aplicacao.codigointerno if hasattr(aplicacao, "codigointerno") else str(aplicacao)
+        app_code = getattr(aplicacao, "codigointerno", None) or str(aplicacao)
 
         if self._is_portal_admin():
             security_logger.info(
