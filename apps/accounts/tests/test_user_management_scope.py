@@ -36,7 +36,7 @@ from apps.accounts.services.authorization_service import AuthorizationService
 from apps.core.tests.utils import patch_security
 
 
-# ─── Fixtures compartilhadas ──────────────────────────────────────────────────────────────────
+# ─── Fixtures compartilhadas ────────────────────────────────────────────────────────────────────
 
 def _bootstrap_lookups():
     StatusUsuario.objects.get_or_create(idstatususuario=1, defaults={"strdescricao": "Ativo"})
@@ -128,6 +128,10 @@ class UserCanManageTargetUserUnitTests(TestCase):
     """
     Testa AuthorizationService.user_can_manage_target_user() com MagicMock.
     Não depende de banco de dados real — rápido e isolado.
+
+    NOTA: _is_portal_admin vive em UserPolicy após a refatoração.
+    Os patches são feitos na instância de UserPolicy retornada por
+    service._policy(), não mais diretamente no AuthorizationService.
     """
 
     def _make_mock_user(self, user_id):
@@ -143,7 +147,8 @@ class UserCanManageTargetUserUnitTests(TestCase):
         user = self._make_mock_user(1)
         target = self._make_mock_user(2)
         service = AuthorizationService(user)
-        with patch.object(service, "_is_portal_admin", return_value=True):
+        policy = service._policy()
+        with patch.object(policy, "_is_portal_admin", return_value=True):
             self.assertTrue(service.user_can_manage_target_user(target))
 
     def test_sem_permissao_edicao_nega(self):
@@ -153,8 +158,9 @@ class UserCanManageTargetUserUnitTests(TestCase):
         user = self._make_mock_user(1)
         target = self._make_mock_user(2)
         service = AuthorizationService(user)
-        with patch.object(service, "_is_portal_admin", return_value=False), \
-             patch.object(service, "user_can_edit_users", return_value=False):
+        policy = service._policy()
+        with patch.object(policy, "_is_portal_admin", return_value=False), \
+             patch.object(policy, "can_edit_user", return_value=False):
             self.assertFalse(service.user_can_manage_target_user(target))
 
     def test_intersecao_existe_permite(self):
@@ -188,7 +194,7 @@ class UserCanManageTargetUserUnitTests(TestCase):
         pass  # coberto por UserManagementScopeIntegrationTests.test_t13
 
 
-# ─── Testes de Integração — AuthorizationService no banco ─────────────────────────────
+# ─── Testes de Integração — AuthorizationService no banco ────────────────────────────────
 
 class UserCanManageTargetUserDBTests(TestCase):
     """
@@ -214,8 +220,8 @@ class UserCanManageTargetUserDBTests(TestCase):
         _assign_role(cls.target_mesma_app, cls.role_a, cls.app_a)
         # Target outra app está apenas em APP_B → sem interseção
         _assign_role(cls.target_outra_app, cls.role_b, cls.app_b)
-        
-        
+
+
         cls.status, _ = StatusUsuario.objects.get_or_create(
             idstatususuario=1, defaults={"strdescricao": "Ativo"}
         )
@@ -267,7 +273,7 @@ class UserCanManageTargetUserDBTests(TestCase):
         self.assertTrue(service.user_can_manage_target_user(self.target_sem_role))
 
 
-# ─── T-12, T-13, T-14 — Testes de API ──────────────────────────────────────────────────
+# ─── T-12, T-13, T-14 — Testes de API ─────────────────────────────────────────────────────
 
 class UserManagementScopeIntegrationTests(APITestCase):
     """
@@ -308,8 +314,8 @@ class UserManagementScopeIntegrationTests(APITestCase):
         # Associações de role
         _assign_role(cls.gestor, cls.role_propria, cls.app_propria)
         _assign_role(cls.admin, cls.role_portal_admin, cls.app_propria)
-        
-        
+
+
         cls.status, _ = StatusUsuario.objects.get_or_create(
             idstatususuario=1, defaults={"strdescricao": "Ativo"}
         )
@@ -347,7 +353,7 @@ class UserManagementScopeIntegrationTests(APITestCase):
             "role_id": role_id,
         }
 
-    # ── T-12: gestor_pode_criar_usuario_na_propria_aplicacao ───────────────────────
+    # ── T-12: gestor_pode_criar_usuario_na_propria_aplicacao ───────────────────────────
 
     def test_t12_gestor_pode_criar_usuario_na_propria_aplicacao(self):
         """
@@ -373,7 +379,7 @@ class UserManagementScopeIntegrationTests(APITestCase):
             ),
         )
 
-    # ── T-13: gestor_nao_pode_criar_usuario_em_outra_aplicacao ───────────────────
+    # ── T-13: gestor_nao_pode_criar_usuario_em_outra_aplicacao ────────────────────────
 
     def test_t13_gestor_nao_pode_criar_usuario_em_outra_aplicacao(self):
         """
@@ -399,7 +405,7 @@ class UserManagementScopeIntegrationTests(APITestCase):
             ),
         )
 
-    # ── T-14: portal_admin_pode_criar_usuario_em_qualquer_aplicacao ────────────
+    # ── T-14: portal_admin_pode_criar_usuario_em_qualquer_aplicacao ──────────────────
 
     def test_t14_portal_admin_pode_criar_usuario_em_qualquer_aplicacao(self):
         """
@@ -426,7 +432,7 @@ class UserManagementScopeIntegrationTests(APITestCase):
             ),
         )
 
-    # ── Testes adicionais de segurança ─────────────────────────────────────────
+    # ── Testes adicionais de segurança ─────────────────────────────────────────────
 
     def test_gestor_nao_autenticado_retorna_401(self):
         """

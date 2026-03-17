@@ -69,6 +69,10 @@ class AuthorizationServiceUserManagementUnitTests(TestCase):
     """
     Testa user_can_create_users() e user_can_edit_users() com MagicMock.
     Não depende de banco de dados — rápido e isolado.
+
+    NOTA: _is_portal_admin e _get_classificacao vivem em UserPolicy após a
+    refatoração. Os patches são feitos na instância de UserPolicy retornada
+    por service._policy(), não mais diretamente no AuthorizationService.
     """
 
     def _make_mock_user(self, user_id=99, authenticated=True):
@@ -91,7 +95,8 @@ class AuthorizationServiceUserManagementUnitTests(TestCase):
         """PORTAL_ADMIN bypass → True independente de classificacao."""
         user = self._make_mock_user()
         service = AuthorizationService(user)
-        with patch.object(service, "_is_portal_admin", return_value=True):
+        policy = service._policy()
+        with patch.object(policy, "_is_portal_admin", return_value=True):
             self.assertTrue(service.user_can_create_users())
 
     def test_pode_criar_quando_flag_true(self):
@@ -99,8 +104,9 @@ class AuthorizationServiceUserManagementUnitTests(TestCase):
         user = self._make_mock_user()
         service = AuthorizationService(user)
         classificacao = self._make_classificacao_mock(pode_criar=True)
-        with patch.object(service, "_is_portal_admin", return_value=False), \
-             patch.object(service, "_get_classificacao", return_value=classificacao):
+        policy = service._policy()
+        with patch.object(policy, "_is_portal_admin", return_value=False), \
+             patch.object(policy, "_get_classificacao", return_value=classificacao):
             self.assertTrue(service.user_can_create_users())
 
     def test_nao_pode_criar_quando_flag_false(self):
@@ -108,16 +114,18 @@ class AuthorizationServiceUserManagementUnitTests(TestCase):
         user = self._make_mock_user()
         service = AuthorizationService(user)
         classificacao = self._make_classificacao_mock(pode_criar=False)
-        with patch.object(service, "_is_portal_admin", return_value=False), \
-             patch.object(service, "_get_classificacao", return_value=classificacao):
+        policy = service._policy()
+        with patch.object(policy, "_is_portal_admin", return_value=False), \
+             patch.object(policy, "_get_classificacao", return_value=classificacao):
             self.assertFalse(service.user_can_create_users())
 
     def test_nao_pode_criar_sem_classificacao(self):
         """Sem classificacao → False (fail-closed)."""
         user = self._make_mock_user()
         service = AuthorizationService(user)
-        with patch.object(service, "_is_portal_admin", return_value=False), \
-             patch.object(service, "_get_classificacao", return_value=None):
+        policy = service._policy()
+        with patch.object(policy, "_is_portal_admin", return_value=False), \
+             patch.object(policy, "_get_classificacao", return_value=None):
             self.assertFalse(service.user_can_create_users())
 
     # ── user_can_edit_users ─────────────────────────────────────────────────
@@ -125,30 +133,34 @@ class AuthorizationServiceUserManagementUnitTests(TestCase):
     def test_portal_admin_pode_editar(self):
         user = self._make_mock_user()
         service = AuthorizationService(user)
-        with patch.object(service, "_is_portal_admin", return_value=True):
+        policy = service._policy()
+        with patch.object(policy, "_is_portal_admin", return_value=True):
             self.assertTrue(service.user_can_edit_users())
 
     def test_pode_editar_quando_flag_true(self):
         user = self._make_mock_user()
         service = AuthorizationService(user)
         classificacao = self._make_classificacao_mock(pode_editar=True)
-        with patch.object(service, "_is_portal_admin", return_value=False), \
-             patch.object(service, "_get_classificacao", return_value=classificacao):
+        policy = service._policy()
+        with patch.object(policy, "_is_portal_admin", return_value=False), \
+             patch.object(policy, "_get_classificacao", return_value=classificacao):
             self.assertTrue(service.user_can_edit_users())
 
     def test_nao_pode_editar_quando_flag_false(self):
         user = self._make_mock_user()
         service = AuthorizationService(user)
         classificacao = self._make_classificacao_mock(pode_editar=False)
-        with patch.object(service, "_is_portal_admin", return_value=False), \
-             patch.object(service, "_get_classificacao", return_value=classificacao):
+        policy = service._policy()
+        with patch.object(policy, "_is_portal_admin", return_value=False), \
+             patch.object(policy, "_get_classificacao", return_value=classificacao):
             self.assertFalse(service.user_can_edit_users())
 
     def test_nao_pode_editar_sem_classificacao(self):
         user = self._make_mock_user()
         service = AuthorizationService(user)
-        with patch.object(service, "_is_portal_admin", return_value=False), \
-             patch.object(service, "_get_classificacao", return_value=None):
+        policy = service._policy()
+        with patch.object(policy, "_is_portal_admin", return_value=False), \
+             patch.object(policy, "_get_classificacao", return_value=None):
             self.assertFalse(service.user_can_edit_users())
 
     def test_nao_pode_criar_usuario_nao_autenticado(self):
@@ -157,8 +169,9 @@ class AuthorizationServiceUserManagementUnitTests(TestCase):
         user.id = 99
         user.is_authenticated = True  # autenticado, mas sem profile
         service = AuthorizationService(user)
-        with patch.object(service, "_is_portal_admin", return_value=False), \
-             patch.object(service, "_get_classificacao", return_value=None):
+        policy = service._policy()
+        with patch.object(policy, "_is_portal_admin", return_value=False), \
+             patch.object(policy, "_get_classificacao", return_value=None):
             self.assertFalse(service.user_can_create_users())
 
 

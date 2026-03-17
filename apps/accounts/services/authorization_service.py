@@ -37,9 +37,8 @@ class AuthorizationService:
         self._attributes: Optional[dict] = None
         self._roles: Optional[list] = None
 
-        # caches internos por request
+        # cache interno por request
         self._is_admin: Optional[bool] = None
-        self._user_apps: Optional[set] = None
 
     # ─────────────────────────────────────────────
     # API pública
@@ -108,7 +107,34 @@ class AuthorizationService:
         return self._load_roles()
 
     # ─────────────────────────────────────────────
-    # PORTAL ADMIN
+    # Delegação para UserPolicy (com cache de instância)
+    # ─────────────────────────────────────────────
+
+    def _policy(self):
+        """Retorna a instância única de UserPolicy para este ciclo de request."""
+        if not hasattr(self, "_user_policy"):
+            from apps.accounts.policies import UserPolicy
+            self._user_policy = UserPolicy(self.user)
+        return self._user_policy
+
+    def user_can_create_users(self) -> bool:
+        return self._policy().can_create_user()
+
+    def user_can_edit_users(self) -> bool:
+        return self._policy().can_edit_user()
+
+    def user_can_create_user_in_application(self, aplicacao) -> bool:
+        return self._policy().can_create_user_in_application(aplicacao)
+
+    def user_can_edit_target_user(self, target_user) -> bool:
+        return self._policy().can_edit_target_user(target_user)
+
+    def user_can_manage_target_user(self, target_user) -> bool:
+        return self._policy().can_manage_target_user(target_user)
+
+    # ─────────────────────────────────────────────
+    # PORTAL ADMIN — usado por can() e por core/permissions.py
+    # (IsPortalAdmin, ObjectPermission)
     # ─────────────────────────────────────────────
 
     def _is_portal_admin(self) -> bool:
@@ -124,224 +150,6 @@ class AuthorizationService:
         ).exists()
 
         return self._is_admin
-
-    # ─────────────────────────────────────────────
-    # ClassificacaoUsuario
-    # ─────────────────────────────────────────────
-
-    def _get_classificacao(self):
-        try:
-            return self.user.profile.classificacao_usuario
-        except Exception:
-            return None
-
-    def user_can_create_users(self) -> bool:
-
-        if self._is_portal_admin():
-            security_logger.info(
-                "AUTHZ_USER_CREATE user_id=%s reason=portal_admin",
-                self.user.id,
-            )
-            return True
-
-        classificacao = self._get_classificacao()
-
-        if classificacao is None:
-            security_logger.warning(
-                "AUTHZ_DENY_USER_CREATE user_id=%s reason=no_classificacao",
-                self.user.id,
-            )
-            return False
-
-        result = bool(classificacao.pode_criar_usuario)
-
-        log_level = security_logger.info if result else security_logger.warning
-
-        log_level(
-            "AUTHZ_USER_CREATE user_id=%s classificacao_id=%s classificacao=%s result=%s",
-            self.user.id,
-            classificacao.pk,
-            classificacao.strdescricao,
-            result,
-        )
-
-        return result
-
-    def user_can_edit_users(self) -> bool:
-
-        if self._is_portal_admin():
-            security_logger.info(
-                "AUTHZ_USER_EDIT user_id=%s reason=portal_admin",
-                self.user.id,
-            )
-            return True
-
-        classificacao = self._get_classificacao()
-
-        if classificacao is None:
-            security_logger.warning(
-                "AUTHZ_DENY_USER_EDIT user_id=%s reason=no_classificacao",
-                self.user.id,
-            )
-            return False
-
-        result = bool(classificacao.pode_editar_usuario)
-
-        log_level = security_logger.info if result else security_logger.warning
-
-        log_level(
-            "AUTHZ_USER_EDIT user_id=%s classificacao_id=%s classificacao=%s result=%s",
-            self.user.id,
-            classificacao.pk,
-            classificacao.strdescricao,
-            result,
-        )
-
-        return result
-
-    # ─────────────────────────────────────────────
-    # Helpers de aplicação
-    # ─────────────────────────────────────────────
-
-    def _get_user_applications(self) -> set:
-
-        if self._user_apps is not None:
-            return self._user_apps
-
-        from apps.accounts.models import UserRole
-
-        self._user_apps = set(
-            UserRole.objects
-            .filter(user=self.user)
-            .values_list("aplicacao_id", flat=True)
-        )
-
-        return self._user_apps
-
-    def _has_application_intersection(self, target_user) -> bool:
-
-        from apps.accounts.models import UserRole
-
-        user_apps = self._get_user_applications()
-
-        return UserRole.objects.filter(
-            user=target_user,
-            aplicacao_id__in=user_apps,
-        ).exists()
-
-    # ─────────────────────────────────────────────
-    # Gerenciamento de usuários por aplicação
-    # ─────────────────────────────────────────────
-
-    def user_can_create_user_in_application(self, aplicacao) -> bool:
-
-        if self._is_portal_admin():
-            security_logger.info(
-                "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s app=%s reason=portal_admin",
-                self.user.id,
-                getattr(aplicacao, "codigointerno", aplicacao),
-            )
-            return True
-
-        if not self.user_can_create_users():
-            security_logger.warning(
-                "AUTHZ_CREATE_IN_APP_DENY user_id=%s app=%s reason=no_create_permission",
-                self.user.id,
-                getattr(aplicacao, "codigointerno", aplicacao),
-            )
-            return False
-
-        from apps.accounts.models import UserRole
-
-        has_role = UserRole.objects.filter(
-            user=self.user,
-            aplicacao=aplicacao,
-        ).exists()
-
-        if has_role:
-            security_logger.info(
-                "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s app=%s reason=has_role_in_app",
-                self.user.id,
-                getattr(aplicacao, "codigointerno", aplicacao),
-            )
-        else:
-            security_logger.warning(
-                "AUTHZ_CREATE_IN_APP_DENY user_id=%s app=%s reason=no_role_in_app",
-                self.user.id,
-                getattr(aplicacao, "codigointerno", aplicacao),
-            )
-
-        return has_role
-
-    def user_can_edit_target_user(self, target_user) -> bool:
-
-        if self._is_portal_admin():
-            security_logger.info(
-                "AUTHZ_EDIT_TARGET_ALLOW user_id=%s target_user_id=%s reason=portal_admin",
-                self.user.id,
-                target_user.id,
-            )
-            return True
-
-        if not self.user_can_edit_users():
-            security_logger.warning(
-                "AUTHZ_EDIT_TARGET_DENY user_id=%s target_user_id=%s reason=no_edit_permission",
-                self.user.id,
-                target_user.id,
-            )
-            return False
-
-        has_intersection = self._has_application_intersection(target_user)
-
-        if has_intersection:
-            security_logger.info(
-                "AUTHZ_EDIT_TARGET_ALLOW user_id=%s target_user_id=%s reason=app_intersection",
-                self.user.id,
-                target_user.id,
-            )
-        else:
-            security_logger.warning(
-                "AUTHZ_EDIT_TARGET_DENY user_id=%s target_user_id=%s reason=no_app_intersection",
-                self.user.id,
-                target_user.id,
-            )
-
-        return has_intersection
-
-    def user_can_manage_target_user(self, target_user) -> bool:
-
-        if self._is_portal_admin():
-            security_logger.info(
-                "AUTHZ_MANAGE_USER_ALLOW user_id=%s target_user_id=%s reason=portal_admin",
-                self.user.id,
-                target_user.id,
-            )
-            return True
-
-        if not self.user_can_edit_users():
-            security_logger.warning(
-                "AUTHZ_MANAGE_USER_DENY user_id=%s target_user_id=%s reason=no_edit_permission",
-                self.user.id,
-                target_user.id,
-            )
-            return False
-
-        has_intersection = self._has_application_intersection(target_user)
-
-        if has_intersection:
-            security_logger.info(
-                "AUTHZ_MANAGE_USER_ALLOW user_id=%s target_user_id=%s reason=app_intersection",
-                self.user.id,
-                target_user.id,
-            )
-        else:
-            security_logger.warning(
-                "AUTHZ_MANAGE_USER_DENY user_id=%s target_user_id=%s reason=no_app_intersection",
-                self.user.id,
-                target_user.id,
-            )
-
-        return has_intersection
 
     # ─────────────────────────────────────────────
     # RBAC / ABAC
