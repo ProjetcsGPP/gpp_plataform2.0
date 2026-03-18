@@ -14,6 +14,11 @@ Regras centrais:
       * Só pode ser atribuída/revogada por SuperUser
   - Ninguém pode revogar a própria role.
 
+Notas de implementação:
+  - role.aplicacao=None indica uma role global (ex: PORTAL_ADMIN) não vinculada
+    a nenhuma app específica. Checks de isappbloqueada e isappproductionready
+    não se aplicam a roles globais — ausência de app = ausência de restrição de app.
+
 Usage:
     policy = RolePolicy(user, role)
     policy.can_view_role()
@@ -159,7 +164,9 @@ class RolePolicy:
         Apenas _is_privileged().
         Proteção adicional:
           - Atribuir codigoperfil="PORTAL_ADMIN" → somente SuperUser
-          - App de destino deve estar isappbloqueada=False E isappproductionready=True
+          - Se role.aplicacao não é None: app deve estar isappbloqueada=False
+            E isappproductionready=True
+          - role.aplicacao=None (role global) → sem restrição de app
         reason: not_portal_admin | cannot_assign_admin_role | app_blocked | app_not_production_ready
         """
         if not self._is_privileged():
@@ -273,7 +280,6 @@ class RolePolicy:
     def _is_privileged(self) -> bool:
         return self._is_superuser() or self._is_portal_admin()
 
-
     def _is_root_role(self) -> bool:
         """Role raiz — imutável e protegida."""
         return self.role.codigoperfil == "PORTAL_ADMIN"
@@ -294,9 +300,19 @@ class RolePolicy:
         return self._actor_role_in_same_app
 
     def _role_app_is_blocked(self) -> bool:
+        """
+        Retorna True se a app da role está bloqueada.
+        role.aplicacao=None (role global) → False (sem restrição de app).
+        """
         return bool(self.role.aplicacao and self.role.aplicacao.isappbloqueada)
 
     def _role_app_is_production_ready(self) -> bool:
-        return bool(
-            self.role.aplicacao and self.role.aplicacao.isappproductionready
-        )
+        """
+        Retorna True se a app da role está pronta para produção.
+        role.aplicacao=None (role global) → True (sem restrição de app).
+        Uma role global não está vinculada a nenhuma app específica, portanto
+        a verificação de isappproductionready não se aplica.
+        """
+        if self.role.aplicacao is None:
+            return True
+        return bool(self.role.aplicacao.isappproductionready)
