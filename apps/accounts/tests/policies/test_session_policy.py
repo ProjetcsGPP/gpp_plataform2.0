@@ -2,7 +2,7 @@
 Testes para SessionPolicy.
 
 Estratégia: zero banco de dados — MagicMock para todas as entidades.
-Patch de UserRole.objects.filter via monkeypatch onde necessário.
+Patch de UserRole.objects.filter via apps.accounts.models (import lazy).
 """
 from unittest.mock import MagicMock, patch
 import pytest
@@ -75,10 +75,10 @@ def revoked_session(regular_user):
 # ── Patch helper ──────────────────────────────────────────────────────────────
 
 def _patch_is_portal_admin(is_admin: bool):
-    """Retorna um patcher para UserRole.objects.filter que controla is_portal_admin."""
+    """Patcha UserRole no módulo de origem (import lazy)."""
     mock_qs = MagicMock()
     mock_qs.exists.return_value = is_admin
-    return patch("apps.accounts.policies.session_policy.UserRole.objects.filter", return_value=mock_qs)
+    return patch("apps.accounts.models.UserRole.objects.filter", return_value=mock_qs)
 
 
 # ═══════════════════════════════════════════

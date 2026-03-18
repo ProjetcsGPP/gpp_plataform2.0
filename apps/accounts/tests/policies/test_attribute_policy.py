@@ -2,7 +2,7 @@
 Testes para AttributePolicy.
 
 Estratégia: zero banco de dados — MagicMock para todas as entidades.
-Patch de UserRole.objects.filter via monkeypatch onde necessário.
+Patch de UserRole.objects.filter via apps.accounts.models (import lazy).
 """
 from unittest.mock import MagicMock, patch
 import pytest
@@ -109,16 +109,17 @@ def attribute_no_app(other_user):
 # ── Patch helpers ─────────────────────────────────────────────────────────────
 
 def _patch_portal_admin(is_admin: bool):
+    """Patcha UserRole no módulo de origem (import lazy)."""
     mock_qs = MagicMock()
     mock_qs.exists.return_value = is_admin
-    return patch("apps.accounts.policies.attribute_policy.UserRole.objects.filter", return_value=mock_qs)
+    return patch("apps.accounts.models.UserRole.objects.filter", return_value=mock_qs)
 
 
 def _patch_manager_in_app(is_manager: bool):
-    """Patch específico para _actor_is_manager_in_attribute_app."""
+    """Patch específico para _actor_is_manager_in_attribute_app (import lazy)."""
     mock_qs = MagicMock()
     mock_qs.exists.return_value = is_manager
-    return patch("apps.accounts.policies.attribute_policy.UserRole.objects.filter", return_value=mock_qs)
+    return patch("apps.accounts.models.UserRole.objects.filter", return_value=mock_qs)
 
 
 # ═══════════════════════════════════════════
@@ -146,10 +147,7 @@ class TestCanViewAttribute:
         """Gestor com pode_editar_usuario=True na mesma app do atributo pode visualizar."""
         with _patch_manager_in_app(True):
             policy = AttributePolicy(gestor_user, other_attribute)
-            # _is_portal_admin via filter → False (exists=False já que mock retorna True
-            # mas apenas na segunda chamada; precisamos de side_effect)
-            # Resetamos _is_admin manualmente para simular não-admin
-            policy._is_admin = False
+            policy._is_admin = False  # força não-admin; patch único cobre gestor
             assert policy.can_view_attribute() is True
 
     def test_regular_user_cannot_view_other_attribute(self, regular_user, other_attribute):
