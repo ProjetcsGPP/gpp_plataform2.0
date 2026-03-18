@@ -15,7 +15,6 @@ djangorestframework_simplejwt==5.5.1
 filelock==3.25.1
 identify==2.6.17
 iniconfig==2.3.0
-model-bakery==1.23.3
 nodeenv==1.10.0
 packaging==26.0
 platformdirs==4.9.4
