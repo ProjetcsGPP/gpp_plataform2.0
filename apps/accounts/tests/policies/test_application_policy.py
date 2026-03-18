@@ -21,7 +21,7 @@ from apps.accounts.tests.policies.conftest import (
     make_user_role,
 )
 
-PATCH_TARGET = "apps.accounts.policies.application_policy.UserRole"
+PATCH_TARGET = "apps.accounts.models.UserRole"
 
 
 # ── Helpers de configuração do mock ORM ──────────────────────────────────────
