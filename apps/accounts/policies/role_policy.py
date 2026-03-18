@@ -25,6 +25,7 @@ Usage:
 """
 
 import logging
+from apps.accounts.models import UserRole
 
 security_logger = logging.getLogger("gpp.security")
 
@@ -259,7 +260,6 @@ class RolePolicy:
         """Cópia isolada — não importar de outras policies."""
         if self._is_admin is not None:
             return self._is_admin
-        from apps.accounts.models import UserRole
 
         self._is_admin = UserRole.objects.filter(
             user=self.user,
@@ -271,7 +271,8 @@ class RolePolicy:
         return bool(self.user.is_superuser)
 
     def _is_privileged(self) -> bool:
-        return self._is_portal_admin() or self._is_superuser()
+        return self._is_superuser() or self._is_portal_admin()
+
 
     def _is_root_role(self) -> bool:
         """Role raiz — imutável e protegida."""
@@ -281,7 +282,6 @@ class RolePolicy:
         """Cache do UserRole do ator na mesma aplicação da role alvo."""
         if self._actor_role_in_same_app is not None:
             return self._actor_role_in_same_app
-        from apps.accounts.models import UserRole
 
         self._actor_role_in_same_app = (
             UserRole.objects.filter(
