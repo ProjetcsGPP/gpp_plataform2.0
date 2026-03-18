@@ -8,6 +8,15 @@ Padrão de autenticação:
     Todos os testes autenticados usam patch_security() para bypassar os 3
     middlewares customizados (JWT, RoleContext, Authorization).
     T-02 é a única exceção: testa o middleware real sem credencial alguma.
+
+POLICY-EXPANSION (atualização):
+    - AplicacaoSerializer agora expõe isshowinportal, isappbloqueada e
+      isappproductionready. Os assertNotIn("isshowinportal") foram removidos.
+    - AplicacaoViewSet.get_queryset() para admin retorna TODAS as apps
+      (sem filtro hardcoded por isshowinportal). T-05 ajustado: retrieve de
+      app_portal retorna 200 para admin, e o teste verifica isshowinportal=True.
+    - Todas as fixtures de Aplicacao declaram isappbloqueada e
+      isappproductionready explicitamente.
 """
 from django.contrib.auth.models import User
 from django.urls import reverse
@@ -39,7 +48,12 @@ def _bootstrap_lookups():
 def _make_portal_app(codigo="PORTAL"):
     app, _ = Aplicacao.objects.get_or_create(
         codigointerno=codigo,
-        defaults={"nomeaplicacao": "Portal GPP", "isshowinportal": True},
+        defaults={
+            "nomeaplicacao": "Portal GPP",
+            "isshowinportal": True,
+            "isappbloqueada": False,
+            "isappproductionready": True,
+        },
     )
     return app
 
@@ -88,10 +102,20 @@ def _make_plain_user(username="plain_gap02"):
     return user
 
 
-def _make_aplicacao(codigo, nome, show_in_portal):
+def _make_aplicacao(codigo, nome, show_in_portal, isappbloqueada=False, isappproductionready=True):
+    """
+    Helper de fixture com flags explícitos.
+    isappbloqueada e isappproductionready devem sempre ser passados
+    explicitamente para evitar dependência de defaults silenciosos.
+    """
     app, _ = Aplicacao.objects.get_or_create(
         codigointerno=codigo,
-        defaults={"nomeaplicacao": nome, "isshowinportal": show_in_portal},
+        defaults={
+            "nomeaplicacao": nome,
+            "isshowinportal": show_in_portal,
+            "isappbloqueada": isappbloqueada,
+            "isappproductionready": isappproductionready,
+        },
     )
     return app
 
@@ -109,11 +133,29 @@ class AplicacoesListEndpointTest(APITestCase):
         cls.admin = _make_admin_user()
         cls.plain_user = _make_plain_user()
 
-        # Fixture: 2 apps elegíveis (isshowinportal=False) + 1 de portal (isshowinportal=True)
-        # Criadas propositalmente fora de ordem alfabética para validar T-09
-        cls.app_zeus = _make_aplicacao("ZEUS", "Zeus Gestão", show_in_portal=False)
-        cls.app_ares = _make_aplicacao("ARES", "Ares Controle", show_in_portal=False)
-        cls.app_portal = _make_aplicacao("PORTAL_VIS", "Portal Visualização", show_in_portal=True)
+        # Fixture: 2 apps de negócio (isshowinportal=False) + 1 de portal (isshowinportal=True)
+        # Criadas propositalmente fora de ordem alfabética para validar T-09.
+        # Todos os flags declarados explicitamente (sem dependência de defaults).
+        cls.app_zeus = _make_aplicacao(
+            "ZEUS", "Zeus Gestão",
+            show_in_portal=False,
+            isappbloqueada=False,
+            isappproductionready=True,
+        )
+        cls.app_ares = _make_aplicacao(
+            "ARES", "Ares Controle",
+            show_in_portal=False,
+            isappbloqueada=False,
+            isappproductionready=True,
+        )
+        # App de portal: isshowinportal=True. Admin ainda a vê (get_queryset retorna all()).
+        # O frontend usa isshowinportal para decidir ocultá-la na interface.
+        cls.app_portal = _make_aplicacao(
+            "PORTAL_VIS", "Portal Visualização",
+            show_in_portal=True,
+            isappbloqueada=False,
+            isappproductionready=True,
+        )
 
     def setUp(self):
         self.client = APIClient(raise_request_exception=False)
@@ -121,7 +163,7 @@ class AplicacoesListEndpointTest(APITestCase):
     # ── T-01 — GET autenticado como PORTAL_ADMIN ──────────────────
 
     def test_T01_admin_list_returns_200(self):
-        """T-01: PORTAL_ADMIN → 200 com lista de apps isshowinportal=False."""
+        """T-01: PORTAL_ADMIN → 200 com lista de apps."""
         patches = patch_security(self.admin, is_portal_admin=True)
         with patches[0], patches[1], patches[2]:
             self.client.force_authenticate(user=self.admin)
@@ -152,43 +194,53 @@ class AplicacoesListEndpointTest(APITestCase):
             response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    # ── T-04 — Fixture: somente 2 apps elegíveis retornadas ───────
+    # ── T-04 — Serializer expõe os três flags de estado ───────────
 
-    def test_T04_list_returns_only_non_portal_apps(self):
-        """T-04: fixture com 2 isshowinportal=False e 1 True → resposta contém exatamente 2."""
+    def test_T04_list_exposes_all_flags(self):
+        """
+        T-04: resposta contém isshowinportal, isappbloqueada e isappproductionready.
+        Admin vê todas as apps (get_queryset sem filtro hardcoded).
+        """
         patches = patch_security(self.admin, is_portal_admin=True)
         with patches[0], patches[1], patches[2]:
             self.client.force_authenticate(user=self.admin)
             response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Suporte a paginação (DRF DefaultRouter pode paginar)
         data = response.data.get("results", response.data)
         ids_retornados = {item["idaplicacao"] for item in data}
 
+        # Apps de negócio devem estar presentes
         self.assertIn(self.app_zeus.pk, ids_retornados)
         self.assertIn(self.app_ares.pk, ids_retornados)
-        self.assertNotIn(self.app_portal.pk, ids_retornados)
 
-        # R-01 — isshowinportal nunca exposto na resposta
+        # Todos os três flags devem ser expostos em cada item
         for item in data:
-            self.assertNotIn("isshowinportal", item, "isshowinportal não deve ser exposto")
+            self.assertIn("isshowinportal", item, "isshowinportal deve ser exposto pelo serializer")
+            self.assertIn("isappbloqueada", item, "isappbloqueada deve ser exposto pelo serializer")
+            self.assertIn("isappproductionready", item, "isappproductionready deve ser exposto pelo serializer")
 
-    # ── T-05 — Retrieve de app com isshowinportal=True → 404 ─────
+    # ── T-05 — Admin vê app_portal; isshowinportal=True na resposta ──
 
-    def test_T05_retrieve_portal_app_returns_404(self):
-        """T-05: GET /aplicacoes/{id}/ onde app tem isshowinportal=True → 404 (R-04)."""
+    def test_T05_admin_retrieve_portal_app_returns_200_with_flag(self):
+        """
+        T-05: Admin faz GET /aplicacoes/{id}/ numa app com isshowinportal=True.
+        Com o novo get_queryset (admin vê todas), retorna 200.
+        O campo isshowinportal=True fica disponível para o frontend decidir a visibilidade.
+        """
         detail_url = reverse("accounts:aplicacao-detail", kwargs={"pk": self.app_portal.pk})
         patches = patch_security(self.admin, is_portal_admin=True)
         with patches[0], patches[1], patches[2]:
             self.client.force_authenticate(user=self.admin)
             response = self.client.get(detail_url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["idaplicacao"], self.app_portal.pk)
+        self.assertTrue(response.data["isshowinportal"], "Deve ser True para que o frontend filtre")
 
-    # ── T-06 — Retrieve de app elegível → 200 ────────────────────
+    # ── T-06 — Retrieve de app elegível → 200 com todos os campos ──
 
-    def test_T06_retrieve_eligible_app_returns_200(self):
-        """T-06: GET /aplicacoes/{id}/ onde app tem isshowinportal=False → 200 com dados."""
+    def test_T06_retrieve_eligible_app_returns_200_with_all_fields(self):
+        """T-06: GET /aplicacoes/{id}/ de app de negócio → 200 com dados e três flags."""
         detail_url = reverse("accounts:aplicacao-detail", kwargs={"pk": self.app_ares.pk})
         patches = patch_security(self.admin, is_portal_admin=True)
         with patches[0], patches[1], patches[2]:
@@ -198,7 +250,13 @@ class AplicacoesListEndpointTest(APITestCase):
         self.assertEqual(response.data["idaplicacao"], self.app_ares.pk)
         self.assertEqual(response.data["codigointerno"], "ARES")
         self.assertIn("nomeaplicacao", response.data)
-        self.assertNotIn("isshowinportal", response.data)
+        # Campos novos devem estar presentes
+        self.assertIn("isshowinportal", response.data)
+        self.assertIn("isappbloqueada", response.data)
+        self.assertIn("isappproductionready", response.data)
+        self.assertFalse(response.data["isshowinportal"])
+        self.assertFalse(response.data["isappbloqueada"])
+        self.assertTrue(response.data["isappproductionready"])
 
     # ── T-07 — POST → 405 ────────────────────────────────────────
 
@@ -224,7 +282,7 @@ class AplicacoesListEndpointTest(APITestCase):
     # ── T-09 — Ordenação alfabética por nomeaplicacao ─────────────
 
     def test_T09_list_is_ordered_alphabetically(self):
-        """T-09: lista retornada em ordem alfabética por nomeaplicacao (R-05)."""
+        """T-09: lista retornada em ordem alfabética por nomeaplicacao (R-02)."""
         patches = patch_security(self.admin, is_portal_admin=True)
         with patches[0], patches[1], patches[2]:
             self.client.force_authenticate(user=self.admin)
