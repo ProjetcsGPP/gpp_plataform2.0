@@ -15,7 +15,8 @@ from apps.accounts.tests.policies.conftest import make_user, make_role, make_apl
 
 # ── Patch path ────────────────────────────────────────────────────────────────
 
-USEROLE_PATH = "apps.accounts.policies.role_policy.UserRole"
+#USEROLE_PATH = "apps.accounts.policies.role_policy.UserRole"
+USERROLE_PATH = "apps.accounts.policies.role_policy.UserRole"
 
 
 # ── Helpers de patch ──────────────────────────────────────────────────────────
