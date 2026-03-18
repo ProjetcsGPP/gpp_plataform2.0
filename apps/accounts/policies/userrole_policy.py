@@ -17,6 +17,12 @@ Regras centrais:
     na mesma aplicação.
     Usuário comum vê apenas os próprios vínculos.
 
+Notas de implementação:
+  - userrole.aplicacao=None indica um vínculo global (ex: PORTAL_ADMIN) não
+    vinculado a nenhuma app específica. Checks de isappbloqueada e
+    isappproductionready não se aplicam a vínculos globais —
+    ausência de app = ausência de restrição de app.
+
 Usage:
     policy = UserRolePolicy(actor, userrole)
     policy.can_view_userrole()
@@ -87,6 +93,7 @@ class UserRolePolicy:
         Restrições da aplicação alvo:
           - isappbloqueada=True → deny (reason: app_blocked)
           - isappproductionready=False → deny (reason: app_not_production_ready)
+          - userrole.aplicacao=None (vínculo global) → sem restrição de app
         Restrição da role alvo:
           - codigoperfil="PORTAL_ADMIN" → somente SuperUser pode atribuir
         reason: not_portal_admin | app_blocked | app_not_production_ready
@@ -280,11 +287,21 @@ class UserRolePolicy:
         ).exists()
 
     def _app_is_blocked(self) -> bool:
+        """
+        Retorna True se a app do vínculo está bloqueada.
+        userrole.aplicacao=None (vínculo global) → False (sem restrição de app).
+        """
         return bool(
             self.userrole.aplicacao and self.userrole.aplicacao.isappbloqueada
         )
 
     def _app_is_production_ready(self) -> bool:
-        return bool(
-            self.userrole.aplicacao and self.userrole.aplicacao.isappproductionready
-        )
+        """
+        Retorna True se a app do vínculo está pronta para produção.
+        userrole.aplicacao=None (vínculo global) → True (sem restrição de app).
+        Um vínculo global não está vinculado a nenhuma app específica, portanto
+        a verificação de isappproductionready não se aplica.
+        """
+        if self.userrole.aplicacao is None:
+            return True
+        return bool(self.userrole.aplicacao.isappproductionready)
