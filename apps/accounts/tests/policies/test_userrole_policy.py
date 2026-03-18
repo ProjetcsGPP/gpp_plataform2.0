@@ -126,11 +126,16 @@ def actor_gestor():
     return make_gestor(user_id=40)
 
 
-# ── Helper: patch ORM para _is_portal_admin ───────────────────────────────────
+# ── Helpers de patch ──────────────────────────────────────────────────────────
 
 def _patch_admin(monkeypatch, policy, is_admin: bool):
     """Força _is_portal_admin() sem DB."""
     monkeypatch.setattr(policy, "_is_portal_admin", lambda: is_admin)
+
+
+def _patch_can_edit(monkeypatch, policy, can_edit: bool):
+    """Força _can_edit_users() — evita que MagicMock auto-crie atributos truthy."""
+    monkeypatch.setattr(policy, "_can_edit_users", lambda: can_edit)
 
 
 def _patch_actor_apps(monkeypatch, policy, app_ids: set):
@@ -156,7 +161,6 @@ class TestCanViewUserrole:
 
     def test_superuser_can_view_any_userrole(self, superuser, userrole_regular):
         policy = UserRolePolicy(superuser, userrole_regular)
-        # superuser não chama ORM - is_superuser=True suficiente
         with patch("apps.accounts.policies.userrole_policy.UserRolePolicy._is_portal_admin", return_value=False):
             assert policy.can_view_userrole() is True
 
@@ -169,7 +173,6 @@ class TestCanViewUserrole:
     def test_gestor_can_view_userrole_in_same_app(self, monkeypatch, actor_gestor, userrole_regular):
         policy = UserRolePolicy(actor_gestor, userrole_regular)
         _patch_admin(monkeypatch, policy, False)
-        # gestor tem aplicacao_id=1, userrole_regular.aplicacao_id=1
         _patch_actor_apps(monkeypatch, policy, {1})
         assert policy.can_view_userrole() is True
 
@@ -177,6 +180,7 @@ class TestCanViewUserrole:
         """other_user.id=30 != userrole_regular.user_id=20, sem privilégio."""
         policy = UserRolePolicy(other_user, userrole_regular)
         _patch_admin(monkeypatch, policy, False)
+        _patch_can_edit(monkeypatch, policy, False)
         assert policy.can_view_userrole() is False
 
 
@@ -311,7 +315,6 @@ class TestCanViewUserrolesOfUser:
         """Actor == target_user: sempre True."""
         policy = UserRolePolicy(regular_user, userrole_regular)
         _patch_admin(monkeypatch, policy, False)
-        # Garantir que actor.pk == target.pk
         regular_user.pk = 20
         target = make_user(user_id=20)
         target.pk = 20
@@ -338,4 +341,5 @@ class TestCanViewUserrolesOfUser:
     ):
         policy = UserRolePolicy(regular_user, userrole_regular)
         _patch_admin(monkeypatch, policy, False)
+        _patch_can_edit(monkeypatch, policy, False)
         assert policy.can_view_userroles_of_user(other_user) is False
