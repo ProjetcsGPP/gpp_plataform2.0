@@ -13,6 +13,8 @@ FIX: except Exception substituído por captura específica (DatabaseError/Integr
      ValidationError e PermissionDenied propagam normalmente para respostas 400/403 corretas
 POLICY-EXPANSION: AplicacaoViewSet.get_queryset() diferencia usuário privilegiado de comum;
                   filtro hardcoded isshowinportal removido — lógica delegada aos flags + frontend.
+POLICY-EXPANSION: UserProfileViewSet.partial_update() migrado para UserProfilePolicy —
+                  lógica de autorização inline removida; domínio puro via policy.
 """
 import logging
 from datetime import datetime, timezone
@@ -363,26 +365,41 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
         """
         PATCH /api/accounts/profiles/{id}/
 
-        CanEditUser (no permission_classes) já garante que o usuário pode
-        editar usuários em geral. Esta verificação adicional garante proteção
-        IDOR: usuário sem is_portal_admin só edita o próprio perfil.
-        Gestores (pode_editar_usuario=True) editam apenas perfis de usuários
-        pertencentes às aplicações que também gerenciam (escopo por aplicação).
+        Autorização delegada integralmente a UserProfilePolicy (domínio puro).
+
+        Regras aplicadas pela policy:
+          - PORTAL_ADMIN / SuperUser: bypass total.
+          - Auto-edição (actor == profile.user): permitida para campos comuns.
+          - Gestor (pode_editar_usuario=True): permitido se houver interseção
+            de aplicações com o perfil alvo.
+          - Campos sensíveis (classificacao_usuario, status_usuario): apenas
+            PORTAL_ADMIN ou SuperUser, verificados antes de persistir.
         """
         instance = self.get_object()
-        from apps.accounts.services.authorization_service import AuthorizationService
-        service = AuthorizationService(request.user)
+        from apps.accounts.policies import UserProfilePolicy
 
-        if instance.user == request.user:
-            return super().partial_update(request, *args, **kwargs)
+        policy = UserProfilePolicy(request.user, instance)
 
-        if not service.user_can_edit_target_user(instance.user):
+        if not policy.can_edit_profile():
             security_logger.warning(
-                "PROFILE_PATCH_DENIED user_id=%s target_user_id=%s "
-                "reason=no_edit_permission_or_no_app_intersection",
+                "PROFILE_PATCH_DENIED user_id=%s target_user_id=%s",
                 request.user.id, instance.user_id,
             )
             raise PermissionDenied("Você não tem permissão para editar este perfil.")
+
+        if "classificacao_usuario" in request.data and not policy.can_change_classificacao():
+            security_logger.warning(
+                "PROFILE_PATCH_CLASSIFICACAO_DENIED user_id=%s target_user_id=%s",
+                request.user.id, instance.user_id,
+            )
+            raise PermissionDenied("Apenas administradores podem alterar a classificação.")
+
+        if "status_usuario" in request.data and not policy.can_change_status():
+            security_logger.warning(
+                "PROFILE_PATCH_STATUS_DENIED user_id=%s target_user_id=%s",
+                request.user.id, instance.user_id,
+            )
+            raise PermissionDenied("Apenas administradores podem alterar o status do usuário.")
 
         return super().partial_update(request, *args, **kwargs)
 
