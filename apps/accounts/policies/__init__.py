@@ -1,3 +1,4 @@
-from apps.accounts.policies.user_policy import UserPolicy
+from .user_policy import UserPolicy
+from .application_policy import ApplicationPolicy
 
-__all__ = ["UserPolicy"]
+__all__ = ["UserPolicy", "ApplicationPolicy"]
