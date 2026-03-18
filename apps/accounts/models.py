@@ -40,6 +40,29 @@ class Aplicacao(models.Model):
     nomeaplicacao = models.CharField(max_length=200)
     base_url = models.URLField(blank=True, null=True)
     isshowinportal = models.BooleanField(default=True)
+    isappbloqueada = models.BooleanField(
+        default=False,
+        null=True,
+        db_column="isappbloqueada",
+        help_text=(
+            "Indica se a aplicação está bloqueada para uso. "
+            "Quando True, nenhum usuário (exceto PORTAL_ADMIN ou SuperUser) "
+            "pode ter novos vínculos criados nesta aplicação. "
+            "Uma app pode estar bloqueada por manutenção, auditoria ou incidente "
+            "independentemente do seu estado de produção."
+        ),
+    )
+    isappproductionready = models.BooleanField(
+        default=False,
+        null=True,
+        db_column="isappproductionready",
+        help_text=(
+            "Indica se a aplicação está homologada e habilitada para uso "
+            "em ambiente de produção. Somente apps com este flag True "
+            "e isappbloqueada=False aceitam novos vínculos de usuários. "
+            "O tratamento de visibilidade no portal é feito no frontend."
+        ),
+    )
 
     class Meta:
         db_table = "tblaplicacao"

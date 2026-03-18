@@ -11,6 +11,8 @@ FASE 6: UserCreateWithRoleView — fluxo orquestrado atômico User+Profile+Role+
 DYN-SCOPE: escopo por aplicação centralizado em AuthorizationService
 FIX: except Exception substituído por captura específica (DatabaseError/IntegrityError/OperationalError)
      ValidationError e PermissionDenied propagam normalmente para respostas 400/403 corretas
+POLICY-EXPANSION: AplicacaoViewSet.get_queryset() diferencia usuário privilegiado de comum;
+                  filtro hardcoded isshowinportal removido — lógica delegada aos flags + frontend.
 """
 import logging
 from datetime import datetime, timezone
@@ -166,7 +168,7 @@ class UserCreateView(APIView):
     DYN-SCOPE: user_can_manage_target_user — gestores só criam usuários
                com interseção de aplicações.
     FIX: captura apenas exceções de infraestrutura (DatabaseError, IntegrityError, OperationalError).
-         ValidationError e PermissionDenied propagam para respostas 400/403 corretas.
+         ValidationError e PermissionDenied propagam para respostas 400/403 corretos.
     """
     permission_classes = [IsAuthenticated, CanCreateUser]
 
@@ -195,7 +197,6 @@ class UserCreateView(APIView):
         try:
             profile = serializer.save()
         except (DRFValidationError, PermissionDenied):
-            # Deixa propagar — DRF converte automaticamente para 400/403
             raise
         except (DatabaseError, IntegrityError, OperationalError) as exc:
             security_logger.error(
@@ -227,7 +228,7 @@ class UserCreateWithRoleView(APIView):
     sincronização de permissões em uma única requisição.
 
     R-01: transaction.atomic() dentro do serializer — rollback total em qualquer falha.
-    R-02: isshowinportal=False validado pelo queryset do campo aplicacao_id.
+    R-02: isappbloqueada=False + isappproductionready=True validado pelo queryset do campo aplicacao_id.
     R-03: role.aplicacao == aplicacao validado no validate() do serializer.
     R-04: validações de senha, unicidade, e role única por app reaplicadas.
     R-06: CanCreateUser — lê ClassificacaoUsuario.pode_criar_usuario via AuthorizationService.
@@ -235,7 +236,7 @@ class UserCreateWithRoleView(APIView):
     DYN-SCOPE: user_can_create_user_in_application — gestores só podem criar usuários
                em aplicações onde possuem UserRole.
     FIX: captura apenas exceções de infraestrutura (DatabaseError, IntegrityError, OperationalError).
-         ValidationError e PermissionDenied propagam para respostas 400/403 corretas.
+         ValidationError e PermissionDenied propagam para respostas 400/403 corretos.
     """
     permission_classes = [IsAuthenticated, CanCreateUser]
 
@@ -246,8 +247,6 @@ class UserCreateWithRoleView(APIView):
         )
         serializer.is_valid(raise_exception=True)
 
-        # DYN-SCOPE: aplicação extraída dos dados validados pelo serializer (banco),
-        # nunca diretamente da request, evitando manipulação.
         aplicacao_destino = serializer.validated_data["aplicacao"]
 
         if aplicacao_destino is not None:
@@ -267,7 +266,6 @@ class UserCreateWithRoleView(APIView):
         try:
             result = serializer.save()
         except (DRFValidationError, PermissionDenied):
-            # Deixa propagar — DRF converte automaticamente para 400/403
             raise
         except (DatabaseError, IntegrityError, OperationalError) as exc:
             security_logger.exception(
@@ -296,18 +294,40 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     GET /api/accounts/aplicacoes/
     GET /api/accounts/aplicacoes/{idaplicacao}/
 
-    Lista e detalha aplicações elegíveis para associação de usuário.
-    R-01: filtra isshowinportal=False — aplicações de portal nunca são retornadas.
-    R-02: acesso exclusivo a PORTAL_ADMIN.
-    R-03: ReadOnlyModelViewSet — POST/PUT/PATCH/DELETE retornam 405 automaticamente.
-    R-04: get_queryset filtrado garante 404 para apps com isshowinportal=True.
-    R-05: ordenação por nomeaplicacao alfabético.
+    Lista e detalha aplicações visíveis ao usuário autenticado.
+
+    Regras de escopo:
+      - PORTAL_ADMIN / SuperUser: vê todas as aplicações sem restrição.
+      - Usuário comum: vê apenas apps onde possui UserRole,
+        que estejam não bloqueadas (isappbloqueada=False) e
+        prontas para produção (isappproductionready=True).
+    O filtro de visibilidade visual no portal é responsabilidade do frontend
+    via os flags isshowinportal, isappbloqueada e isappproductionready.
+
+    R-01: ReadOnlyModelViewSet — POST/PUT/PATCH/DELETE retornam 405 automaticamente.
+    R-02: ordenação por nomeaplicacao alfabético.
     """
     serializer_class = AplicacaoSerializer
     permission_classes = [IsAuthenticated, IsPortalAdmin]
 
     def get_queryset(self):
-        return Aplicacao.objects.filter(isshowinportal=False).order_by("nomeaplicacao")
+        user = self.request.user
+        is_privileged = (
+            getattr(self.request, "is_portal_admin", False)
+            or user.is_superuser
+        )
+        if is_privileged:
+            return Aplicacao.objects.all().order_by("nomeaplicacao")
+        # Usuário comum: apenas apps não bloqueadas, prontas para produção,
+        # onde o usuário já possui vínculo (UserRole)
+        user_app_ids = UserRole.objects.filter(user=user).values_list(
+            "aplicacao_id", flat=True
+        )
+        return Aplicacao.objects.filter(
+            isappbloqueada=False,
+            isappproductionready=True,
+            idaplicacao__in=user_app_ids,
+        ).order_by("nomeaplicacao")
 
 
 # ─── CRUD ViewSets ────────────────────────────────────────────────────────────────────────────────────
@@ -331,12 +351,10 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
 
     def get_queryset(self):
         user = self.request.user
-        # PORTAL_ADMIN vê todos sem restrição de escopo
         if getattr(self.request, "is_portal_admin", False):
             return UserProfile.objects.all().select_related(
                 "user", "status_usuario", "tipo_usuario"
             ).order_by('user__username')
-        # Usuário comum: apenas o próprio profile
         return UserProfile.objects.filter(user=user).select_related(
             "user", "status_usuario", "tipo_usuario"
         ).order_by('user__username')
@@ -355,11 +373,9 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
         from apps.accounts.services.authorization_service import AuthorizationService
         service = AuthorizationService(request.user)
 
-        # Permite auto-edição do próprio perfil sem restrição de escopo
         if instance.user == request.user:
             return super().partial_update(request, *args, **kwargs)
 
-        # Para edição de outro usuário, delega ao AuthorizationService
         if not service.user_can_edit_target_user(instance.user):
             security_logger.warning(
                 "PROFILE_PATCH_DENIED user_id=%s target_user_id=%s "
