@@ -303,7 +303,7 @@ class TestUserCreateWithRoleViewDatabaseError:
             response = client.post(url, payload, format="json")
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert "Erro interno" in response.data.get("detail", "")
+        assert "Erro interno" in response.data["errors"]["detail"]
 
     def test_integrity_error_returns_500(self, django_user_model):
         """IntegrityError também deve ser capturada e retornar 500."""
