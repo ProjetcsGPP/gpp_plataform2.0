@@ -8,6 +8,8 @@ GAP-04: UserRoleSerializer.validate() — unicidade (user, aplicacao) + role per
 FASE 6: adicionado UserCreateWithRoleSerializer — fluxo orquestrado atômico
 FIX: FK fallback via filter().first() + ValidationError 400 explícito (elimina DoesNotExist → 500)
 FIX: prints de debug removidos
+POLICY-EXPANSION: AplicacaoSerializer expõe os três flags; UserCreateWithRoleSerializer
+                  filtra por isappbloqueada=False + isappproductionready=True (R-02).
 """
 import logging
 
@@ -120,13 +122,21 @@ class GPPTokenObtainPairSerializer(TokenObtainPairSerializer):
 class AplicacaoSerializer(serializers.ModelSerializer):
     """
     GAP-02 — Serializer somente leitura para o model Aplicacao.
-    Expõe apenas campos necessários para associação de usuário.
-    isshowinportal NÃO é exposto — o filtro é feito no ViewSet.
+    Expõe os três flags de estado para que o frontend decida visibilidade
+    e habilitação de ações sem requisições adicionais.
     """
 
     class Meta:
         model = Aplicacao
-        fields = ["idaplicacao", "codigointerno", "nomeaplicacao", "base_url"]
+        fields = [
+            "idaplicacao",
+            "codigointerno",
+            "nomeaplicacao",
+            "base_url",
+            "isshowinportal",
+            "isappbloqueada",
+            "isappproductionready",
+        ]
 
 
 # ─── UserProfile ──────────────────────────────────────────────────────────────────────
@@ -329,7 +339,7 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
     Validações:
       - Senha via validate_password() (Django)
       - username e email únicos
-      - aplicacao_id apenas para apps com isshowinportal=False (R-02)
+      - aplicacao_id apenas para apps não bloqueadas E prontas para produção (R-02)
       - role deve pertencer à aplicacao informada (R-03)
       - unicidade (user, aplicacao) — herdada da lógica da Fase 4 (R-04)
       - FKs de perfil validadas antes da transação para garantir 400 em vez de 500 (FIX)
@@ -360,9 +370,12 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
     )
 
     # ── Campos de associação ──────────────────────────────────────
-    # R-02: só aceita apps com isshowinportal=False
+    # R-02: só aceita apps não bloqueadas E prontas para produção
     aplicacao_id = serializers.PrimaryKeyRelatedField(
-        queryset=Aplicacao.objects.filter(isshowinportal=False),
+        queryset=Aplicacao.objects.filter(
+            isappbloqueada=False,
+            isappproductionready=True,
+        ),
         source="aplicacao",
     )
     role_id = serializers.PrimaryKeyRelatedField(

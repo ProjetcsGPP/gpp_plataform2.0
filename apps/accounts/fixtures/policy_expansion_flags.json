@@ -1,0 +1,144 @@
+[
+  {
+    "model": "accounts.aplicacao",
+    "pk": 10,
+    "fields": {
+      "codigointerno": "APP_BLOQUEADA",
+      "nomeaplicacao": "App Bloqueada",
+      "base_url": "http://bloqueada.test/",
+      "isshowinportal": false,
+      "isappbloqueada": true,
+      "isappproductionready": true
+    }
+  },
+  {
+    "model": "accounts.aplicacao",
+    "pk": 11,
+    "fields": {
+      "codigointerno": "APP_NAO_PRONTA",
+      "nomeaplicacao": "App Nao Pronta",
+      "base_url": "http://nao-pronta.test/",
+      "isshowinportal": false,
+      "isappbloqueada": false,
+      "isappproductionready": false
+    }
+  },
+  {
+    "model": "accounts.aplicacao",
+    "pk": 12,
+    "fields": {
+      "codigointerno": "APP_VALIDA",
+      "nomeaplicacao": "App Valida",
+      "base_url": "http://valida.test/",
+      "isshowinportal": false,
+      "isappbloqueada": false,
+      "isappproductionready": true
+    }
+  },
+  {
+    "model": "accounts.aplicacao",
+    "pk": 13,
+    "fields": {
+      "codigointerno": "APP_PORTAL_FLAG",
+      "nomeaplicacao": "App Portal Flag",
+      "base_url": "http://portal-flag.test/",
+      "isshowinportal": true,
+      "isappbloqueada": false,
+      "isappproductionready": true
+    }
+  },
+  {
+    "model": "accounts.aplicacao",
+    "pk": 14,
+    "fields": {
+      "codigointerno": "APP_SEM_ROLE",
+      "nomeaplicacao": "App Sem Role",
+      "base_url": "http://sem-role.test/",
+      "isshowinportal": false,
+      "isappbloqueada": false,
+      "isappproductionready": true
+    }
+  },
+
+  {
+    "model": "auth.group",
+    "pk": 10,
+    "fields": { "name": "GRP_BLOQUEADA" }
+  },
+  {
+    "model": "auth.group",
+    "pk": 11,
+    "fields": { "name": "GRP_NAO_PRONTA" }
+  },
+  {
+    "model": "auth.group",
+    "pk": 12,
+    "fields": { "name": "GRP_VALIDA" }
+  },
+  {
+    "model": "auth.group",
+    "pk": 13,
+    "fields": { "name": "GRP_PORTAL_FLAG" }
+  },
+
+  {
+    "model": "accounts.role",
+    "pk": 10,
+    "fields": {
+      "aplicacao": 10,
+      "nomeperfil": "Role Bloqueada",
+      "codigoperfil": "ROLE_BLOQUEADA",
+      "group": 10
+    }
+  },
+  {
+    "model": "accounts.role",
+    "pk": 11,
+    "fields": {
+      "aplicacao": 11,
+      "nomeperfil": "Role Nao Pronta",
+      "codigoperfil": "ROLE_NAO_PRONTA",
+      "group": 11
+    }
+  },
+  {
+    "model": "accounts.role",
+    "pk": 12,
+    "fields": {
+      "aplicacao": 12,
+      "nomeperfil": "Role Valida",
+      "codigoperfil": "ROLE_VALIDA",
+      "group": 12
+    }
+  },
+  {
+    "model": "accounts.role",
+    "pk": 13,
+    "fields": {
+      "aplicacao": 13,
+      "nomeperfil": "Role Portal Flag",
+      "codigoperfil": "ROLE_PORTAL_FLAG",
+      "group": 13
+    }
+  },
+
+  {
+    "model": "accounts.statususuario",
+    "pk": 10,
+    "fields": { "strdescricao": "Ativo Flags" }
+  },
+  {
+    "model": "accounts.tipousuario",
+    "pk": 10,
+    "fields": { "strdescricao": "Interno Flags" }
+  },
+  {
+    "model": "accounts.classificacaousuario",
+    "pk": 10,
+    "fields": {
+      "strdescricao": "Padrao Flags",
+      "pode_criar_usuario": true,
+      "pode_editar_usuario": false
+    }
+  }
+]

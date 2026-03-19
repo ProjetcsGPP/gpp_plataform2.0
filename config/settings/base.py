@@ -244,7 +244,7 @@ LOGGING = {
         "gpp.security": {
             "handlers": ["security_file", "console"],
             "level": "INFO",
-            "propagate": False,
+            "propagate": True,
         },
         "django": {
             "handlers": ["console"],

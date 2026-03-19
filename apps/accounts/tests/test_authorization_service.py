@@ -118,3 +118,100 @@ class AuthorizationServiceTests(TestCase):
         """User=None deve retornar False sem lançar exceção."""
         service = AuthorizationService(user=None)
         self.assertFalse(service.can("view_acao"))
+
+
+# ── Cache Keys ────────────────────────────────────────────────────────────────
+
+class TestAuthorizationServiceCacheKeys(TestCase):
+    """
+    Cobre o comportamento de cache do AuthorizationService:
+      - Chaves distintas por aplicação para o mesmo usuário
+      - Mudança de chave quando a versão é incrementada
+      - Cache de instância evita novo acesso ao banco
+    """
+
+    # 1. Chaves distintas por aplicação ──────────────────────────────────────
+
+    def test_same_user_different_apps_have_different_cache_keys(self):
+        """
+        _permissions_cache_key() deve produzir valores distintos para
+        app_code diferentes do mesmo usuário.
+        Não usa banco — user e application são MagicMock.
+        """
+        user = MagicMock()
+        user.id = 99
+
+        app_a = MagicMock()
+        app_a.codigointerno = "APP_A"
+
+        app_b = MagicMock()
+        app_b.codigointerno = "APP_B"
+
+        with patch("apps.accounts.services.authorization_service.cache") as mock_cache:
+            # version key não existe → retorna None → fallback para 1
+            mock_cache.get.return_value = None
+
+            key_a = AuthorizationService(user, app_a)._permissions_cache_key()
+            key_b = AuthorizationService(user, app_b)._permissions_cache_key()
+
+        self.assertNotEqual(key_a, key_b)
+        # garante que o app_code está de fato embutido na chave
+        self.assertIn("APP_A", key_a)
+        self.assertIn("APP_B", key_b)
+
+    # 2. Mudança de chave com incremento de versão ───────────────────────────
+
+    def test_cache_key_changes_when_version_increments(self):
+        """
+        Quando authz_version:{user_id} é incrementado no cache,
+        _permissions_cache_key() deve retornar uma chave diferente.
+        Usa banco real para criar o User.
+        """
+        import django.test
+        from django.contrib.auth import get_user_model
+        from django.core.cache import cache
+
+        User = get_user_model()
+        user = User.objects.create_user(
+            username="cache_version_test_user",
+            password="testpass123",
+        )
+
+        # versão inicial ausente → fallback 1
+        cache.delete(f"authz_version:{user.id}")
+        service_v1 = AuthorizationService(user)
+        key_v1 = service_v1._permissions_cache_key()
+
+        # incrementa versão para 2
+        cache.set(f"authz_version:{user.id}", 2)
+        service_v2 = AuthorizationService(user)
+        key_v2 = service_v2._permissions_cache_key()
+
+        self.assertNotEqual(key_v1, key_v2)
+        self.assertIn(":v1:", key_v1)
+        self.assertIn(":v2:", key_v2)
+
+    # 3. Cache de instância evita nova consulta ao banco ─────────────────────
+
+    def test_instance_cache_avoids_repeated_db_query(self):
+        """
+        Se self._permissions já está populado, _load_permissions() deve
+        retornar o mesmo objeto sem acessar o cache externo ou o banco.
+        Não usa banco — user é MagicMock.
+        """
+        user = MagicMock()
+        user.id = 42
+
+        service = AuthorizationService(user)
+
+        # Injeta diretamente o cache de instância
+        expected = {"fake_perm"}
+        service._permissions = expected
+
+        result_first = service._load_permissions()
+        result_second = service._load_permissions()
+
+        # Ambas as chamadas devem retornar o mesmo objeto (identidade)
+        self.assertIs(result_first, expected)
+        self.assertIs(result_second, expected)
+        self.assertIs(result_first, result_second)

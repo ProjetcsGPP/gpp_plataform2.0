@@ -20,7 +20,7 @@ Cenários cobertos (T-01..T-11):
   T-17  Email duplicado                             → 400 com campo 'email' nos erros
   T-18  Role sem group (group=None)                 → 201, permissions_added=0
 
-Dependências de fixture: apps/accounts/fixtures/fase6_initial_data.json
+Depências de fixture: apps/accounts/fixtures/fase6_initial_data.json
   Registros utilizados:
     statususuario        pk=1 ("Ativo")
     tipousuario          pk=1 ("Interno")
@@ -50,7 +50,7 @@ USER_ROLES_URL       = "/api/accounts/user-roles/"
 TOKEN_URL            = "/api/auth/token/"
 
 
-# ─── Helpers ─────────────────────────────────────────────────────────────────────
+# ─── Helpers ───────────────────────────────────────────────────────────────────────────────────
 
 def _fetch_token(username, password="Senha@123"):
     tmp = APIClient()
@@ -111,7 +111,7 @@ def _valid_payload(aplicacao_id, role_id, suffix="",
     return payload
 
 
-# ─── TestUserCreateWithRoleView ──────────────────────────────────────────────────────────
+# ─── TestUserCreateWithRoleView ────────────────────────────────────────────────────────────
 
 class TestUserCreateWithRoleView(TestCase):
     """
@@ -149,13 +149,15 @@ class TestUserCreateWithRoleView(TestCase):
             pode_editar_usuario=True,
         )
 
-        # ── Dados para T-16 ──────────────────────────────────────────
+        # ── Dados para T-16 ───────────────────────────────────────────────
         # App destino diferente de app_valida (T-16 usa app_valida como alvo)
         cls.app_outra = Aplicacao.objects.create(
             codigointerno="APP_OUTRA_T16",
             nomeaplicacao="App Outra T16",
             base_url="http://outra-t16.test",
             isshowinportal=False,
+            isappproductionready=True,
+            isappbloqueada=False,
         )
         cls.role_outra = Role.objects.create(
             aplicacao=cls.app_outra,
@@ -203,7 +205,7 @@ class TestUserCreateWithRoleView(TestCase):
         self.anon_client   = _make_client()
         self.gestor_t16_client = _make_client(self._gestor_t16_token)
 
-    # ── T-09: sem autenticação → 401 ────────────────────────────────
+    # ── T-09: sem autenticação → 401 ──────────────────────────────────
     def test_t09_unauthenticated_returns_401(self):
         resp = self.anon_client.post(
             CREATE_WITH_ROLE_URL,
@@ -212,7 +214,7 @@ class TestUserCreateWithRoleView(TestCase):
         )
         self.assertEqual(resp.status_code, 401)
 
-    # ── T-10: sem PORTAL_ADMIN → 403 ───────────────────────────────
+    # ── T-10: sem PORTAL_ADMIN → 403 ─────────────────────────────────
     def test_t10_no_portal_admin_returns_403(self):
         resp = self.common_client.post(
             CREATE_WITH_ROLE_URL,
@@ -221,7 +223,7 @@ class TestUserCreateWithRoleView(TestCase):
         )
         self.assertEqual(resp.status_code, 403)
 
-    # ── T-01: POST válido → 201 com payload correto ─────────────────────
+    # ── T-01: POST válido → 201 com payload correto ─────────────────────────
     def test_t01_valid_post_returns_201(self):
         payload = _valid_payload(
             self.app_valida.idaplicacao, self.role_valida.id, "_t01",
@@ -244,13 +246,13 @@ class TestUserCreateWithRoleView(TestCase):
         self.assertTrue(UserProfile.objects.filter(user=user).exists())
         self.assertTrue(UserRole.objects.filter(user=user, aplicacao=self.app_valida).exists())
 
-    # ── T-02: aplicacao_id com isshowinportal=True → 400 ────────────────
+    # ── T-02: aplicacao_id com isshowinportal=True → 400 ───────────────────
     def test_t02_portal_app_returns_400(self):
         payload = _valid_payload(self.app_portal.idaplicacao, self.role_portal.id, "_t02")
         resp = self.admin_client.post(CREATE_WITH_ROLE_URL, payload, format="json")
         self.assertEqual(resp.status_code, 400)
 
-    # ── T-03: role de app diferente → 400 ──────────────────────────────
+    # ── T-03: role de app diferente → 400 ───────────────────────────────
     def test_t03_role_wrong_app_returns_400(self):
         payload = _valid_payload(
             self.app_valida.idaplicacao,
@@ -261,7 +263,7 @@ class TestUserCreateWithRoleView(TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("não pertence", str(resp.data))
 
-    # ── T-04: username duplicado → 400 ───────────────────────────────
+    # ── T-04: username duplicado → 400 ──────────────────────────────────
     def test_t04_duplicate_username_returns_400(self):
         User.objects.create_user(username="joao.dup", password="x", email="dup@dup.com")
         payload = _valid_payload(self.app_valida.idaplicacao, self.role_valida.id, "_t04")
@@ -270,7 +272,7 @@ class TestUserCreateWithRoleView(TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("username", resp.data.get("errors", {}))
 
-    # ── T-05: senha fraca → 400 ──────────────────────────────────────
+    # ── T-05: senha fraca → 400 ────────────────────────────────────────
     def test_t05_weak_password_returns_400(self):
         payload = _valid_payload(self.app_valida.idaplicacao, self.role_valida.id, "_t05")
         payload["password"] = "123"
@@ -278,7 +280,7 @@ class TestUserCreateWithRoleView(TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("password", resp.data.get("errors", {}))
 
-    # ── T-06: falha no sync → 500 + rollback total ─────────────────────
+    # ── T-06: falha no sync → 500 + rollback total ────────────────────────
     def test_t06_sync_failure_triggers_rollback(self):
         """
         Exception genérica lançada pelo mock escapa do except (DatabaseError…)
@@ -302,7 +304,7 @@ class TestUserCreateWithRoleView(TestCase):
             .filter(user__username=payload["username"]).exists()
         )
 
-    # ── T-07: falha no UserRole.create → 500 + rollback total ──────────
+    # ── T-07: falha no UserRole.create → 500 + rollback total ──────────────
     def test_t07_userrole_failure_triggers_rollback(self):
         """
         Exception genérica lançada pelo mock escapa do except (DatabaseError…)
@@ -322,7 +324,7 @@ class TestUserCreateWithRoleView(TestCase):
         self.assertEqual(resp.status_code, 500)
         self.assertFalse(User.objects.filter(username=payload["username"]).exists())
 
-    # ── T-08: permissões presentes após T-01 ────────────────────────────
+    # ── T-08: permissões presentes após T-01 ──────────────────────────────
     def test_t08_permissions_added_after_creation(self):
         payload = _valid_payload(
             self.app_valida.idaplicacao, self.role_valida.id, "_t08",
@@ -341,7 +343,7 @@ class TestUserCreateWithRoleView(TestCase):
             f"mas encontrou {direct_perms_count}"
         )
 
-    # ── T-11: T-01 + segunda role em app diferente → 201 ────────────────
+    # ── T-11: T-01 + segunda role em app diferente → 201 ───────────────────
     def test_t11_second_role_in_different_app_returns_201(self):
         payload_1 = _valid_payload(
             self.app_valida.idaplicacao, self.role_valida.id, "_t11",
@@ -358,6 +360,8 @@ class TestUserCreateWithRoleView(TestCase):
             nomeaplicacao="App Extra T11",
             base_url="http://extra.test",
             isshowinportal=False,
+            isappproductionready=True,
+            isappbloqueada=False,
         )
         role_extra = Role.objects.create(
             aplicacao=app_extra,
@@ -375,7 +379,7 @@ class TestUserCreateWithRoleView(TestCase):
         total_roles = UserRole.objects.filter(user=new_user).count()
         self.assertEqual(total_roles, 2, "Usuário deve ter exatamente 2 roles em 2 apps diferentes")
 
-    # ── T-15: FK padrão inexistente → 400, não 500 ──────────────────────
+    # ── T-15: FK padrão inexistente → 400, não 500 ───────────────────────
     def test_t15_missing_default_fk_returns_400_not_500(self):
         """
         Simula FK de status_usuario inexistente usando pk=99999 diretamente no
@@ -393,7 +397,7 @@ class TestUserCreateWithRoleView(TestCase):
         self.assertNotEqual(resp.status_code, 500, "Não deve gerar 500 por FK ausente")
         self.assertEqual(resp.status_code, 400, resp.data)
 
-    # ── T-16: gestor com pode_criar=True sem role na app destino → 403 ───
+    # ── T-16: gestor com pode_criar=True sem role na app destino → 403 ──────
     def test_t16_gestor_partial_permission_returns_403(self):
         """
         Gestor com pode_criar_usuario=True e UserRole em APP_OUTRA_T16,
@@ -429,7 +433,7 @@ class TestUserCreateWithRoleView(TestCase):
         self.assertEqual(resp.status_code, 400, resp.data)
         self.assertIn("email", resp.data.get("errors", {}))
 
-    # ── T-18: role sem group → 201, permissions_added=0 ─────────────────
+    # ── T-18: role sem group → 201, permissions_added=0 ───────────────────
     def test_t18_role_without_group_returns_201_zero_permissions(self):
         """
         Role sem auth.Group associado (group=None) deve criar o usuário normalmente
@@ -441,6 +445,8 @@ class TestUserCreateWithRoleView(TestCase):
             nomeaplicacao="App Sem Group",
             base_url="http://nogroup.test",
             isshowinportal=False,
+            isappproductionready=True,
+            isappbloqueada=False,
         )
         role_sem_group = Role.objects.create(
             aplicacao=app_sem_group,
