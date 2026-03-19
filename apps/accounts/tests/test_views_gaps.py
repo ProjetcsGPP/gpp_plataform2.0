@@ -16,7 +16,7 @@ Regras:
   - APIClient com force_authenticate — sem token JWT real
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, PropertyMock
 
 from django.urls import reverse
 from rest_framework import status
@@ -26,6 +26,7 @@ from apps.accounts.models import (
     Aplicacao, Role, StatusUsuario, TipoUsuario,
     ClassificacaoUsuario, UserProfile, UserRole,
 )
+from apps.accounts.serializers import UserCreateWithRoleSerializer
 from apps.core.tests.utils import patch_security
 
 
@@ -94,15 +95,12 @@ class TestUserCreateViewScopeCheck:
         """
         Quando user_can_manage_target_user() retorna False,
         a view deve retornar 403 sem criar o usuário.
-        Patches de is_valid/validated_data removidos — payload inválido/incompleto
-        fará o serializer retornar 400, o que também é aceito pelo assert.
+        Payload incompleto — o assert aceita 403 OU 400.
         """
         admin, app, role = _make_admin_user(django_user_model, "admin_scope_deny")
         client = APIClient()
         url = reverse("accounts:user-create")
 
-        # Payload propositalmente sem campos obrigatórios para não precisar
-        # mockar o serializer — o assert aceita 403 OU 400.
         payload = {
             "username": "novo_user_scope",
             "password": "SenhaForte123!",
@@ -116,7 +114,6 @@ class TestUserCreateViewScopeCheck:
             mock_svc = MagicMock()
             mock_svc.user_can_manage_target_user.return_value = False
             MockService.return_value = mock_svc
-
             client.force_authenticate(user=admin)
             response = client.post(url, payload, format="json")
 
@@ -149,7 +146,6 @@ class TestUserCreateViewScopeCheck:
             client.force_authenticate(user=admin)
             response = client.post(url, payload, format="json")
 
-        # Qualquer resposta que não seja 403 indica que o scope check passou
         assert response.status_code != status.HTTP_403_FORBIDDEN
 
     def test_no_target_user_skips_scope_check(self, django_user_model):
@@ -180,8 +176,6 @@ class TestUserCreateViewScopeCheck:
             client.force_authenticate(user=admin)
             response = client.post(url, payload, format="json")
 
-        # Se o scope check foi ignorado, AuthorizationService não é chamado
-        # para verificar target_user (pode ser chamado para outros fins)
         assert response.status_code != status.HTTP_403_FORBIDDEN
 
 
@@ -194,14 +188,12 @@ class TestUserCreateWithRoleViewScopeCheck:
     def test_scope_denied_returns_403(self, django_user_model):
         """
         Quando user_can_create_user_in_application() retorna False,
-        a view deve retornar 403.
-        Patches de is_valid/validated_data removidos — o assert aceita 403 OU 400.
+        a view deve retornar 403. Payload incompleto — assert aceita 403 OU 400.
         """
         admin, app, role = _make_admin_user(django_user_model, "admin_with_role_deny")
         client = APIClient()
         url = reverse("accounts:user-create-with-role")
 
-        # Payload incompleto para não forçar mock de serializer
         payload = {
             "username": "user_with_role_denied",
             "password": "SenhaForte123!",
@@ -217,7 +209,6 @@ class TestUserCreateWithRoleViewScopeCheck:
             mock_svc = MagicMock()
             mock_svc.user_can_create_user_in_application.return_value = False
             MockService.return_value = mock_svc
-
             client.force_authenticate(user=admin)
             response = client.post(url, payload, format="json")
 
@@ -256,7 +247,13 @@ class TestUserCreateWithRoleViewScopeCheck:
 
 
 # ─── UserCreateWithRoleView — linhas 204–208 ──────────────────────────────────
-# Branch: captura DatabaseError / IntegrityError / OperationalError → APIException
+# Captura DatabaseError / IntegrityError / OperationalError → APIException (500)
+#
+# A view acessa serializer.validated_data["aplicacao"] ANTES de save().
+# Mockar is_valid(return_value=True) sozinho não popula _validated_data na
+# instância real do DRF — o @property levanta AssertionError.
+# Solução: patch.object(UserCreateWithRoleSerializer, "validated_data",
+#           new_callable=PropertyMock) na CLASSE, retornando o dict esperado.
 
 @pytest.mark.django_db
 class TestUserCreateWithRoleViewDatabaseError:
@@ -265,8 +262,6 @@ class TestUserCreateWithRoleViewDatabaseError:
         """
         Se serializer.save() lança DatabaseError, a view deve retornar 500
         com mensagem padronizada — sem propagar a exceção bruta.
-        validated_data não é mockado: is_valid=True garante que o serializer
-        avança até save(), que é onde o side_effect é disparado.
         """
         from django.db import DatabaseError
 
@@ -288,11 +283,20 @@ class TestUserCreateWithRoleViewDatabaseError:
 
         patches = patch_security(admin, is_portal_admin=True)
         with patches[0], patches[1], patches[2], \
-             patch(
-                 "apps.accounts.serializers.UserCreateWithRoleSerializer.is_valid",
+             patch.object(
+                 UserCreateWithRoleSerializer,
+                 "is_valid",
                  return_value=True,
-             ), patch(
-                 "apps.accounts.serializers.UserCreateWithRoleSerializer.save",
+             ), \
+             patch.object(
+                 UserCreateWithRoleSerializer,
+                 "validated_data",
+                 new_callable=PropertyMock,
+                 return_value={"aplicacao": None},
+             ), \
+             patch.object(
+                 UserCreateWithRoleSerializer,
+                 "save",
                  side_effect=DatabaseError("simulated db error"),
              ):
             client.force_authenticate(user=admin)
@@ -323,11 +327,20 @@ class TestUserCreateWithRoleViewDatabaseError:
 
         patches = patch_security(admin, is_portal_admin=True)
         with patches[0], patches[1], patches[2], \
-             patch(
-                 "apps.accounts.serializers.UserCreateWithRoleSerializer.is_valid",
+             patch.object(
+                 UserCreateWithRoleSerializer,
+                 "is_valid",
                  return_value=True,
-             ), patch(
-                 "apps.accounts.serializers.UserCreateWithRoleSerializer.save",
+             ), \
+             patch.object(
+                 UserCreateWithRoleSerializer,
+                 "validated_data",
+                 new_callable=PropertyMock,
+                 return_value={"aplicacao": None},
+             ), \
+             patch.object(
+                 UserCreateWithRoleSerializer,
+                 "save",
                  side_effect=IntegrityError("simulated integrity error"),
              ):
             client.force_authenticate(user=admin)
@@ -437,7 +450,6 @@ class TestUserRoleViewSetDestroy:
         client = APIClient()
         url = reverse("accounts:userrole-detail", kwargs={"pk": ur.pk})
 
-        # Impede que o test client re-levante a exceção interna da view
         client.raise_request_exception = False
         try:
             patches = patch_security(admin, is_portal_admin=True)
@@ -451,7 +463,6 @@ class TestUserRoleViewSetDestroy:
         finally:
             client.raise_request_exception = True
 
-        # A transação deve ter feito rollback → UserRole ainda existe
         assert UserRole.objects.filter(pk=ur.pk).exists()
         assert response.status_code in [
             status.HTTP_500_INTERNAL_SERVER_ERROR,
