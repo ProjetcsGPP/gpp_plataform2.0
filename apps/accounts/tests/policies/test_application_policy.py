@@ -24,7 +24,7 @@ from apps.accounts.tests.policies.conftest import (
 PATCH_TARGET = "apps.accounts.models.UserRole"
 
 
-# ── Helpers de configuração do mock ORM ──────────────────────────────────────
+# ── Helpers de configuração do mock ORM ────────────────────────────────
 
 def _setup_portal_admin(MockUserRole, is_admin=True):
     """
@@ -64,9 +64,9 @@ def _setup_call_sequence(MockUserRole, responses):
     MockUserRole.objects.filter.side_effect = side_effect
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # can_view_application
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 
 class TestCanViewApplication:
 
@@ -153,9 +153,9 @@ class TestCanViewApplication:
         assert "reason=no_role_in_app" in caplog.text
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # can_manage_application
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 
 class TestCanManageApplication:
 
@@ -188,9 +188,9 @@ class TestCanManageApplication:
         assert "reason=not_portal_admin" in caplog.text
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # can_block_application
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 
 class TestCanBlockApplication:
 
@@ -236,9 +236,53 @@ class TestCanBlockApplication:
         assert "reason=not_portal_admin" in caplog.text
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
+# can_set_production_ready
+# ═════════════════════════════════════════════════════════════════════════════════
+
+class TestCanSetProductionReady:
+
+    @patch(PATCH_TARGET)
+    def test_portal_admin_can_set_production_ready(self, MockUserRole):
+        """
+        PORTAL_ADMIN pode marcar uma app como pronta para produção.
+        Cobre o caminho True das linhas 162–170 de application_policy.py.
+        """
+        _setup_portal_admin(MockUserRole, is_admin=True)
+        user = make_user()
+        app = make_aplicacao(isappbloqueada=False, isappproductionready=False)
+        policy = ApplicationPolicy(user, app)
+        assert policy.can_set_production_ready() is True
+
+    @patch(PATCH_TARGET)
+    def test_superuser_can_set_production_ready(self, MockUserRole):
+        """SuperUser tem bypass total sobre can_set_production_ready."""
+        _setup_portal_admin(MockUserRole, is_admin=False)
+        user = make_user(is_superuser=True)
+        app = make_aplicacao(isappbloqueada=False, isappproductionready=False)
+        policy = ApplicationPolicy(user, app)
+        assert policy.can_set_production_ready() is True
+
+    @patch(PATCH_TARGET)
+    def test_regular_user_cannot_set_production_ready(self, MockUserRole, caplog):
+        """
+        Usuário sem privilégios não pode alterar o status de produção.
+        Cobre o caminho False (deny) das linhas 171–177 de application_policy.py.
+        """
+        import logging
+        _setup_portal_admin(MockUserRole, is_admin=False)
+        user = make_user(is_superuser=False)
+        app = make_aplicacao(isappbloqueada=False, isappproductionready=False)
+        with caplog.at_level(logging.WARNING, logger="gpp.security"):
+            policy = ApplicationPolicy(user, app)
+            result = policy.can_set_production_ready()
+        assert result is False
+        assert "reason=not_portal_admin" in caplog.text
+
+
+# ═════════════════════════════════════════════════════════════════════════════════
 # can_assign_role_in_application
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 
 class TestCanAssignRole:
 
@@ -293,9 +337,9 @@ class TestCanAssignRole:
         assert "reason=not_portal_admin" in caplog.text
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # can_remove_role_from_application
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 
 class TestCanRemoveRole:
 
@@ -323,9 +367,9 @@ class TestCanRemoveRole:
         assert "reason=not_portal_admin" in caplog.text
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # Cache de instância
-# ══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 
 class TestInstanceCache:
 

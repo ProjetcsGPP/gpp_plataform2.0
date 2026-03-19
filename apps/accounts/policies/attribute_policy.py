@@ -146,11 +146,6 @@ class AttributePolicy:
         )
         return self._actor_apps
 
-    def _actor_has_role_in_attribute_app(self) -> bool:
-        if self.attribute.aplicacao_id is None:
-            return False
-        return self.attribute.aplicacao_id in self._get_actor_applications()
-
     def _actor_is_manager_in_attribute_app(self) -> bool:
         """Retorna True se o actor possui pode_editar_usuario=True
         em alguma UserRole vinculada à mesma app do atributo.
