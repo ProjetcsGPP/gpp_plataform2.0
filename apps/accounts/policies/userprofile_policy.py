@@ -241,7 +241,12 @@ class UserProfilePolicy:
 
     def _can_edit_users(self) -> bool:
         classificacao = self._get_actor_classificacao()
-        return bool(classificacao and classificacao.pode_editar_usuario)
+        if not classificacao:
+            return False
+        try:
+            return bool(classificacao.pode_editar_usuario)
+        except AttributeError:
+            return False
 
     def _get_actor_applications(self) -> set:
         if self._actor_apps is not None:
