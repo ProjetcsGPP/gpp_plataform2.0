@@ -52,13 +52,14 @@ def _bootstrap_lookups():
 
 
 def _make_app(codigo, nome):
-    """Cria uma Aplicacao de teste com is_production_ready=True e isshowinportal=False."""
+    """Cria uma Aplicacao de teste com isappproductionready=True e isshowinportal=False."""
     app, _ = Aplicacao.objects.get_or_create(
         codigointerno=codigo,
         defaults={
             "nomeaplicacao": nome,
             "isshowinportal": False,
-            "is_production_ready": True,
+            "isappproductionready": True,
+            "isappbloqueada": False,
         },
     )
     return app
