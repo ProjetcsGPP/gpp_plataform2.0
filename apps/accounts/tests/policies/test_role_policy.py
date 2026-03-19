@@ -13,13 +13,12 @@ from apps.accounts.policies.role_policy import RolePolicy
 from apps.accounts.tests.policies.conftest import make_user, make_role, make_aplicacao
 
 
-# ── Patch path ────────────────────────────────────────────────────────────────
+# ── Patch path ───────────────────────────────────────────────────────────────────
 
-#USEROLE_PATH = "apps.accounts.policies.role_policy.UserRole"
 USERROLE_PATH = "apps.accounts.policies.role_policy.UserRole"
 
 
-# ── Helpers de patch ──────────────────────────────────────────────────────────
+# ── Helpers de patch ────────────────────────────────────────────────────────────
 
 def _patch_is_portal_admin(is_admin: bool):
     """Patch UserRole.objects.filter(...).exists() para _is_portal_admin."""
@@ -35,7 +34,7 @@ def _patch_actor_role_in_app(user_role):
     return mock_qs
 
 
-# ── Fixture: portal_admin_user ─────────────────────────────────────────────────
+# ── Fixture: portal_admin_user ─────────────────────────────────────────────────────
 
 @pytest.fixture
 def portal_admin_user():
@@ -43,7 +42,7 @@ def portal_admin_user():
     return make_user(user_id=1, is_superuser=False)
 
 
-# ── TestCanViewRole ────────────────────────────────────────────────────────────
+# ── TestCanViewRole ──────────────────────────────────────────────────────────────
 
 class TestCanViewRole:
     def test_portal_admin_can_view_any_role(self, portal_admin_user, regular_role):
@@ -86,7 +85,7 @@ class TestCanViewRole:
             assert policy.can_view_role() is False
 
 
-# ── TestCanCreateRole ──────────────────────────────────────────────────────────
+# ── TestCanCreateRole ─────────────────────────────────────────────────────────────
 
 class TestCanCreateRole:
     def test_portal_admin_can_create_role(self, portal_admin_user, regular_role):
@@ -106,7 +105,7 @@ class TestCanCreateRole:
             assert policy.can_create_role() is False
 
 
-# ── TestCanEditRole ────────────────────────────────────────────────────────────
+# ── TestCanEditRole ──────────────────────────────────────────────────────────────
 
 class TestCanEditRole:
     def test_portal_admin_can_edit_regular_role(self, portal_admin_user, regular_role):
@@ -136,7 +135,7 @@ class TestCanEditRole:
             assert policy.can_edit_role() is False
 
 
-# ── TestCanDeleteRole ──────────────────────────────────────────────────────────
+# ── TestCanDeleteRole ─────────────────────────────────────────────────────────────
 
 class TestCanDeleteRole:
     def test_portal_admin_can_delete_regular_role(self, portal_admin_user, regular_role):
@@ -163,7 +162,7 @@ class TestCanDeleteRole:
             assert policy.can_delete_role() is False
 
 
-# ── TestCanAssignRole ──────────────────────────────────────────────────────────
+# ── TestCanAssignRole ─────────────────────────────────────────────────────────────
 
 class TestCanAssignRole:
     def test_portal_admin_can_assign_regular_role_in_ready_app(
@@ -210,8 +209,25 @@ class TestCanAssignRole:
             mock_ur.objects.filter.return_value = _patch_is_portal_admin(False)
             assert policy.can_assign_role_to_user(other_user) is False
 
+    def test_portal_admin_can_assign_global_role(
+        self, portal_admin_user, other_user
+    ):
+        """
+        role.aplicacao=None (role global, ex: PORTAL_ADMIN sem app vinculada) →
+        _role_app_is_production_ready() retorna True (linha 269) sem consultar
+        atributos da app, e can_assign_role_to_user retorna True (linha 290).
+        Cobre linhas 269 e 290 de role_policy.py.
+        """
+        global_role = MagicMock()
+        global_role.codigoperfil = "VIEWER"
+        global_role.aplicacao = None
+        policy = RolePolicy(portal_admin_user, global_role)
+        with patch(USERROLE_PATH) as mock_ur:
+            mock_ur.objects.filter.return_value = _patch_is_portal_admin(True)
+            assert policy.can_assign_role_to_user(other_user) is True
 
-# ── TestCanRevokeRole ──────────────────────────────────────────────────────────
+
+# ── TestCanRevokeRole ─────────────────────────────────────────────────────────────
 
 class TestCanRevokeRole:
     def test_portal_admin_can_revoke_regular_role_from_other_user(
