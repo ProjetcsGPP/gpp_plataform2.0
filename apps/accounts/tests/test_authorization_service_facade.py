@@ -11,11 +11,16 @@ Padrão:
 - Sem model_bakery
 - Sem banco de dados (sem @pytest.mark.django_db)
 - Todos os colaboradores são MagicMock
+
+Nota sobre o patch:
+  UserPolicy é importada de forma tardia (import local dentro do método
+  _policy()), portanto o atributo 'UserPolicy' não existe no namespace do
+  módulo authorization_service antes da primeira chamada. Por isso usamos
+  patch(POLICY_PATH, create=True), que cria o atributo no módulo alvo
+  mesmo que ele ainda não esteja presente.
 """
 
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from apps.accounts.services.authorization_service import AuthorizationService
 
@@ -51,7 +56,7 @@ class TestFacadeDelegation:
 
     def test_user_can_create_users_returns_true_when_policy_returns_true(self):
         user, service = _make_service()
-        with patch(POLICY_PATH) as MockPolicy:
+        with patch(POLICY_PATH, create=True) as MockPolicy:
             MockPolicy.return_value.can_create_user.return_value = True
             result = service.user_can_create_users()
         assert result is True
@@ -60,7 +65,7 @@ class TestFacadeDelegation:
 
     def test_user_can_create_users_returns_false_when_policy_returns_false(self):
         user, service = _make_service()
-        with patch(POLICY_PATH) as MockPolicy:
+        with patch(POLICY_PATH, create=True) as MockPolicy:
             MockPolicy.return_value.can_create_user.return_value = False
             result = service.user_can_create_users()
         assert result is False
@@ -71,7 +76,7 @@ class TestFacadeDelegation:
 
     def test_user_can_edit_users_returns_true_when_policy_returns_true(self):
         user, service = _make_service()
-        with patch(POLICY_PATH) as MockPolicy:
+        with patch(POLICY_PATH, create=True) as MockPolicy:
             MockPolicy.return_value.can_edit_user.return_value = True
             result = service.user_can_edit_users()
         assert result is True
@@ -80,7 +85,7 @@ class TestFacadeDelegation:
 
     def test_user_can_edit_users_returns_false_when_policy_returns_false(self):
         user, service = _make_service()
-        with patch(POLICY_PATH) as MockPolicy:
+        with patch(POLICY_PATH, create=True) as MockPolicy:
             MockPolicy.return_value.can_edit_user.return_value = False
             result = service.user_can_edit_users()
         assert result is False
@@ -92,7 +97,7 @@ class TestFacadeDelegation:
     def test_user_can_create_user_in_application_returns_true_when_policy_returns_true(self):
         user, service = _make_service()
         aplicacao = MagicMock()
-        with patch(POLICY_PATH) as MockPolicy:
+        with patch(POLICY_PATH, create=True) as MockPolicy:
             MockPolicy.return_value.can_create_user_in_application.return_value = True
             result = service.user_can_create_user_in_application(aplicacao)
         assert result is True
@@ -102,7 +107,7 @@ class TestFacadeDelegation:
     def test_user_can_create_user_in_application_returns_false_when_policy_returns_false(self):
         user, service = _make_service()
         aplicacao = MagicMock()
-        with patch(POLICY_PATH) as MockPolicy:
+        with patch(POLICY_PATH, create=True) as MockPolicy:
             MockPolicy.return_value.can_create_user_in_application.return_value = False
             result = service.user_can_create_user_in_application(aplicacao)
         assert result is False
@@ -114,7 +119,7 @@ class TestFacadeDelegation:
     def test_user_can_edit_target_user_returns_true_when_policy_returns_true(self):
         user, service = _make_service()
         target = MagicMock()
-        with patch(POLICY_PATH) as MockPolicy:
+        with patch(POLICY_PATH, create=True) as MockPolicy:
             MockPolicy.return_value.can_edit_target_user.return_value = True
             result = service.user_can_edit_target_user(target)
         assert result is True
@@ -124,7 +129,7 @@ class TestFacadeDelegation:
     def test_user_can_edit_target_user_returns_false_when_policy_returns_false(self):
         user, service = _make_service()
         target = MagicMock()
-        with patch(POLICY_PATH) as MockPolicy:
+        with patch(POLICY_PATH, create=True) as MockPolicy:
             MockPolicy.return_value.can_edit_target_user.return_value = False
             result = service.user_can_edit_target_user(target)
         assert result is False
@@ -136,7 +141,7 @@ class TestFacadeDelegation:
     def test_user_can_manage_target_user_returns_true_when_policy_returns_true(self):
         user, service = _make_service()
         target = MagicMock()
-        with patch(POLICY_PATH) as MockPolicy:
+        with patch(POLICY_PATH, create=True) as MockPolicy:
             MockPolicy.return_value.can_manage_target_user.return_value = True
             result = service.user_can_manage_target_user(target)
         assert result is True
@@ -146,7 +151,7 @@ class TestFacadeDelegation:
     def test_user_can_manage_target_user_returns_false_when_policy_returns_false(self):
         user, service = _make_service()
         target = MagicMock()
-        with patch(POLICY_PATH) as MockPolicy:
+        with patch(POLICY_PATH, create=True) as MockPolicy:
             MockPolicy.return_value.can_manage_target_user.return_value = False
             result = service.user_can_manage_target_user(target)
         assert result is False
@@ -174,7 +179,7 @@ class TestPolicyCacheInstance:
         user = MagicMock()
         service = AuthorizationService(user)
 
-        with patch(POLICY_PATH) as MockPolicy:
+        with patch(POLICY_PATH, create=True) as MockPolicy:
             MockPolicy.return_value.can_create_user.return_value = True
             MockPolicy.return_value.can_edit_user.return_value = True
 
