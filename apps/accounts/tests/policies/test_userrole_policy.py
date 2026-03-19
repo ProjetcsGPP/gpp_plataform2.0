@@ -12,7 +12,7 @@ from apps.accounts.policies.userrole_policy import UserRolePolicy
 from apps.accounts.tests.policies.conftest import make_user, make_aplicacao, make_role
 
 
-# ── Factories locais ──────────────────────────────────────────────────────────
+# ── Factories locais ─────────────────────────────────────────────
 
 def make_userrole(user=None, aplicacao=None, role=None, user_id=None, aplicacao_id=None):
     ur = MagicMock()
@@ -40,7 +40,7 @@ def make_gestor(user_id=40):
     return user
 
 
-# ── Fixtures específicas de UserRole ─────────────────────────────────────────
+# ── Fixtures específicas de UserRole ─────────────────────────────
 
 @pytest.fixture
 def app_ready():
@@ -126,7 +126,7 @@ def actor_gestor():
     return make_gestor(user_id=40)
 
 
-# ── Helpers de patch ──────────────────────────────────────────────────────────
+# ── Helpers de patch ──────────────────────────────────────────
 
 def _patch_admin(monkeypatch, policy, is_admin: bool):
     """Força _is_portal_admin() sem DB."""
@@ -148,9 +148,9 @@ def _patch_intersection(monkeypatch, policy, result: bool):
     monkeypatch.setattr(policy, "_has_intersection_with_target", lambda _: result)
 
 
-# ═══════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════
 # TestCanViewUserrole
-# ═══════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════
 
 class TestCanViewUserrole:
 
@@ -183,10 +183,32 @@ class TestCanViewUserrole:
         _patch_can_edit(monkeypatch, policy, False)
         assert policy.can_view_userrole() is False
 
+    def test_gestor_without_role_in_same_app_cannot_view_userrole(
+        self, monkeypatch, actor_gestor, app_ready, regular_role, other_user
+    ):
+        """
+        Gestor com pode_editar_usuario=True MAS sem UserRole na mesma app
+        do userrole alvo → nega acesso.
+        Cobre linhas 70–78 de userrole_policy.py (branch: no_role_in_same_app).
+        """
+        # userrole alvo está em aplicacao_id=1; gestor não tem role em app 1
+        ur = make_userrole(
+            user=other_user,
+            aplicacao=app_ready,
+            role=regular_role,
+            user_id=other_user.id,
+            aplicacao_id=1,
+        )
+        policy = UserRolePolicy(actor_gestor, ur)
+        _patch_admin(monkeypatch, policy, False)
+        _patch_can_edit(monkeypatch, policy, True)   # é gestor
+        _patch_actor_apps(monkeypatch, policy, {99}) # mas está em app 99, não em app 1
+        assert policy.can_view_userrole() is False
 
-# ═══════════════════════════════════════════════════════════════════
+
+# ═════════════════════════════════════════════════════════════════
 # TestCanCreateUserrole
-# ═══════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════
 
 class TestCanCreateUserrole:
 
@@ -236,10 +258,25 @@ class TestCanCreateUserrole:
         _patch_admin(monkeypatch, policy, False)
         assert policy.can_create_userrole() is False
 
+    def test_portal_admin_can_create_global_userrole(
+        self, monkeypatch, portal_admin_user, regular_role
+    ):
+        """
+        userrole.aplicacao=None (vínculo global) → _app_is_blocked()=False e
+        _app_is_production_ready()=True — sem restrição de app.
+        Cobre linhas 257–261 e 270 de userrole_policy.py.
+        """
+        ur = make_userrole(user=portal_admin_user, role=regular_role, user_id=50)
+        ur.aplicacao = None
+        ur.aplicacao_id = None
+        policy = UserRolePolicy(portal_admin_user, ur)
+        _patch_admin(monkeypatch, policy, True)
+        assert policy.can_create_userrole() is True
 
-# ═══════════════════════════════════════════════════════════════════
+
+# ═════════════════════════════════════════════════════════════════
 # TestCanDeleteUserrole
-# ═══════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════
 
 class TestCanDeleteUserrole:
 
@@ -296,9 +333,9 @@ class TestCanDeleteUserrole:
         assert policy.can_delete_userrole() is False
 
 
-# ═══════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════
 # TestCanViewUserrolesOfUser
-# ═══════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════
 
 class TestCanViewUserrolesOfUser:
 
