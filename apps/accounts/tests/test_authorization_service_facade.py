@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 
 from apps.accounts.services.authorization_service import AuthorizationService
 
-POLICY_PATH = "apps.accounts.services.authorization_service.UserPolicy"
+POLICY_PATH = "apps.accounts.policies.UserPolicy"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
