@@ -18,6 +18,8 @@ from apps.accounts.policies.userprofile_policy import UserProfilePolicy
 APP_READY_ID = 99
 APP_OTHER_ID = 88
 
+USERROLE_PATH = "apps.accounts.policies.userprofile_policy.UserRole"
+
 
 def make_classificacao(pode_editar=False, pode_criar=False):
     c = MagicMock()
@@ -33,11 +35,6 @@ def make_actor(
     pode_editar=False,
     app_ids=None,
 ):
-    """
-    Retorna um actor MagicMock já com profile.classificacao_usuario.
-    O parâmetro is_portal_admin é injetado via patch nos testes;
-    aqui apenas marca para conveniência.
-    """
     actor = MagicMock()
     actor.id = actor_id
     actor.pk = actor_id
@@ -48,7 +45,6 @@ def make_actor(
 
 
 def make_profile(user_id, app_ids=None):
-    """Retorna um UserProfile MagicMock com user_id e user.pk."""
     profile = MagicMock()
     profile.user_id = user_id
     profile.user = MagicMock()
@@ -65,13 +61,6 @@ def build_policy(
     actor_app_ids=None,
     profile_app_ids=None,
 ):
-    """
-    Constrói UserProfilePolicy com patches aplicados:
-      - _is_portal_admin retorna actor_is_portal_admin
-      - _get_actor_applications retorna actor_app_ids
-      - _has_application_intersection calculado a partir da interseção real
-        entre actor_app_ids e profile_app_ids
-    """
     policy = UserProfilePolicy(actor, profile)
     policy._is_admin = actor_is_portal_admin
 
@@ -80,7 +69,6 @@ def build_policy(
     has_intersection = bool(actor_apps & profile_apps)
 
     policy._actor_apps = actor_apps
-    # Patch _has_application_intersection to avoid ORM hit
     policy._has_application_intersection = lambda: has_intersection
 
     return policy
@@ -100,7 +88,6 @@ def actor_superuser():
 
 @pytest.fixture
 def actor_gestor():
-    """Gestor com pode_editar_usuario=True e role em APP_READY_ID."""
     return make_actor(actor_id=3, pode_editar=True, app_ids={APP_READY_ID})
 
 
@@ -111,21 +98,17 @@ def actor_regular():
 
 @pytest.fixture
 def profile_same_app():
-    """Profile de outro usuário com role na mesma app do gestor."""
     return make_profile(user_id=50, app_ids={APP_READY_ID})
 
 
 @pytest.fixture
 def profile_other_app():
-    """Profile de outro usuário com role em app diferente."""
     return make_profile(user_id=60, app_ids={APP_OTHER_ID})
 
 
 @pytest.fixture
 def own_profile(actor_gestor):
-    """Profile do próprio actor_gestor."""
-    profile = make_profile(user_id=actor_gestor.pk)
-    return profile
+    return make_profile(user_id=actor_gestor.pk)
 
 
 # ── TestCanViewProfile ────────────────────────────────────────────────────────────────
@@ -166,7 +149,6 @@ class TestCanViewProfile:
     def test_gestor_cannot_view_profile_of_other_app(
         self, actor_gestor, profile_other_app
     ):
-        """reason=no_app_intersection"""
         policy = build_policy(
             actor_gestor,
             profile_other_app,
@@ -178,7 +160,6 @@ class TestCanViewProfile:
     def test_regular_user_cannot_view_other_profile(
         self, actor_regular, profile_same_app
     ):
-        """reason=no_permission (pode_editar_usuario=False)"""
         policy = build_policy(
             actor_regular,
             profile_same_app,
@@ -193,19 +174,33 @@ class TestCanViewProfile:
         """
         Actor sem profile.classificacao_usuario (AttributeError) →
         _get_actor_classificacao() retorna None → _can_edit_users()=False.
+
+        Patchamos _is_portal_admin e UserRole para evitar qualquer hit no ORM,
+        já que o actor é um MagicMock puro (id não é inteiro real).
         Cobre linhas 229–233 de userprofile_policy.py.
         """
-        actor_no_class = MagicMock()
+        actor_no_class = MagicMock(spec=[])
         actor_no_class.id = 77
         actor_no_class.pk = 77
         actor_no_class.is_superuser = False
-        # Simula AttributeError ao acessar profile.classificacao_usuario
-        type(actor_no_class.profile).classificacao_usuario = property(
+
+        # classificacao_usuario levanta AttributeError
+        profile_mock = MagicMock()
+        profile_mock.classificacao_usuario = property(
             lambda self: (_ for _ in ()).throw(AttributeError("no classificacao"))
         )
-        policy = UserProfilePolicy(actor_no_class, profile_same_app)
-        policy._is_admin = False
-        result = policy.can_view_profile()
+        actor_no_class.profile = profile_mock
+
+        target_profile = make_profile(user_id=50)
+
+        policy = UserProfilePolicy(actor_no_class, target_profile)
+
+        # Curto-circuita _is_portal_admin e _has_application_intersection
+        # para que o único caminho que reste seja _can_edit_users() → False
+        with patch.object(policy, "_is_portal_admin", return_value=False), \
+             patch.object(policy, "_has_application_intersection", return_value=False):
+            result = policy.can_view_profile()
+
         assert result is False
 
 
@@ -241,7 +236,6 @@ class TestCanEditProfile:
     def test_gestor_cannot_edit_profile_of_other_app(
         self, actor_gestor, profile_other_app
     ):
-        """reason=no_app_intersection"""
         policy = build_policy(
             actor_gestor,
             profile_other_app,
@@ -253,7 +247,6 @@ class TestCanEditProfile:
     def test_regular_user_cannot_edit_other_profile(
         self, actor_regular, profile_same_app
     ):
-        """reason=no_edit_permission"""
         policy = build_policy(
             actor_regular,
             profile_same_app,
@@ -286,7 +279,6 @@ class TestCanChangeClassificacao:
     def test_gestor_cannot_change_classificacao(
         self, actor_gestor, profile_same_app
     ):
-        """reason=not_portal_admin"""
         policy = build_policy(
             actor_gestor,
             profile_same_app,
@@ -298,10 +290,7 @@ class TestCanChangeClassificacao:
     def test_regular_user_cannot_change_classificacao(
         self, actor_regular, profile_same_app
     ):
-        policy = build_policy(
-            actor_regular,
-            profile_same_app,
-        )
+        policy = build_policy(actor_regular, profile_same_app)
         assert policy.can_change_classificacao() is False
 
 
@@ -328,7 +317,6 @@ class TestCanChangeStatus:
     def test_gestor_cannot_change_status(
         self, actor_gestor, profile_same_app
     ):
-        """reason=not_portal_admin"""
         policy = build_policy(
             actor_gestor,
             profile_same_app,
@@ -361,7 +349,6 @@ class TestCanViewAllProfiles:
     def test_regular_user_cannot_view_all(
         self, actor_regular, profile_same_app
     ):
-        """reason=not_portal_admin"""
         policy = build_policy(actor_regular, profile_same_app)
         assert policy.can_view_all_profiles() is False
 
@@ -379,10 +366,7 @@ class TestHasApplicationIntersection:
         db_regular_user,
     ):
         """
-        Aciona _has_application_intersection() com DB real, exercitando
-        as linhas 232–233 e 242 de userprofile_policy.py (o import lazy
-        de UserRole e o .exists() final).
-
+        Aciona _has_application_intersection() com DB real.
         db_gestor tem UserRole em db_app_ready;
         db_regular_user também tem UserRole em db_app_ready → interseção real.
         """
@@ -390,7 +374,6 @@ class TestHasApplicationIntersection:
 
         profile = db_regular_user.profile
         policy = UserProfilePolicy(db_gestor, profile)
-        # Não patchamos _has_application_intersection — deixamos o ORM real rodar
         assert policy.can_view_profile() is True
 
     @pytest.mark.django_db
@@ -402,7 +385,6 @@ class TestHasApplicationIntersection:
         """
         db_gestor está em db_app_ready; db_isolated_user está apenas em db_app_other
         → sem interseção → deny.
-        Confirma que o caminho False de _has_application_intersection também é coberto.
         """
         from apps.accounts.policies.userprofile_policy import UserProfilePolicy
 
