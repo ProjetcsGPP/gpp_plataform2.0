@@ -62,13 +62,14 @@ class UserCreateWithRoleIntegrationTests(APITestCase):
 
     @classmethod
     def _create_aplicacao(cls):
-        """Cria Aplicacao com is_production_ready=True para passar na validação do serializer."""
+        """Cria Aplicacao com isappproductionready=True para passar na validação do serializer."""
         return Aplicacao.objects.create(
             codigointerno=f"APP_TEST_{uuid.uuid4().hex[:6]}",
             nomeaplicacao="App Teste",
             base_url="http://test/",
             isshowinportal=False,
-            is_production_ready=True,
+            isappproductionready=True,
+            isappbloqueada=False,
         )
 
     @classmethod
