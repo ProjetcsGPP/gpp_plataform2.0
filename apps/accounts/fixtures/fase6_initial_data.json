@@ -22,7 +22,9 @@
       "codigointerno": "PORTAL",
       "nomeaplicacao": "Portal GPP",
       "base_url": "http://127.0.0.1:8000/portal/",
-      "isshowinportal": true
+      "isshowinportal": true,
+      "isappproductionready": false,
+      "isappbloqueada": false
     }
   },
   {
@@ -32,7 +34,9 @@
       "codigointerno": "ACOES_PNGI",
       "nomeaplicacao": "Ações PNGI",
       "base_url": "http://127.0.0.1:8000/acoes-pngi/",
-      "isshowinportal": false
+      "isshowinportal": false,
+      "isappproductionready": true,
+      "isappbloqueada": false
     }
   },
 
