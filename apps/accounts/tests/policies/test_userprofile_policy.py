@@ -13,7 +13,7 @@ import pytest
 from apps.accounts.policies.userprofile_policy import UserProfilePolicy
 
 
-# ── Factories locais ──────────────────────────────────────────────────────────
+# ── Factories locais ───────────────────────────────────────────────────────────────────
 
 APP_READY_ID = 99
 APP_OTHER_ID = 88
@@ -86,7 +86,7 @@ def build_policy(
     return policy
 
 
-# ── Fixtures ──────────────────────────────────────────────────────────────────
+# ── Fixtures ───────────────────────────────────────────────────────────────────────
 
 @pytest.fixture
 def actor_portal_admin():
@@ -128,7 +128,7 @@ def own_profile(actor_gestor):
     return profile
 
 
-# ── TestCanViewProfile ────────────────────────────────────────────────────────
+# ── TestCanViewProfile ────────────────────────────────────────────────────────────────
 
 class TestCanViewProfile:
 
@@ -187,8 +187,29 @@ class TestCanViewProfile:
         )
         assert policy.can_view_profile() is False
 
+    def test_actor_without_classificacao_cannot_view_other_profile(
+        self, profile_same_app
+    ):
+        """
+        Actor sem profile.classificacao_usuario (AttributeError) →
+        _get_actor_classificacao() retorna None → _can_edit_users()=False.
+        Cobre linhas 229–233 de userprofile_policy.py.
+        """
+        actor_no_class = MagicMock()
+        actor_no_class.id = 77
+        actor_no_class.pk = 77
+        actor_no_class.is_superuser = False
+        # Simula AttributeError ao acessar profile.classificacao_usuario
+        type(actor_no_class.profile).classificacao_usuario = property(
+            lambda self: (_ for _ in ()).throw(AttributeError("no classificacao"))
+        )
+        policy = UserProfilePolicy(actor_no_class, profile_same_app)
+        policy._is_admin = False
+        result = policy.can_view_profile()
+        assert result is False
 
-# ── TestCanEditProfile ────────────────────────────────────────────────────────
+
+# ── TestCanEditProfile ────────────────────────────────────────────────────────────────
 
 class TestCanEditProfile:
 
@@ -242,7 +263,7 @@ class TestCanEditProfile:
         assert policy.can_edit_profile() is False
 
 
-# ── TestCanChangeClassificacao ────────────────────────────────────────────────
+# ── TestCanChangeClassificacao ────────────────────────────────────────────────────────
 
 class TestCanChangeClassificacao:
 
@@ -284,7 +305,7 @@ class TestCanChangeClassificacao:
         assert policy.can_change_classificacao() is False
 
 
-# ── TestCanChangeStatus ───────────────────────────────────────────────────────
+# ── TestCanChangeStatus ───────────────────────────────────────────────────────────────
 
 class TestCanChangeStatus:
 
@@ -317,7 +338,7 @@ class TestCanChangeStatus:
         assert policy.can_change_status() is False
 
 
-# ── TestCanViewAllProfiles ────────────────────────────────────────────────────
+# ── TestCanViewAllProfiles ───────────────────────────────────────────────────────────
 
 class TestCanViewAllProfiles:
 
@@ -343,3 +364,48 @@ class TestCanViewAllProfiles:
         """reason=not_portal_admin"""
         policy = build_policy(actor_regular, profile_same_app)
         assert policy.can_view_all_profiles() is False
+
+
+# ── TestHasApplicationIntersection (DB real) ─────────────────────────────────────────
+
+class TestHasApplicationIntersection:
+
+    @pytest.mark.django_db
+    def test_gestor_with_real_db_intersection_can_view_profile(
+        self,
+        db_gestor,
+        db_app_ready,
+        db_role_viewer,
+        db_regular_user,
+    ):
+        """
+        Aciona _has_application_intersection() com DB real, exercitando
+        as linhas 232–233 e 242 de userprofile_policy.py (o import lazy
+        de UserRole e o .exists() final).
+
+        db_gestor tem UserRole em db_app_ready;
+        db_regular_user também tem UserRole em db_app_ready → interseção real.
+        """
+        from apps.accounts.policies.userprofile_policy import UserProfilePolicy
+
+        profile = db_regular_user.profile
+        policy = UserProfilePolicy(db_gestor, profile)
+        # Não patchamos _has_application_intersection — deixamos o ORM real rodar
+        assert policy.can_view_profile() is True
+
+    @pytest.mark.django_db
+    def test_gestor_without_real_db_intersection_cannot_view_profile(
+        self,
+        db_gestor,
+        db_isolated_user,
+    ):
+        """
+        db_gestor está em db_app_ready; db_isolated_user está apenas em db_app_other
+        → sem interseção → deny.
+        Confirma que o caminho False de _has_application_intersection também é coberto.
+        """
+        from apps.accounts.policies.userprofile_policy import UserProfilePolicy
+
+        profile = db_isolated_user.profile
+        policy = UserProfilePolicy(db_gestor, profile)
+        assert policy.can_view_profile() is False
