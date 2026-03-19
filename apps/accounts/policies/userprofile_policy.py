@@ -216,13 +216,19 @@ class UserProfilePolicy:
         return self._is_admin
 
     def _is_superuser(self) -> bool:
-        return bool(self.actor.is_superuser)
+        try:
+            return bool(self.actor.is_superuser)
+        except AttributeError:
+            return False
 
     def _is_privileged(self) -> bool:
         return self._is_portal_admin() or self._is_superuser()
 
     def _is_own_profile(self) -> bool:
-        return self.actor.pk == self.profile.user_id
+        try:
+            return self.actor.pk == self.profile.user_id
+        except AttributeError:
+            return False
 
     def _get_actor_classificacao(self):
         if self._actor_classificacao is not None:
