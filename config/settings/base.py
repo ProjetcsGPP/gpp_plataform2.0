@@ -152,6 +152,7 @@ CORS_ALLOW_CREDENTIALS = True
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "rest_framework.authentication.SessionAuthentication",  # ← ADD: necessário pro Admin
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -210,7 +211,9 @@ AUTHORIZATION_EXEMPT_PATHS = [
     "/api/auth/token/",
     "/api/auth/token/refresh/",
     "/admin/",
+    "/admin",   
     "/api/health/",
+    "/__debug__/", 
 ]
 
 # ─── Logging de Segurança ─────────────────────────────────────────────────────

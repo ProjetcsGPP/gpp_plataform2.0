@@ -12,6 +12,7 @@ ALLOWED_HOSTS = ["*"]
 # Em dev, aceita todas as origens CORS
 CORS_ALLOW_ALL_ORIGINS = True
 
+
 # Cache em memória local (sem precisar de Memcached rodando)
 CACHES = {
     "default": {
