@@ -13,6 +13,10 @@ Convenções:
     - @pytest.mark.django_db em todos os testes (fixtures com DB real)
     - Sem model_bakery — fixtures definidas em conftest.py
     - Nomenclatura: db_* para fixtures com banco de dados
+
+Mudança Fase-0:
+    AccountsSession não possui mais o campo jti (removido junto com JWT).
+    _make_session() cria sessões apenas com user, expires_at e revoked.
 """
 import pytest
 from django.utils import timezone
@@ -28,9 +32,9 @@ from apps.accounts.policies import (
 )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 # HELPERS
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 
 def _make_userrole_obj(user, role, aplicacao):
     """
@@ -47,10 +51,15 @@ def _make_userrole_obj(user, role, aplicacao):
 
 
 def _make_session(user, revoked=False):
-    """Cria uma AccountsSession para o user."""
+    """
+    Cria uma AccountsSession para o user.
+
+    Pós-Fase-0: o campo `jti` foi removido do modelo AccountsSession
+    junto com toda a infraestrutura JWT. Sessions agora são puramente
+    baseadas em cookie Django (gpp_session) e não armazenam JTI.
+    """
     return AccountsSession.objects.create(
         user=user,
-        jti=f"jti-{user.pk}-{revoked}",
         expires_at=timezone.now() + timezone.timedelta(hours=1),
         revoked=revoked,
     )
@@ -67,9 +76,9 @@ def _make_attribute(user, aplicacao, key="ATTR_KEY"):
     return attr
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 # CLASS 1: BLOQUEIO DE APP
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.django_db
 class TestBlockedAppCoherence:
@@ -164,9 +173,9 @@ class TestBlockedAppCoherence:
         assert policy.can_create_attribute() is False
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 # CLASS 2: APP EM STAGING
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.django_db
 class TestStagingAppCoherence:
@@ -243,9 +252,9 @@ class TestStagingAppCoherence:
         assert policy_regular.can_view_application() is False
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 # CLASS 3: PROTEÇÃO DA ROLE RAIZ
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.django_db
 class TestPortalAdminRootProtection:
@@ -358,9 +367,9 @@ class TestPortalAdminRootProtection:
             )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 # CLASS 4: ESCOPO DO GESTOR
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.django_db
 class TestGestorScopeCoherence:
@@ -447,14 +456,18 @@ class TestGestorScopeCoherence:
         assert policy_delete.can_delete_userrole() is False
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 # CLASS 5: ISOLAMENTO DE SESSÃO
-# ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.django_db
 class TestSessionIsolation:
     """
-    Sessões JWT são estritamente isoladas por usuário.
+    Sessões Django são estritamente isoladas por usuário.
+
+    Pós-Fase-0: a autentição é baseada em cookie de sessão Django
+    (gpp_session), sem JWT. AccountsSession registra a sessão ativa
+    sem campo jti.
     """
 
     def test_user_cannot_see_session_of_another_user(
