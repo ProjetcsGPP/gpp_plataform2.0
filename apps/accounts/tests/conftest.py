@@ -3,21 +3,13 @@
 Conftest central da app accounts.
 
 ESTRATEGIA:
-  - Fixtures com escopo 'function' (padrao) garantem isolamento total entre testes.
-  - Login real via POST /api/accounts/login/ -- sem force_authenticate, sem mock.
-  - Dados de lookup (StatusUsuario, TipoUsuario, ClassificacaoUsuario, Aplicacao,
-    auth.Group, Role) carregados pelas fixtures JSON via pytest.ini:
-      initial_data.json
-      policy_expansion_flags.json
-    Acesso a esses dados feito com get_or_create para robustez independente
-    de como o banco foi populado (reuse-db, transaction, savepoint).
+  - Completamente autossuficiente: nao depende de fixtures JSON no pytest.ini.
+  - Cria todos os dados de lookup (StatusUsuario, TipoUsuario,
+    ClassificacaoUsuario, Aplicacao, Group, Role) via get_or_create.
+  - Login real via POST /api/accounts/login/ -- sem force_authenticate, mock.
+  - Seguro com --reuse-db: todos os objetos sao get_or_create, nunca create.
 
-COMPATIBILIDADE COM --reuse-db:
-  Com --reuse-db, o banco de teste e preservado entre sessoes do pytest.
-  Todos os objetos User, UserProfile e UserRole sao criados com
-  get_or_create para evitar UniqueViolation em rodadas repetidas.
-
-PERFIS PNGI disponiveis via initial_data.json:
+PERFIS disponiveis:
   Role pk=1  -> PORTAL_ADMIN    / Aplicacao pk=1 (PORTAL)
   Role pk=2  -> GESTOR_PNGI     / Aplicacao pk=2 (ACOES_PNGI)
   Role pk=3  -> COORDENADOR_PNGI / Aplicacao pk=2
@@ -37,10 +29,11 @@ URLs dos endpoints accounts:
   POST /api/accounts/users/create-with-role/
 """
 import pytest
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Group, User
 from rest_framework.test import APIClient
 
 from apps.accounts.models import (
+    Aplicacao,
     ClassificacaoUsuario,
     Role,
     StatusUsuario,
@@ -53,36 +46,25 @@ LOGIN_URL = "/api/accounts/login/"
 DEFAULT_PASSWORD = "TestPass@2026"
 
 
-# --- Helpers de lookup (robustos com ou sem fixtures pre-carregadas) ----------
+# --- Bootstrap de dados base -------------------------------------------------
+#
+# Toda a hierarquia de dados necessaria para os testes e criada aqui via
+# get_or_create. Os pks sao fixos para garantir compatibilidade com os
+# testes que referenciam objetos por pk (ex: Role.objects.get(pk=1)).
+# Isso tambem funciona quando initial_data.json JA foi carregado no banco:
+# get_or_create simplesmente encontra os registros existentes.
 
-def _get_status_usuario():
-    """
-    Retorna StatusUsuario pk=1.
-    Usa get_or_create para funcionar tanto com banco populado pelas fixtures
-    JSON quanto com banco vazio (transaction=True).
-    """
-    obj, _ = StatusUsuario.objects.get_or_create(
+def _bootstrap_lookup_tables():
+    """Cria StatusUsuario, TipoUsuario e ClassificacaoUsuario base."""
+    StatusUsuario.objects.get_or_create(
         pk=1,
         defaults={"strdescricao": "Ativo"},
     )
-    return obj
-
-
-def _get_tipo_usuario():
-    obj, _ = TipoUsuario.objects.get_or_create(
+    TipoUsuario.objects.get_or_create(
         pk=1,
         defaults={"strdescricao": "Interno"},
     )
-    return obj
-
-
-def _get_classificacao_usuario():
-    """
-    Retorna ClassificacaoUsuario pk=1.
-    pode_criar_usuario=False e pode_editar_usuario=False sao os defaults
-    corretos para usuarios comuns.
-    """
-    obj, _ = ClassificacaoUsuario.objects.get_or_create(
+    ClassificacaoUsuario.objects.get_or_create(
         pk=1,
         defaults={
             "strdescricao": "Usuario Padrao",
@@ -90,25 +72,136 @@ def _get_classificacao_usuario():
             "pode_editar_usuario": False,
         },
     )
-    return obj
+    ClassificacaoUsuario.objects.get_or_create(
+        pk=2,
+        defaults={
+            "strdescricao": "Gestor",
+            "pode_criar_usuario": True,
+            "pode_editar_usuario": True,
+        },
+    )
 
 
-# --- _make_user: seguro com --reuse-db ---------------------------------------
+def _bootstrap_aplicacoes():
+    """
+    Cria as Aplicacoes base com os pks fixos do initial_data.json.
+    APP_BLOQUEADA e APP_NAO_PRONTA sao criadas apenas se ausentes
+    (os testes de TestAplicacoesPortalAdmin esperam ve-las).
+    """
+    Aplicacao.objects.get_or_create(
+        pk=1,
+        defaults={
+            "codigointerno": "PORTAL",
+            "nomeaplicacao": "Portal GPP",
+            "isappbloqueada": False,
+            "isappproductionready": True,
+        },
+    )
+    Aplicacao.objects.get_or_create(
+        pk=2,
+        defaults={
+            "codigointerno": "ACOES_PNGI",
+            "nomeaplicacao": "Acoes PNGI",
+            "isappbloqueada": False,
+            "isappproductionready": True,
+        },
+    )
+    Aplicacao.objects.get_or_create(
+        pk=3,
+        defaults={
+            "codigointerno": "CARGA_ORG_LOT",
+            "nomeaplicacao": "Carga Org Lot",
+            "isappbloqueada": False,
+            "isappproductionready": True,
+        },
+    )
+    # Apps extras usadas nos testes de visibilidade
+    Aplicacao.objects.get_or_create(
+        codigointerno="APP_BLOQUEADA",
+        defaults={
+            "nomeaplicacao": "App Bloqueada",
+            "isappbloqueada": True,
+            "isappproductionready": True,
+        },
+    )
+    Aplicacao.objects.get_or_create(
+        codigointerno="APP_NAO_PRONTA",
+        defaults={
+            "nomeaplicacao": "App Nao Pronta",
+            "isappbloqueada": False,
+            "isappproductionready": False,
+        },
+    )
+
+
+def _bootstrap_roles():
+    """
+    Cria os Groups e Roles base com pks fixos.
+    O Group e criado antes da Role para que role.group seja populado.
+    """
+    app_portal = Aplicacao.objects.get(pk=1)
+    app_pngi   = Aplicacao.objects.get(pk=2)
+    app_carga  = Aplicacao.objects.get(pk=3)
+
+    _role_data = [
+        # (pk, codigoperfil, nomeperfil, aplicacao, group_name)
+        (1, "PORTAL_ADMIN",    "Portal Admin",      app_portal, "portal_admin_group"),
+        (2, "GESTOR_PNGI",     "Gestor PNGI",       app_pngi,   "gestor_pngi_group"),
+        (3, "COORDENADOR_PNGI","Coordenador PNGI",  app_pngi,   "coordenador_pngi_group"),
+        (4, "OPERADOR_ACAO",   "Operador de Acao",  app_pngi,   "operador_acao_group"),
+        (6, "GESTOR_CARGA",    "Gestor Carga",      app_carga,  "gestor_carga_group"),
+    ]
+
+    for pk, codigo, nome, app, group_name in _role_data:
+        group, _ = Group.objects.get_or_create(name=group_name)
+        Role.objects.get_or_create(
+            pk=pk,
+            defaults={
+                "codigoperfil": codigo,
+                "nomeperfil": nome,
+                "aplicacao": app,
+                "group": group,
+            },
+        )
+
+
+def _bootstrap_all():
+    """Ponto de entrada unico para popular todos os dados base."""
+    _bootstrap_lookup_tables()
+    _bootstrap_aplicacoes()
+    _bootstrap_roles()
+
+
+# --- Fixture autouse: garante dados base antes de qualquer teste -------------
+
+@pytest.fixture(autouse=True)
+def _ensure_base_data(db):
+    """
+    Executada antes de cada teste que use db/django_db.
+    Garante que StatusUsuario, TipoUsuario, ClassificacaoUsuario,
+    Aplicacao e Role base existam, sem depender de fixtures JSON.
+    """
+    _bootstrap_all()
+
+
+# --- Helpers internos --------------------------------------------------------
+
+def _get_status_usuario():
+    return StatusUsuario.objects.get(pk=1)
+
+
+def _get_tipo_usuario():
+    return TipoUsuario.objects.get(pk=1)
+
+
+def _get_classificacao_usuario():
+    return ClassificacaoUsuario.objects.get(pk=1)
+
 
 def _make_user(username, password=DEFAULT_PASSWORD, is_superuser=False):
     """
     Cria (ou recupera) auth.User + UserProfile.
-
-    Usa get_or_create no User E no UserProfile para ser seguro com --reuse-db,
-    onde o banco de teste e preservado entre sessoes do pytest e objetos criados
-    em rodadas anteriores ja existem quando o proximo pytest e iniciado.
-
-    Comportamento:
-      - Primeira rodada: cria tudo do zero.
-      - Rodadas seguintes com --reuse-db: recupera o User existente e
-        garante que a senha esta atualizada (set_password) para que o
-        login real via API continue funcionando.
-      - Sempre garante que UserProfile existe (get_or_create).
+    Seguro com --reuse-db: usa get_or_create e atualiza senha sempre.
     """
     user, created = User.objects.get_or_create(
         username=username,
@@ -117,17 +210,12 @@ def _make_user(username, password=DEFAULT_PASSWORD, is_superuser=False):
             "is_active": True,
         },
     )
-    if created:
-        user.set_password(password)
-        user.save()
-    else:
-        # Garante senha correta em rodadas com --reuse-db
-        user.set_password(password)
-        user.is_superuser = is_superuser
-        user.is_active = True
-        user.save(update_fields=["password", "is_superuser", "is_active"])
+    # Atualiza senha sempre -- garante login real mesmo com --reuse-db
+    user.set_password(password)
+    user.is_superuser = is_superuser
+    user.is_active = True
+    user.save(update_fields=["password", "is_superuser", "is_active"])
 
-    # Garante que UserProfile existe (pode ter sido deletado ou nunca criado)
     UserProfile.objects.get_or_create(
         user=user,
         defaults={
@@ -142,10 +230,8 @@ def _make_user(username, password=DEFAULT_PASSWORD, is_superuser=False):
 
 def _assign_role(user, role_pk):
     """
-    Atribui uma Role ao usuario via UserRole.
-    Usa get_or_create para ser idempotente com --reuse-db:
-    se a UserRole ja existe (rodada anterior), nao tenta criar de novo.
-    Tambem sincroniza o auth.Group correspondente.
+    Atribui uma Role ao usuario via UserRole (idempotente).
+    O lookup e por (user, aplicacao) que e a constraint de unicidade.
     """
     role = Role.objects.get(pk=role_pk)
     UserRole.objects.get_or_create(
@@ -159,9 +245,6 @@ def _assign_role(user, role_pk):
 
 
 def _do_login(client, username, app_context, password=DEFAULT_PASSWORD):
-    """
-    Executa login real via API -- percorre LoginView, middleware, auditoria.
-    """
     return client.post(
         LOGIN_URL,
         {
@@ -174,10 +257,6 @@ def _do_login(client, username, app_context, password=DEFAULT_PASSWORD):
 
 
 def _make_authenticated_client(username, app_context, password=DEFAULT_PASSWORD):
-    """
-    Cria APIClient e realiza login real.
-    Retorna (client, response).
-    """
     client = APIClient()
     resp = _do_login(client, username, app_context, password)
     return client, resp
@@ -189,7 +268,7 @@ def _make_authenticated_client(username, app_context, password=DEFAULT_PASSWORD)
 def gestor_pngi(db):
     """
     Usuario com perfil GESTOR_PNGI (Role pk=2, ACOES_PNGI).
-    ClassificacaoUsuario pk=1 -> pode_criar_usuario=False (padrao).
+    ClassificacaoUsuario pk=1 -> pode_criar_usuario=False.
     """
     user = _make_user("gestor_test")
     _assign_role(user, role_pk=2)
@@ -245,9 +324,7 @@ def usuario_sem_role(db):
 
 @pytest.fixture
 def usuario_alvo(db):
-    """
-    Usuario sem role -- alvo generico para operacoes de assign/revoke/create.
-    """
+    """Usuario sem role -- alvo generico para operacoes de assign/revoke/create."""
     return _make_user("alvo_test")
 
 
