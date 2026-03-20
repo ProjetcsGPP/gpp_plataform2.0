@@ -8,6 +8,8 @@ ESTRATEGIA:
     ClassificacaoUsuario, Aplicacao, Group, Role) via get_or_create.
   - Login real via POST /api/accounts/login/ -- sem force_authenticate, mock.
   - Seguro com --reuse-db: todos os objetos sao get_or_create, nunca create.
+  - THROTTLE: override de settings desativa rate limit globalmente nos testes
+    para evitar 429 em endpoints publicos (AplicacaoPublicaViewSet).
 
 PERFIS disponiveis:
   Role pk=1  -> PORTAL_ADMIN    / Aplicacao pk=1 (PORTAL)
@@ -44,6 +46,26 @@ from apps.accounts.models import (
 
 LOGIN_URL = "/api/accounts/login/"
 DEFAULT_PASSWORD = "TestPass@2026"
+
+
+# --- Override de throttle para todos os testes desta app ---------------------
+#
+# O DRF aplica AnonRateThrottle globalmente. Em testes que disparam multiplas
+# requisicoes anonimas em rapida sucessao (ex: test_auth_aplicacoes.py), o
+# contador de throttle acumula e retorna 429. Zeramos os limites aqui para que
+# os testes nao dependam de timing nem de cache de throttle entre runs.
+
+@pytest.fixture(autouse=True)
+def _disable_throttling(settings):
+    """
+    Sobrescreve DEFAULT_THROTTLE_RATES e DEFAULT_THROTTLE_CLASSES para vazio
+    durante toda a suite de testes desta app. Isso garante que nenhum endpoint
+    retorne 429 por acumulacao de rate limit entre testes consecutivos.
+    """
+    drf = settings.REST_FRAMEWORK.copy()
+    drf["DEFAULT_THROTTLE_CLASSES"] = []
+    drf["DEFAULT_THROTTLE_RATES"] = {}
+    settings.REST_FRAMEWORK = drf
 
 
 # --- Bootstrap de dados base -------------------------------------------------
