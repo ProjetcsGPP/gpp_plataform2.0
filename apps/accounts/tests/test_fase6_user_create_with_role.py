@@ -28,6 +28,14 @@ Depências de fixture: apps/accounts/fixtures/fase6_initial_data.json
     auth.group           pk=1 ("PORTAL_ADMIN")  pk=2 ("GESTOR_PNGI")
     accounts.role        pk=1 (PORTAL_ADMIN / app=1)  pk=2 (GESTOR_PNGI / app=2)
     accounts.aplicacao   pk=1 (PORTAL isshowinportal=True)  pk=2 (ACOES_PNGI isshowinportal=False)
+
+FIX APLICADO:
+  - Removido setUpClass com _fetch_token() que causava 401 do AppContextMiddleware
+    ao chamar POST /api/auth/token/ → psycopg.OperationalError em cascata em toda a suite
+  - Substituído por force_authenticate() em setUp() — bypassa JWT completamente
+  - Adicionado HTTP_X_APPLICATION_CODE: ACOES_PNGI em todos os clientes autenticados
+    para resolver request.application no ApplicationContextMiddleware
+    (URL /api/accounts/... mapeia prefixo 'accounts' → não é codigointerno válido → None)
 """
 from unittest.mock import patch
 
@@ -47,27 +55,13 @@ from apps.accounts.models import (
 
 CREATE_WITH_ROLE_URL = "/api/accounts/users/create-with-role/"
 USER_ROLES_URL       = "/api/accounts/user-roles/"
-TOKEN_URL            = "/api/auth/token/"
+
+# Codigointerno da app usada nos testes — deve existir no ApplicationRegistry
+# para que o ApplicationContextMiddleware resolva request.application != None
+_APP_CODE_HEADER = "ACOES_PNGI"
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────────────────────
-
-def _fetch_token(username, password="Senha@123"):
-    tmp = APIClient()
-    resp = tmp.post(TOKEN_URL, {"username": username, "password": password}, format="json")
-    assert resp.status_code == 200, (
-        f"Falha ao obter token para '{username}': "
-        f"{resp.status_code} — {getattr(resp, 'data', resp.content)}"
-    )
-    return resp.data["access"]
-
-
-def _make_client(token=None):
-    client = APIClient()
-    if token:
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
-    return client
-
 
 def _make_user(username, role_pk, password="Senha@123"):
     """Cria User + Profile + UserRole a partir de dados de fixture."""
@@ -111,12 +105,26 @@ def _valid_payload(aplicacao_id, role_id, suffix="",
     return payload
 
 
+def _make_authed_client(user):
+    """
+    Cria APIClient com force_authenticate + header X-Application-Code.
+    force_authenticate bypassa JWT; o header resolve o ApplicationContextMiddleware.
+    """
+    client = APIClient()
+    client.force_authenticate(user=user)
+    client.defaults["HTTP_X_APPLICATION_CODE"] = _APP_CODE_HEADER
+    return client
+
+
 # ─── TestUserCreateWithRoleView ────────────────────────────────────────────────────────────
 
 class TestUserCreateWithRoleView(TestCase):
     """
     Testa o endpoint POST /api/accounts/users/create-with-role/
     para todos os cenários T-01..T-18.
+
+    FIX: setUpClass/_fetch_token removidos.
+         setUp() usa force_authenticate() + HTTP_X_APPLICATION_CODE.
     """
     fixtures = ["fase6_initial_data"]
 
@@ -192,18 +200,17 @@ class TestUserCreateWithRoleView(TestCase):
             aplicacao=cls.app_outra,
         )
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls._admin_token  = _fetch_token("fase6_admin")
-        cls._common_token = _fetch_token("fase6_common")
-        cls._gestor_t16_token = _fetch_token("gestor_t16")
-
     def setUp(self):
-        self.admin_client  = _make_client(self._admin_token)
-        self.common_client = _make_client(self._common_token)
-        self.anon_client   = _make_client()
-        self.gestor_t16_client = _make_client(self._gestor_t16_token)
+        """
+        FIX: Usa force_authenticate + HTTP_X_APPLICATION_CODE em vez de JWT tokens.
+        - force_authenticate bypassa completamente o JWTAuthenticationBackend
+        - HTTP_X_APPLICATION_CODE resolve ApplicationContextMiddleware sem depender
+          do prefixo da URL (que mapeia 'accounts' → None)
+        """
+        self.admin_client      = _make_authed_client(self.admin_user)
+        self.common_client     = _make_authed_client(self.common_user)
+        self.gestor_t16_client = _make_authed_client(self.gestor_t16)
+        self.anon_client       = APIClient()  # Sem auth — para T-09
 
     # ── T-09: sem autenticação → 401 ──────────────────────────────────
     def test_t09_unauthenticated_returns_401(self):
