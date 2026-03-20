@@ -47,27 +47,9 @@ from apps.accounts.models import (
 
 CREATE_WITH_ROLE_URL = "/api/accounts/users/create-with-role/"
 USER_ROLES_URL       = "/api/accounts/user-roles/"
-TOKEN_URL            = "/api/auth/token/"
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────────────────────
-
-def _fetch_token(username, password="Senha@123"):
-    tmp = APIClient()
-    resp = tmp.post(TOKEN_URL, {"username": username, "password": password}, format="json")
-    assert resp.status_code == 200, (
-        f"Falha ao obter token para '{username}': "
-        f"{resp.status_code} — {getattr(resp, 'data', resp.content)}"
-    )
-    return resp.data["access"]
-
-
-def _make_client(token=None):
-    client = APIClient()
-    if token:
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
-    return client
-
 
 def _make_user(username, role_pk, password="Senha@123"):
     """Cria User + Profile + UserRole a partir de dados de fixture."""
@@ -117,6 +99,10 @@ class TestUserCreateWithRoleView(TestCase):
     """
     Testa o endpoint POST /api/accounts/users/create-with-role/
     para todos os cenários T-01..T-18.
+
+    AUTENTICAÇÃO: usa force_authenticate() do DRF — nunca faz POST /api/auth/token/.
+    Isso evita que o AppContextMiddleware bloqueie a requisição de token (401)
+    e corrompa a conexão PostgreSQL compartilhada entre os workers do pytest.
     """
     fixtures = ["fase6_initial_data"]
 
@@ -192,18 +178,25 @@ class TestUserCreateWithRoleView(TestCase):
             aplicacao=cls.app_outra,
         )
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls._admin_token  = _fetch_token("fase6_admin")
-        cls._common_token = _fetch_token("fase6_common")
-        cls._gestor_t16_token = _fetch_token("gestor_t16")
+    # NOTA: setUpClass removido intencionalmente.
+    # Motivo: a versão anterior chamava _fetch_token() via POST /api/auth/token/,
+    # que era interceptado pelo AppContextMiddleware (sem header X-App no ambiente
+    # de testes) → 401 → AssertionError → conexão PostgreSQL corrompida →
+    # cascata de ~80 ERRORs em toda a suite de testes.
+    # Solução: force_authenticate() em setUp(), sem nenhuma chamada HTTP de autenticação.
 
     def setUp(self):
-        self.admin_client  = _make_client(self._admin_token)
-        self.common_client = _make_client(self._common_token)
-        self.anon_client   = _make_client()
-        self.gestor_t16_client = _make_client(self._gestor_t16_token)
+        self.admin_client = APIClient()
+        self.admin_client.force_authenticate(user=self.admin_user)
+
+        self.common_client = APIClient()
+        self.common_client.force_authenticate(user=self.common_user)
+
+        self.anon_client = APIClient()
+        # anon_client não recebe force_authenticate → simula requisição sem auth
+
+        self.gestor_t16_client = APIClient()
+        self.gestor_t16_client.force_authenticate(user=self.gestor_t16)
 
     # ── T-09: sem autenticação → 401 ──────────────────────────────────
     def test_t09_unauthenticated_returns_401(self):
