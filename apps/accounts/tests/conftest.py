@@ -12,6 +12,11 @@ ESTRATEGIA:
     Acesso a esses dados feito com get_or_create para robustez independente
     de como o banco foi populado (reuse-db, transaction, savepoint).
 
+COMPATIBILIDADE COM --reuse-db:
+  Com --reuse-db, o banco de teste e preservado entre sessoes do pytest.
+  Todos os objetos User, UserProfile e UserRole sao criados com
+  get_or_create para evitar UniqueViolation em rodadas repetidas.
+
 PERFIS PNGI disponiveis via initial_data.json:
   Role pk=1  -> PORTAL_ADMIN    / Aplicacao pk=1 (PORTAL)
   Role pk=2  -> GESTOR_PNGI     / Aplicacao pk=2 (ACOES_PNGI)
@@ -48,13 +53,13 @@ LOGIN_URL = "/api/accounts/login/"
 DEFAULT_PASSWORD = "TestPass@2026"
 
 
-# --- Helpers internos ---------------------------------------------------------
+# --- Helpers de lookup (robustos com ou sem fixtures pre-carregadas) ----------
 
 def _get_status_usuario():
     """
-    Retorna StatusUsuario pk=1 se existir (banco populado via fixtures JSON).
-    Caso contrario cria um registro minimo para nao quebrar em transaction=True
-    onde o banco esta vazio.
+    Retorna StatusUsuario pk=1.
+    Usa get_or_create para funcionar tanto com banco populado pelas fixtures
+    JSON quanto com banco vazio (transaction=True).
     """
     obj, _ = StatusUsuario.objects.get_or_create(
         pk=1,
@@ -75,8 +80,7 @@ def _get_classificacao_usuario():
     """
     Retorna ClassificacaoUsuario pk=1.
     pode_criar_usuario=False e pode_editar_usuario=False sao os defaults
-    corretos para usuarios comuns -- testes que precisam de True criam
-    sua propria ClassificacaoUsuario.
+    corretos para usuarios comuns.
     """
     obj, _ = ClassificacaoUsuario.objects.get_or_create(
         pk=1,
@@ -89,23 +93,49 @@ def _get_classificacao_usuario():
     return obj
 
 
+# --- _make_user: seguro com --reuse-db ---------------------------------------
+
 def _make_user(username, password=DEFAULT_PASSWORD, is_superuser=False):
     """
-    Cria auth.User + UserProfile.
-    Usa get_or_create nos lookups para ser robusto com ou sem fixtures
-    pre-carregadas (compativel com transaction=True e com savepoints).
+    Cria (ou recupera) auth.User + UserProfile.
+
+    Usa get_or_create no User E no UserProfile para ser seguro com --reuse-db,
+    onde o banco de teste e preservado entre sessoes do pytest e objetos criados
+    em rodadas anteriores ja existem quando o proximo pytest e iniciado.
+
+    Comportamento:
+      - Primeira rodada: cria tudo do zero.
+      - Rodadas seguintes com --reuse-db: recupera o User existente e
+        garante que a senha esta atualizada (set_password) para que o
+        login real via API continue funcionando.
+      - Sempre garante que UserProfile existe (get_or_create).
     """
-    user = User.objects.create_user(
+    user, created = User.objects.get_or_create(
         username=username,
-        password=password,
-        is_superuser=is_superuser,
+        defaults={
+            "is_superuser": is_superuser,
+            "is_active": True,
+        },
     )
-    UserProfile.objects.create(
+    if created:
+        user.set_password(password)
+        user.save()
+    else:
+        # Garante senha correta em rodadas com --reuse-db
+        user.set_password(password)
+        user.is_superuser = is_superuser
+        user.is_active = True
+        user.save(update_fields=["password", "is_superuser", "is_active"])
+
+    # Garante que UserProfile existe (pode ter sido deletado ou nunca criado)
+    UserProfile.objects.get_or_create(
         user=user,
-        name=username,
-        status_usuario=_get_status_usuario(),
-        tipo_usuario=_get_tipo_usuario(),
-        classificacao_usuario=_get_classificacao_usuario(),
+        defaults={
+            "name": username,
+            "status_usuario": _get_status_usuario(),
+            "tipo_usuario": _get_tipo_usuario(),
+            "classificacao_usuario": _get_classificacao_usuario(),
+        },
     )
     return user
 
@@ -113,14 +143,15 @@ def _make_user(username, password=DEFAULT_PASSWORD, is_superuser=False):
 def _assign_role(user, role_pk):
     """
     Atribui uma Role ao usuario via UserRole.
-    Tambem adiciona o auth.Group correspondente ao usuario,
-    replicando exatamente o que o UserRoleViewSet.create() faz.
+    Usa get_or_create para ser idempotente com --reuse-db:
+    se a UserRole ja existe (rodada anterior), nao tenta criar de novo.
+    Tambem sincroniza o auth.Group correspondente.
     """
     role = Role.objects.get(pk=role_pk)
-    UserRole.objects.create(
+    UserRole.objects.get_or_create(
         user=user,
-        role=role,
         aplicacao=role.aplicacao,
+        defaults={"role": role},
     )
     if role.group:
         user.groups.add(role.group)
