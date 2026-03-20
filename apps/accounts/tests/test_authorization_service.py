@@ -2,31 +2,9 @@
 """
 Testes do AuthorizationService com banco de dados real.
 
-Sem mocks. Todos os metodos sao testados com objetos reais
-criados a partir das fixtures (initial_data.json).
-
-Metodos validados:
-  can_create_user():
-    - False quando ClassificacaoUsuario.pode_criar_usuario=False
-    - True  quando ClassificacaoUsuario.pode_criar_usuario=True
-
-  can_edit_user():
-    - False quando ClassificacaoUsuario.pode_editar_usuario=False
-    - True  quando ClassificacaoUsuario.pode_editar_usuario=True
-
-  user_can_manage_target_user(target):
-    - True  quando ambos tem UserRole na mesma Aplicacao
-    - False quando nao ha intersecao de Aplicacao
-    - True  quando requester e superuser
-
-  user_can_create_user_in_application(app):
-    - True  quando requester tem UserRole na app
-    - False quando requester nao tem UserRole na app
-    - True  quando requester e superuser
-
-  get_user_roles_for_app(app):
-    - Retorna UserRoles do usuario para a app informada
-    - Retorna queryset vazio quando usuario nao tem role na app
+Nao usa transaction=True: savepoints sao suficientes.
+Os helpers _make_user_with_classificacao criam dados via get_or_create,
+portanto funcionam tanto com quanto sem fixtures pre-carregadas.
 """
 import pytest
 from django.contrib.auth.models import User
@@ -42,13 +20,16 @@ from apps.accounts.models import (
 )
 from apps.accounts.services.authorization_service import AuthorizationService
 
-pytestmark = pytest.mark.django_db(transaction=True)
+pytestmark = pytest.mark.django_db
 
 
 def _make_user_with_classificacao(username, pode_criar=False, pode_editar=False):
-    """Cria usuario com ClassificacaoUsuario customizada."""
+    """Cria usuario com ClassificacaoUsuario customizada usando get_or_create."""
+    from apps.accounts.tests.conftest import _get_status_usuario, _get_tipo_usuario
+    # pk 90+ para nao colidir com dados do initial_data
+    pk = 90 + (abs(hash(username)) % 9)
     classificacao, _ = ClassificacaoUsuario.objects.get_or_create(
-        idclassificacaousuario=90 + hash(username) % 9,
+        pk=pk,
         defaults={
             "strdescricao": f"Classificacao {username}",
             "pode_criar_usuario": pode_criar,
@@ -59,8 +40,8 @@ def _make_user_with_classificacao(username, pode_criar=False, pode_editar=False)
     UserProfile.objects.create(
         user=user,
         name=username,
-        status_usuario=StatusUsuario.objects.get(pk=1),
-        tipo_usuario=TipoUsuario.objects.get(pk=1),
+        status_usuario=_get_status_usuario(),
+        tipo_usuario=_get_tipo_usuario(),
         classificacao_usuario=classificacao,
     )
     return user
@@ -108,12 +89,10 @@ class TestCanEditUser:
 class TestUserCanManageTargetUser:
 
     def test_usuarios_com_app_em_comum(self, gestor_pngi, operador_acao):
-        """Gestor e Operador ambos tem UserRole em ACOES_PNGI."""
         service = AuthorizationService(gestor_pngi)
         assert service.user_can_manage_target_user(operador_acao) is True
 
-    def test_usuarios_sem_app_em_comum(self, db, gestor_pngi, gestor_carga):
-        """Gestor PNGI e Gestor CARGA nao compartilham app."""
+    def test_usuarios_sem_app_em_comum(self, gestor_pngi, gestor_carga):
         service = AuthorizationService(gestor_pngi)
         assert service.user_can_manage_target_user(gestor_carga) is False
 
@@ -168,9 +147,7 @@ class TestGetUserRolesForApp:
         assert roles.exists()
         assert roles.filter(user=gestor_pngi).count() == 1
 
-    def test_retorna_vazio_quando_sem_role_na_app(
-        self, gestor_pngi
-    ):
+    def test_retorna_vazio_quando_sem_role_na_app(self, gestor_pngi):
         app = Aplicacao.objects.get(codigointerno="CARGA_ORG_LOT")
         service = AuthorizationService(gestor_pngi)
         roles = service.get_user_roles_for_app(app)

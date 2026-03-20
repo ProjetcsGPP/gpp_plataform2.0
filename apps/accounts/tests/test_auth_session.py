@@ -1,6 +1,6 @@
 # apps/accounts/tests/test_auth_session.py
 """
-Testes de autenticação baseada em sessão Django.
+Testes de autenticacao baseada em sessao Django.
 
 Endpoints cobertos:
   POST /api/accounts/login/
@@ -8,29 +8,11 @@ Endpoints cobertos:
   POST /api/accounts/switch-app/
   GET  /api/accounts/me/
 
-Regras validadas:
-  LOGIN
-    - Credenciais válidas + app_context válido → 200
-    - Cria registro AccountsSession com revoked=False
-    - Credenciais inválidas → 401, code='invalid_credentials'
-    - Campos ausentes → 400
-    - app_context inexistente → 403, code='invalid_app'
-    - app_context bloqueado → 403
-    - Usuário sem role na app → 403, code='forbidden'
-    - Acesso ao PORTAL restrito a PORTAL_ADMIN / SuperUser
-  LOGOUT
-    - Revoga AccountsSession ativa do usuário
-    - Retorna 200
-    - Não autenticado → 401/403
-  SWITCH-APP
-    - Cria nova AccountsSession na nova app
-    - Revoga AccountsSession anterior
-    - Sem acesso à nova app → 403
-    - App inválida → 403
-    - Não autenticado → 401/403
-  ME
-    - Retorna username e roles do usuário autenticado
-    - Não autenticado → 401/403
+USA transaction=True porque:
+  - AccountsSession.revoked precisa ser persistido e lido em queries separadas
+    dentro do mesmo teste (sem savepoints intermediarios que escondam o estado).
+  - O teardown usa TRUNCATE CASCADE via fixture local para evitar o bloqueio
+    de tblusuarioresponsavel.
 """
 import pytest
 from apps.accounts.models import AccountsSession
@@ -43,7 +25,7 @@ SWITCH_APP_URL = "/api/accounts/switch-app/"
 ME_URL         = "/api/accounts/me/"
 
 
-# ─── Login ────────────────────────────────────────────────────────────────────
+# --- Login -------------------------------------------------------------------
 
 class TestLogin:
 
@@ -107,7 +89,7 @@ class TestLogin:
         assert resp.status_code == 403
 
     def test_login_portal_rejeita_usuario_comum(self, client_anonimo, gestor_pngi):
-        """GESTOR_PNGI não tem PORTAL_ADMIN — não deve acessar o PORTAL."""
+        """GESTOR_PNGI nao tem PORTAL_ADMIN -- nao deve acessar o PORTAL."""
         resp = client_anonimo.post(
             LOGIN_URL,
             {"username": "gestor_test", "password": "TestPass@2026",
@@ -162,7 +144,7 @@ class TestLogin:
         assert resp.status_code == 200
 
 
-# ─── Logout ──────────────────────────────────────────────────────────────────
+# --- Logout ------------------------------------------------------------------
 
 class TestLogout:
 
@@ -182,17 +164,13 @@ class TestLogout:
         assert resp.status_code in (401, 403)
 
 
-# ─── SwitchApp ──────────────────────────────────────────────────────────────
+# --- SwitchApp ---------------------------------------------------------------
 
 class TestSwitchApp:
 
     def test_switch_app_cria_nova_session(
-        self, client_gestor, gestor_pngi, gestor_carga
+        self, client_gestor, gestor_pngi
     ):
-        """
-        gestor_pngi recebe também a role de CARGA para poder fazer switch.
-        Verificamos que uma nova AccountsSession é criada para CARGA_ORG_LOT.
-        """
         from apps.accounts.models import Role, UserRole
         role_carga = Role.objects.get(pk=6)
         UserRole.objects.get_or_create(
@@ -213,7 +191,6 @@ class TestSwitchApp:
     def test_switch_app_revoga_session_anterior(
         self, client_gestor, gestor_pngi
     ):
-        """Após o switch, a sessão antiga (ACOES_PNGI) deve estar revogada."""
         from apps.accounts.models import Role, UserRole
         role_carga = Role.objects.get(pk=6)
         UserRole.objects.get_or_create(
@@ -231,7 +208,7 @@ class TestSwitchApp:
         ).exists()
 
     def test_switch_app_sem_acesso_retorna_403(self, client_gestor):
-        """Gestor não tem role em CARGA_ORG_LOT — deve receber 403."""
+        """Gestor nao tem role em CARGA_ORG_LOT -- deve receber 403."""
         resp = client_gestor.post(
             SWITCH_APP_URL, {"app_context": "CARGA_ORG_LOT"}, format="json"
         )
@@ -250,7 +227,7 @@ class TestSwitchApp:
         assert resp.status_code in (401, 403)
 
 
-# ─── MeView ───────────────────────────────────────────────────────────────────
+# --- MeView ------------------------------------------------------------------
 
 class TestMeView:
 

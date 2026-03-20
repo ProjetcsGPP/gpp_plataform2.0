@@ -2,20 +2,9 @@
 """
 Testes de constraints de banco de dados da app accounts.
 
-Constraints validadas:
-  uq_role_aplicacao_codigoperfil:
-    - Nao pode ter dois roles com o mesmo codigoperfil na mesma aplicacao
-    - Mesmo codigoperfil em apps diferentes e permitido
-
-  uq_userrole_user_aplicacao:
-    - Um usuario so pode ter uma role por aplicacao
-    - Usuario pode ter roles em aplicacoes diferentes
-
-  uq_attribute_user_aplicacao_key (se existir model Attribute):
-    - Mesmo user+app+key gera IntegrityError
-    - user+app com key diferente e permitido
-
-Todos os testes usam DB real (transaction=True para capturar IntegrityError).
+MANTEM transaction=True: IntegrityError real exige commit no banco.
+O conftest.py usa get_or_create nos helpers, entao StatusUsuario etc.
+ sao criados se nao existirem -- sem depender de fixtures pre-carregadas.
 """
 import pytest
 from django.db import IntegrityError
@@ -41,17 +30,17 @@ class TestRoleConstraints:
     def test_mesmo_codigoperfil_em_apps_diferentes_e_permitido(self, db):
         app_pngi = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         app_carga = Aplicacao.objects.get(codigointerno="CARGA_ORG_LOT")
-        role = Role.objects.create(
+        r1 = Role.objects.create(
             codigoperfil="ROLE_CROSS_APP_TEST",
             nomeperfil="Cross App Role PNGI",
             aplicacao=app_pngi,
         )
-        role2 = Role.objects.create(
+        r2 = Role.objects.create(
             codigoperfil="ROLE_CROSS_APP_TEST",
             nomeperfil="Cross App Role CARGA",
             aplicacao=app_carga,
         )
-        assert role.pk != role2.pk
+        assert r1.pk != r2.pk
 
 
 # --- UserRole: unicidade user por aplicacao ----------------------------------
@@ -61,7 +50,6 @@ class TestUserRoleConstraints:
     def test_usuario_com_dois_roles_mesma_app_gera_integrity_error(
         self, db, operador_acao
     ):
-        """operador_acao ja tem UserRole em ACOES_PNGI. Tentar adicionar outra deve falhar."""
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         role_gestor = Role.objects.get(codigoperfil="GESTOR_PNGI")
         with pytest.raises(IntegrityError):

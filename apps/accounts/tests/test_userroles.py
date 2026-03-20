@@ -2,26 +2,12 @@
 """
 Testes do UserRoleViewSet.
 
+Nao usa transaction=True: savepoints sao suficientes para testes HTTP.
+
 Endpoints cobertos:
   POST   /api/accounts/user-roles/
   DELETE /api/accounts/user-roles/{id}/
   GET    /api/accounts/user-roles/
-
-Regras validadas:
-  PORTAL_ADMIN:
-    - POST cria UserRole e retorna 201
-    - POST sincroniza permissoes do auth.Group no usuario
-    - POST com dados duplicados (user+aplicacao) retorna 400/409
-    - DELETE remove UserRole e retorna 204
-    - DELETE revoga permissoes exclusivas do Group
-    - Role de aplicacao diferente da aplicacao informada retorna 400
-
-  Usuarios comuns (GESTOR, COORDENADOR, OPERADOR):
-    - POST retorna 403
-    - DELETE retorna 403
-
-  Nao autenticado:
-    - GET/POST/DELETE retorna 401/403
 
 Dados base: initial_data.json
   Aplicacao pk=2 -> ACOES_PNGI
@@ -35,13 +21,12 @@ from django.contrib.contenttypes.models import ContentType
 
 from apps.accounts.models import Aplicacao, Role, UserRole
 
-pytestmark = pytest.mark.django_db(transaction=True)
+pytestmark = pytest.mark.django_db
 
 URL = "/api/accounts/user-roles/"
 
 
 def _get_or_create_test_perm(codename):
-    """Cria uma Permission de teste para validar sync/revoke."""
     ct = ContentType.objects.first()
     perm, _ = Permission.objects.get_or_create(
         codename=codename,
@@ -84,10 +69,6 @@ class TestUserRoleAssign:
     def test_assign_sincroniza_permissoes_do_group(
         self, client_portal_admin, usuario_alvo
     ):
-        """
-        Apos a atribuicao, as permissoes do auth.Group da Role
-        devem estar presentes no usuario (sync via permission_sync).
-        """
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         role = Role.objects.get(codigoperfil="OPERADOR_ACAO")
         perm = _get_or_create_test_perm("test_sync_userrole")
@@ -99,9 +80,6 @@ class TestUserRoleAssign:
             format="json",
         )
         usuario_alvo.refresh_from_db()
-        # Limpar cache de permissoes do ORM
-        usuario_alvo._perm_cache = set()
-        usuario_alvo._user_perm_cache = set()
         assert usuario_alvo.user_permissions.filter(
             codename="test_sync_userrole"
         ).exists()
@@ -109,7 +87,6 @@ class TestUserRoleAssign:
     def test_assign_duplicado_retorna_400_ou_409(
         self, client_portal_admin, usuario_alvo
     ):
-        """Um usuario nao pode ter duas roles na mesma aplicacao."""
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         role = Role.objects.get(codigoperfil="OPERADOR_ACAO")
         data = {"user": usuario_alvo.pk, "aplicacao": app.pk, "role": role.pk}
@@ -120,10 +97,6 @@ class TestUserRoleAssign:
     def test_assign_role_de_app_diferente_retorna_400(
         self, client_portal_admin, usuario_alvo
     ):
-        """
-        Role da ACOES_PNGI nao pode ser atribuida com aplicacao CARGA_ORG_LOT.
-        O serializer deve barrar essa inconsistencia.
-        """
         app_carga = Aplicacao.objects.get(codigointerno="CARGA_ORG_LOT")
         role_pngi = Role.objects.get(codigoperfil="GESTOR_PNGI")
         resp = client_portal_admin.post(
@@ -207,10 +180,6 @@ class TestUserRoleRevoke:
     def test_revoke_remove_permissoes_exclusivas_do_group(
         self, client_portal_admin, operador_acao
     ):
-        """
-        Apos a revogacao, as permissoes exclusivas do Group
-        devem ser removidas do usuario (revoke via permission_sync).
-        """
         userrole = UserRole.objects.get(user=operador_acao)
         perm = _get_or_create_test_perm("test_revoke_userrole")
         userrole.role.group.permissions.add(perm)

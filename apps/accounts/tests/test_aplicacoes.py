@@ -6,30 +6,12 @@ Endpoints cobertos:
   GET /api/accounts/aplicacoes/
   GET /api/accounts/aplicacoes/{id}/
 
-Regras validadas:
-  PORTAL_ADMIN / SuperUser:
-    - Ve TODAS as aplicacoes (sem filtro de flags)
-    - Ve apps bloqueadas (isappbloqueada=True)
-    - Ve apps nao prontas (isappproductionready=False)
-
-  Usuario comum:
-    - Ve apenas apps onde possui UserRole
-    - Nao ve apps bloqueadas
-    - Nao ve apps nao prontas
-
-  Qualquer perfil autenticado:
-    - ViewSet e ReadOnly: POST/PUT/PATCH/DELETE -> 405
-
-  Nao autenticado:
-    - GET -> 401/403
-
-Dados base: initial_data.json + policy_expansion_flags.json
-  APP_BLOQUEADA  -> isappbloqueada=True
-  APP_NAO_PRONTA -> isappproductionready=False
+Nao usa transaction=True: savepoints sao suficientes para testes HTTP
+e evitam o problema de TRUNCATE bloqueado por FK de tblusuarioresponsavel.
 """
 import pytest
 
-pytestmark = pytest.mark.django_db(transaction=True)
+pytestmark = pytest.mark.django_db
 
 URL = "/api/accounts/aplicacoes/"
 
@@ -43,7 +25,6 @@ class TestAplicacoesPortalAdmin:
         assert resp.status_code == 200
 
     def test_portal_admin_ve_pelo_menos_3_apps(self, client_portal_admin):
-        """initial_data.json tem 3 apps (PORTAL, ACOES_PNGI, CARGA_ORG_LOT)."""
         resp = client_portal_admin.get(URL)
         assert len(resp.data) >= 3
 
@@ -53,7 +34,6 @@ class TestAplicacoesPortalAdmin:
         assert {"PORTAL", "ACOES_PNGI", "CARGA_ORG_LOT"}.issubset(codigos)
 
     def test_portal_admin_ve_app_bloqueada(self, client_portal_admin):
-        """APP_BLOQUEADA (policy_expansion_flags.json) deve aparecer para admin."""
         resp = client_portal_admin.get(URL)
         codigos = {a["codigointerno"] for a in resp.data}
         assert "APP_BLOQUEADA" in codigos
@@ -80,7 +60,6 @@ class TestAplicacoesUsuarioComum:
         assert "ACOES_PNGI" in codigos
 
     def test_gestor_nao_ve_portal(self, client_gestor):
-        """Gestor nao tem UserRole no PORTAL."""
         resp = client_gestor.get(URL)
         codigos = {a["codigointerno"] for a in resp.data}
         assert "PORTAL" not in codigos

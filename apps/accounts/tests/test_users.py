@@ -2,43 +2,19 @@
 """
 Testes de criacao de usuarios e gestao de perfis.
 
+Nao usa transaction=True: savepoints sao suficientes para testes HTTP.
+
 Endpoints cobertos:
-  POST  /api/accounts/users/                  -> UserCreateView
-  POST  /api/accounts/users/create-with-role/ -> UserCreateWithRoleView
-  PATCH /api/accounts/profiles/{id}/          -> UserProfileViewSet.partial_update
-
-Regras validadas:
-  UserCreateView:
-    - PORTAL_ADMIN cria usuario e retorna 201
-    - Criacao gera UserProfile automaticamente
-    - Username duplicado retorna 400
-    - Usuario sem pode_criar_usuario=True retorna 403
-    - Nao autenticado retorna 401/403
-
-  UserCreateWithRoleView:
-    - PORTAL_ADMIN cria user + profile + role atomicamente (201)
-    - Resposta contem permissions_added
-    - App bloqueada retorna 400/403
-    - Payload invalido nao cria objeto parcial (rollback)
-    - Role de app diferente da aplicacao informada retorna 400
-
-  UserProfileViewSet.partial_update:
-    - Usuario edita o proprio profile (200)
-    - Usuario nao edita profile alheio (403/404)
-    - Apenas PORTAL_ADMIN pode alterar classificacao_usuario (403 para outros)
-    - Apenas PORTAL_ADMIN pode alterar status_usuario (403 para outros)
-
-Dados base: initial_data.json
-  ClassificacaoUsuario pk=1 -> pode_criar_usuario=False (padrao)
-  Aplicacao pk=2 -> ACOES_PNGI (nao bloqueada)
-  Role pk=4  -> OPERADOR_ACAO / ACOES_PNGI
+  POST  /api/accounts/users/
+  POST  /api/accounts/users/create-with-role/
+  PATCH /api/accounts/profiles/{id}/
 """
 import pytest
 from django.contrib.auth.models import User
 
 from apps.accounts.models import ClassificacaoUsuario, UserProfile, UserRole
 
-pytestmark = pytest.mark.django_db(transaction=True)
+pytestmark = pytest.mark.django_db
 
 USERS_URL       = "/api/accounts/users/"
 CREATE_ROLE_URL = "/api/accounts/users/create-with-role/"
@@ -79,10 +55,6 @@ class TestUserCreate:
         assert resp.status_code == 400
 
     def test_gestor_sem_permissao_criar_retorna_403(self, client_gestor):
-        """
-        ClassificacaoUsuario pk=1 tem pode_criar_usuario=False.
-        Gestor com essa classificacao nao pode criar usuarios.
-        """
         resp = client_gestor.post(
             USERS_URL, _payload_usuario("forbidden"), format="json"
         )
@@ -141,7 +113,6 @@ class TestUserCreateWithRole:
     def test_payload_invalido_nao_cria_objeto_parcial(
         self, client_portal_admin
     ):
-        """Rollback atomico: usuario nao deve ser criado se houver erro."""
         resp = client_portal_admin.post(
             CREATE_ROLE_URL,
             {"username": "", "password": "", "name": ""},
@@ -204,7 +175,6 @@ class TestUserProfilePatch:
     def test_usuario_comum_nao_altera_classificacao(
         self, client_gestor, gestor_pngi
     ):
-        """Alterar classificacao_usuario exige PORTAL_ADMIN."""
         resp = client_gestor.patch(
             f"{PROFILES_URL}{gestor_pngi.pk}/",
             {"classificacao_usuario": 2},
@@ -225,7 +195,6 @@ class TestUserProfilePatch:
     def test_usuario_comum_nao_altera_status(
         self, client_gestor, gestor_pngi
     ):
-        """Alterar status_usuario exige PORTAL_ADMIN."""
         resp = client_gestor.patch(
             f"{PROFILES_URL}{gestor_pngi.pk}/",
             {"status_usuario": 2},

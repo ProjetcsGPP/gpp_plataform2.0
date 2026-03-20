@@ -2,22 +2,11 @@
 """
 Testes do RoleViewSet.
 
+Nao usa transaction=True: savepoints sao suficientes para testes HTTP.
+
 Endpoints cobertos:
   GET /api/accounts/roles/
   GET /api/accounts/roles/?aplicacao_id={id}
-
-Regras validadas:
-  PORTAL_ADMIN:
-    - Lista todas as roles (sem filtro)
-    - Filtra por aplicacao_id corretamente
-    - aplicacao_id invalido (string) retorna lista vazia, nao 500
-    - aplicacao_id inexistente retorna lista vazia
-
-  Qualquer usuario nao-admin:
-    - GET retorna 403
-
-  Nao autenticado:
-    - GET retorna 401/403
 
 Dados base: initial_data.json
   Role pk=1  -> PORTAL_ADMIN   / Aplicacao pk=1
@@ -28,7 +17,7 @@ Dados base: initial_data.json
 """
 import pytest
 
-pytestmark = pytest.mark.django_db(transaction=True)
+pytestmark = pytest.mark.django_db
 
 URL = "/api/accounts/roles/"
 
@@ -42,7 +31,6 @@ class TestRolesPortalAdmin:
         assert resp.status_code == 200
 
     def test_lista_tem_pelo_menos_4_roles(self, client_portal_admin):
-        """initial_data.json tem ao menos 4 roles cadastradas."""
         resp = client_portal_admin.get(URL)
         assert len(resp.data) >= 4
 
@@ -55,14 +43,12 @@ class TestRolesPortalAdmin:
             assert role["aplicacao"] == 2
 
     def test_filtra_por_aplicacao_id_portal(self, client_portal_admin):
-        """Aplicacao pk=1 (PORTAL) tem 1 role no initial_data."""
         resp = client_portal_admin.get(f"{URL}?aplicacao_id=1")
         assert resp.status_code == 200
         for role in resp.data:
             assert role["aplicacao"] == 1
 
     def test_aplicacao_id_string_invalido_retorna_lista_vazia(self, client_portal_admin):
-        """Nao deve gerar 500 — deve retornar lista vazia."""
         resp = client_portal_admin.get(f"{URL}?aplicacao_id=abc")
         assert resp.status_code == 200
         assert resp.data == []
