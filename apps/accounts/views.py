@@ -22,6 +22,8 @@ ARCH-01: Endpoint de aplicacoes separado em dois:
            Pós-login; PORTAL_ADMIN vê todas, usuário comum vê só suas apps via UserRole.
 FIX-TESTS: pagination_class = None nos dois AplicacaoViewSets para evitar
            resp.data paginado (dict) nos testes — retorna lista plana diretamente.
+FIX-THROTTLE: throttle_classes = [] em AplicacaoPublicaViewSet — endpoint público
+              não deve ser limitado por AnonRateThrottle; evita 429 nos testes.
 """
 import logging
 from datetime import timedelta
@@ -36,6 +38,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError as DRFValidationError
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
 from common.mixins import AuditableMixin, SecureQuerysetMixin
@@ -428,9 +431,11 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     R-01: ReadOnly — POST/PUT/PATCH/DELETE retornam 405.
     R-02: Filtro fixo: isappbloqueada=False AND isappproductionready=True.
     R-03: pagination_class = None — retorna lista plana sem envelope de paginação.
+    R-04: throttle_classes = [] — endpoint público de leitura; sem rate limit.
     """
     serializer_class = AplicacaoPublicaSerializer
     permission_classes = [AllowAny]
+    throttle_classes = []  # sem rate limit — endpoint público de lookup
     pagination_class = None
     lookup_field = "codigointerno"
 
