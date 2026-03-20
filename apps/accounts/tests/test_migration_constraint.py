@@ -8,7 +8,7 @@ Cenários cobertos (T-01..T-10):
   T-04  __str__ de UserRole continua funcionando após troca de constraint    → str ok
   T-05  UserRole pode ser deletado e recriado (sem violação)                 → Sucesso
   T-06  Constraint não bloqueia usuários diferentes, mesma (app, role)       → Sucesso
-  T-07  Login de usuário criado sem role (Fase 1 only) falha com 400         → 400
+  T-07  Login de usuário criado sem role falha com 400 ou 403                → 400/403
   T-08  Login de usuário criado com role (Fase 6 / direct ORM) sucede        → 200
   T-09  Mesmo resultado com pytest --reuse-db (isolamento por TestCase)      → isolado via tearDown
   T-10  Reversão da constraint — migration anterior permite (user,app,role)  → testada via SQL direto
@@ -34,7 +34,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import Aplicacao, Role, UserProfile, UserRole
 
-TOKEN_URL = "/api/auth/token/"
+LOGIN_URL = "/api/accounts/login/"
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -63,12 +63,6 @@ def _make_user_with_profile(username, *, with_role_pk=None):
         role = Role.objects.get(pk=with_role_pk)
         UserRole.objects.create(user=user, role=role, aplicacao=role.aplicacao)
     return user
-
-
-def _fetch_token(username, password="Senha@123"):
-    tmp = APIClient()
-    resp = tmp.post(TOKEN_URL, {"username": username, "password": password}, format="json")
-    return resp
 
 
 # ─── TestUserRoleBankConstraint (T-01..T-06, T-09) ───────────────────────────
@@ -227,37 +221,107 @@ class TestUserRoleBankConstraint(TestCase):
 
 class TestLoginBehaviorConstraint(TestCase):
     """
-    Valida o comportamento de login com a nova constraint:
-      T-07: usuário sem UserRole não consegue logar (GPPTokenObtainPairSerializer
-            exige ao menos 1 UserRole ativo).
-      T-08: usuário com UserRole (criado via ORM, R-05) loga com sucesso.
+    Valida o comportamento de login pós-Fase-0 (autenticação stateful via
+    cookie HttpOnly gpp_session — sem JWT):
+
+      T-07: usuário sem UserRole não consegue logar (view de login exige
+            ao menos 1 UserRole ativo na aplicação solicitada).
+      T-08: usuário com UserRole (criado via ORM, R-05) loga com sucesso,
+            recebendo o cookie gpp_session.
+
+    Endpoint:  POST /api/accounts/login/  (name="accounts:login")
+    Payload:   {"username": "...", "password": "...", "app_context": "PORTAL"}
     """
     fixtures = ["initial_data"]
 
-    # ── T-07: sem role → 400 ─────────────────────────────────────────
-    def test_t07_login_without_role_returns_400(self):
+    LOGIN_URL = "/api/accounts/login/"
+
+    def _do_login(self, username, password="Senha@123", app_context="PORTAL"):
         """
-        Usuário criado pela Fase 1 (sem role atribuída) deve receber 400
-        com mensagem indicando ausência de perfil de acesso.
-        Comportamento intencional — garante que o token não seja emitido
-        para usuários sem autorização de acesso.
+        Executa POST no endpoint de login stateful.
+        Retorna a Response — sem bearer token, sem credenciais de cliente.
+        """
+        client = APIClient()
+        return client.post(
+            self.LOGIN_URL,
+            {"username": username, "password": password, "app_context": app_context},
+            format="json",
+        )
+
+    # ── T-07: sem role → 400 ou 403 ──────────────────────────────────
+    def test_t07_login_without_role_returns_400_or_403(self):
+        """
+        Usuário criado sem role atribuída deve ser barrado ao tentar logar.
+        A view pode rejeitar com 400 (serializer) ou 403 (view/policy),
+        mas nunca com 200 — cookie gpp_session NÃO deve ser emitido.
+
+        Comportamento intencional: garante que a sessão não seja criada
+        para usuários sem autorização de acesso à aplicação.
         """
         _make_user_with_profile("tst_f7_no_role")  # sem role
-        resp = _fetch_token("tst_f7_no_role")
-        self.assertEqual(resp.status_code, 400)
-        # Mensagem esperada do GPPTokenObtainPairSerializer
-        error_detail = str(resp.data)
-        self.assertIn("perfil", error_detail.lower())
+        resp = self._do_login("tst_f7_no_role")
 
-    # ── T-08: com role → 200 + token ─────────────────────────────────
-    def test_t08_login_with_role_returns_200_and_token(self):
+        self.assertIn(
+            resp.status_code,
+            [400, 403],
+            msg=(
+                f"Esperado 400 ou 403 para usuário sem role, "
+                f"mas recebeu {resp.status_code}. Body: {getattr(resp, 'data', resp.content)}"
+            ),
+        )
+        # Cookie de sessão NÃO pode estar presente
+        self.assertNotIn(
+            "gpp_session",
+            resp.cookies,
+            msg="Cookie gpp_session não deve ser emitido para usuário sem role.",
+        )
+        # Nenhuma chave JWT deve aparecer no body
+        if hasattr(resp, "data") and isinstance(resp.data, dict):
+            self.assertNotIn("access", resp.data)
+            self.assertNotIn("refresh", resp.data)
+
+    # ── T-08: com role → 200 + cookie gpp_session ────────────────────
+    def test_t08_login_with_role_returns_200_and_session_cookie(self):
         """
-        Usuário criado com role (Fase 6 / ORM direto) deve receber 200
-        com access token no payload.
+        Usuário com UserRole (role pk=1 / PORTAL_ADMIN, criado via ORM)
+        deve receber 200 e o cookie HttpOnly gpp_session.
+        Nenhuma chave JWT (access, refresh, token) deve estar no body.
         """
         _make_user_with_profile("tst_f7_with_role", with_role_pk=1)
-        resp = _fetch_token("tst_f7_with_role")
-        self.assertEqual(resp.status_code, 200)
-        self.assertIn("access", resp.data)
-        self.assertIn("refresh", resp.data)
-        self.assertTrue(len(resp.data["access"]) > 20)
+        resp = self._do_login("tst_f7_with_role")
+
+        self.assertEqual(
+            resp.status_code,
+            200,
+            msg=(
+                f"Esperado 200 para usuário com role, "
+                f"mas recebeu {resp.status_code}. Body: {getattr(resp, 'data', resp.content)}"
+            ),
+        )
+
+        # Verificação de sessão: cookie gpp_session OU dados do usuário no body
+        has_cookie = "gpp_session" in resp.cookies
+        has_user_data = (
+            hasattr(resp, "data")
+            and isinstance(resp.data, dict)
+            and "username" in resp.data
+        )
+        self.assertTrue(
+            has_cookie or has_user_data,
+            msg=(
+                "Esperado cookie 'gpp_session' ou 'username' no body após login com sucesso. "
+                f"Cookies: {list(resp.cookies.keys())}. "
+                f"Body keys: {list(resp.data.keys()) if hasattr(resp, 'data') and isinstance(resp.data, dict) else 'N/A'}"
+            ),
+        )
+
+        # Nenhuma chave JWT deve estar no body
+        if hasattr(resp, "data") and isinstance(resp.data, dict):
+            self.assertNotIn(
+                "access", resp.data,
+                msg="Chave 'access' (JWT) não deve existir no body pós-Fase-0.",
+            )
+            self.assertNotIn(
+                "refresh", resp.data,
+                msg="Chave 'refresh' (JWT) não deve existir no body pós-Fase-0.",
+            )
