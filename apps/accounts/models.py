@@ -10,11 +10,14 @@ Estrutura:
 - Role              : perfis RBAC por aplicação — com FK para auth_group
 - UserRole          : relação User <-> Role por aplicação
 - Attribute         : atributos ABAC por usuário/aplicação
-- AccountsSession   : sessões ativas para revogação anti-replay
+- AccountsSession   : sessões ativas baseadas em session_key Django (anti-replay, auditoria)
+
+FASE-0: AccountsSession refatorada — jti removido; session_key + app_context adicionados.
 """
 from django.conf import settings
 from django.contrib.auth.models import Group, User
 from django.db import models
+from django.utils import timezone
 
 
 def get_default_status_usuario():
@@ -269,7 +272,7 @@ class UserRole(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["user", "aplicacao"],
-                name="uq_userrole_user_aplicacao",  # Fase 7: substituída constraint tripla
+                name="uq_userrole_user_aplicacao",
             )
         ]
         verbose_name = "User Role"
@@ -312,27 +315,50 @@ class Attribute(models.Model):
 
 
 # =====================
-# SESSION (anti-replay)
+# SESSION (stateful — session_key Django)
 # =====================
 
 class AccountsSession(models.Model):
     """
-    Sessões JWT ativas para revogação explícita (anti-replay).
-    O campo 'jti' corresponde ao claim 'jti' do JWT (JWT ID).
-    Ao revogar, o middleware JWTAuthenticationMiddleware nega o token
-    mesmo que ele ainda não tenha expirado.
+    Representa uma sessão autenticada do usuário baseada em session_key do Django.
+
+    Substitui o uso de JWT (jti), permitindo controle stateful de sessões,
+    revogação e auditoria de acesso por aplicação (app_context).
+
+    Campos:
+      session_key  — request.session.session_key do Django
+      app_context  — codigointerno da aplicação (ex: PORTAL, ACOES_PNGI)
     """
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="sessions",
+        related_name="account_sessions",
     )
-    jti = models.CharField(max_length=255, unique=True, db_index=True)
+
+    session_key = models.CharField(
+        max_length=40,
+        db_index=True,
+        help_text="Chave da sessão Django (request.session.session_key)",
+    )
+
+    app_context = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        help_text="Código interno da aplicação (ex: PORTAL, ACOES_PNGI)",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
+
     expires_at = models.DateTimeField()
-    revoked = models.BooleanField(default=False, db_index=True)
+
+    revoked = models.BooleanField(default=False)
+
     revoked_at = models.DateTimeField(null=True, blank=True)
+
     ip_address = models.GenericIPAddressField(null=True, blank=True)
+
     user_agent = models.TextField(blank=True, default="")
 
     class Meta:
@@ -341,10 +367,16 @@ class AccountsSession(models.Model):
         verbose_name = "Session"
         verbose_name_plural = "Sessions"
         indexes = [
-            models.Index(fields=["jti", "revoked"]),
+            models.Index(fields=["session_key", "revoked"]),
             models.Index(fields=["user", "revoked"]),
         ]
 
+    def revoke(self):
+        """Revoga a sessão."""
+        if not self.revoked:
+            self.revoked = True
+            self.revoked_at = timezone.now()
+            self.save(update_fields=["revoked", "revoked_at"])
+
     def __str__(self):
-        status = "REVOGADA" if self.revoked else "ATIVA"
-        return f"{self.user.username} | {self.jti[:12]}... | {status}"
+        return f"{self.user_id} - {self.session_key} - {self.app_context}"
