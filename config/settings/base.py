@@ -5,6 +5,7 @@ Nunca usar diretamente — sempre usar development.py ou production.py.
 
 FASE-0: JWT/simplejwt removidos; SessionAuthentication como padrão DRF;
         configurações de sessão, CSRF, CSP e AppContextMiddleware adicionados.
+        CSP no formato django-csp >= 4.0 (CONTENT_SECURITY_POLICY dict).
 """
 import os
 from pathlib import Path
@@ -14,7 +15,7 @@ import environ
 # ─── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-# ─── Environ ──────────────────────────────────────────────────────────────────
+# ─── Environ ─────────────────────────────────────────────────────────────────
 env = environ.Env()
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -37,7 +38,7 @@ THIRD_PARTY_APPS = [
     "rest_framework",
     "corsheaders",
     "django_extensions",
-    "csp",                 # django-csp (Content Security Policy)
+    "csp",                 # django-csp >= 4.0 (Content Security Policy)
 ]
 
 LOCAL_APPS = [
@@ -95,7 +96,7 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-# ─── Database ───────────────────────────────────────────────────────────────────
+# ─── Database ──────────────────────────────────────────────────────────────────
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -169,7 +170,7 @@ CSRF_TRUSTED_ORIGINS = env.list(
 )
 # CSRF_COOKIE_SECURE — definido por ambiente (False em dev, True em prod)
 
-# ─── DRF ───────────────────────────────────────────────────────────────────────────────
+# ─── DRF ──────────────────────────────────────────────────────────────────────────────
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         # FASE-0: JWT removido — sessão Django como único mecanismo
@@ -196,11 +197,17 @@ REST_FRAMEWORK = {
 }
 
 # ─── CSP (Content Security Policy) ────────────────────────────────────────────────────
-CSP_DEFAULT_SRC = ("'self'",)
-CSP_SCRIPT_SRC  = ("'self'",)
-CSP_OBJECT_SRC  = ("'none'",)
-CSP_BASE_URI    = ("'self'",)
-CSP_FRAME_ANCESTORS = ("'none'",)
+# Formato django-csp >= 4.0 — dict CONTENT_SECURITY_POLICY
+# Documentação: https://django-csp.readthedocs.io/en/latest/configuration.html
+CONTENT_SECURITY_POLICY = {
+    "DIRECTIVES": {
+        "default-src": ("'self'",),
+        "script-src":  ("'self'",),
+        "object-src":  ("'none'",),
+        "base-uri":    ("'self'",),
+        "frame-ancestors": ("'none'",),
+    }
+}
 
 # ─── Security Headers ───────────────────────────────────────────────────────────
 SECURE_BROWSER_XSS_FILTER = True
