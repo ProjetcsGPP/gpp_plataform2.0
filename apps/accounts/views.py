@@ -13,10 +13,13 @@ FIX: except Exception substituído por captura específica (DatabaseError/Integr
      ValidationError e PermissionDenied propagam normalmente para respostas 400/403 corretos
 POLICY-EXPANSION: AplicacaoViewSet.get_queryset() diferencia usuário privilegiado de comum;
                   filtro hardcoded isshowinportal removido — lógica delegada aos flags + frontend.
-POLICY-EXPANSION: UserProfileViewSet.partial_update() migrado para UserProfilePolicy —
-                  lógica de autorização inline removida; domínio puro via policy.
+POLICY-EXPANSION: UserProfileViewSet.partial_update() migrado para UserProfilePolicy.
 FASE-0: JWT removido — LoginView, LogoutView e SwitchAppView baseadas em sessão Django.
-        GPPTokenObtainPairView e TokenRevokeView removidos.
+ARCH-01: Endpoint de aplicacoes separado em dois:
+         - AplicacaoPublicaViewSet → GET /api/accounts/auth/aplicacoes/ (AllowAny)
+           Usado pelo seletor de login; expõe apenas apps ativas sem flags internos.
+         - AplicacaoViewSet → GET /api/accounts/aplicacoes/ (IsAuthenticated)
+           Pós-login; PORTAL_ADMIN vê todas, usuário comum vê só suas apps via UserRole.
 """
 import logging
 from datetime import timedelta
@@ -38,6 +41,7 @@ from common.permissions import CanCreateUser, CanEditUser, HasRolePermission, Is
 
 from .models import AccountsSession, Aplicacao, Role, UserProfile, UserRole
 from .serializers import (
+    AplicacaoPublicaSerializer,
     AplicacaoSerializer,
     RoleSerializer,
     UserCreateSerializer,
@@ -55,22 +59,14 @@ from .utils import get_client_ip
 security_logger = logging.getLogger("gpp.security")
 
 
-# ─── Auth Views (Sessão) ──────────────────────────────────────────────────────────────
+# ─── Auth Views (Sessão) ──────────────────────────────────────────────────────
 
 class LoginView(APIView):
     """
     POST /api/accounts/login/
     Realiza autenticação via sessão (cookie HttpOnly).
-    Substitui completamente o fluxo JWT.
 
-    Payload (JSON):
-      { "username": "...", "password": "...", "app_context": "PORTAL" }
-
-    Respostas:
-      200 → login bem-sucedido
-      400 → campos ausentes
-      401 → credenciais inválidas
-      403 → app inválida, bloqueada ou sem acesso
+    Payload: { "username": "...", "password": "...", "app_context": "PORTAL" }
     """
     permission_classes = [AllowAny]
     throttle_scope = "login"
@@ -95,7 +91,6 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # PASSO 1 — validar aplicação
         app = Aplicacao.objects.filter(
             codigointerno=app_context,
             isappbloqueada=False
@@ -108,7 +103,6 @@ class LoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # PASSO 2 — regras de acesso por app_context
         if app_context == "PORTAL":
             has_access = user.is_superuser or UserRole.objects.filter(
                 user=user,
@@ -134,13 +128,11 @@ class LoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # LOGIN
         login(request, user)
-        request.session.cycle_key()   # proteção contra session fixation
-        rotate_token(request)         # rotaciona CSRF
+        request.session.cycle_key()
+        rotate_token(request)
         request.session["app_context"] = app_context
 
-        # Auditoria
         session_obj = AccountsSession.objects.create(
             user=user,
             session_key=request.session.session_key,
@@ -165,7 +157,6 @@ class LogoutView(APIView):
     """
     POST /api/accounts/logout/
     Encerra a sessão atual e revoga no banco.
-    Requer autenticação.
     """
     permission_classes = [IsAuthenticated]
 
@@ -186,7 +177,6 @@ class LogoutView(APIView):
         )
 
         logout(request)
-
         return Response({"detail": "Logout realizado"})
 
 
@@ -194,14 +184,6 @@ class SwitchAppView(APIView):
     """
     POST /api/accounts/switch-app/
     Troca o contexto de aplicação mantendo a mesma sessão autenticada.
-
-    Payload (JSON):
-      { "app_context": "ACOES_PNGI" }
-
-    Lógica de auditoria:
-      - Revoga o registro AccountsSession anterior (mesma session_key)
-      - Cria novo registro com o novo app_context
-      - A session_key do Django permanece a mesma
     """
     permission_classes = [IsAuthenticated]
     throttle_scope = "login"
@@ -211,8 +193,7 @@ class SwitchAppView(APIView):
 
         if not new_app:
             return Response(
-                {"detail": "app_context não informado.",
-                 "code": "invalid_request"},
+                {"detail": "app_context não informado.", "code": "invalid_request"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -229,8 +210,7 @@ class SwitchAppView(APIView):
                 user.id, new_app
             )
             return Response(
-                {"detail": "Aplicação inválida ou bloqueada.",
-                 "code": "invalid_app"},
+                {"detail": "Aplicação inválida ou bloqueada.", "code": "invalid_app"},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -251,15 +231,13 @@ class SwitchAppView(APIView):
                 user.id, new_app
             )
             return Response(
-                {"detail": "Usuário sem acesso à aplicação.",
-                 "code": "forbidden"},
+                {"detail": "Usuário sem acesso à aplicação.", "code": "forbidden"},
                 status=status.HTTP_403_FORBIDDEN
             )
 
         old_app = request.session.get("app_context")
         session_key = request.session.session_key
 
-        # Revogar registro anterior da mesma session_key
         AccountsSession.objects.filter(
             session_key=session_key,
             revoked=False
@@ -268,11 +246,9 @@ class SwitchAppView(APIView):
             revoked_at=dj_timezone.now()
         )
 
-        # Atualizar sessão Django
         request.session["app_context"] = new_app
         request.session.save()
 
-        # Criar novo registro de auditoria
         AccountsSession.objects.create(
             user=user,
             session_key=session_key,
@@ -293,7 +269,7 @@ class SwitchAppView(APIView):
         return Response({"detail": "Contexto alterado com sucesso"})
 
 
-# ─── Me View ───────────────────────────────────────────────────────────────────────────────────
+# ─── Me View ──────────────────────────────────────────────────────────────────
 
 class MeView(APIView):
     """
@@ -324,22 +300,12 @@ class MeView(APIView):
         return Response(data)
 
 
-# ─── User Create View (GAP-01) ─────────────────────────────────────────────────────────
+# ─── User Create View (GAP-01) ─────────────────────────────────────────────────
 
 class UserCreateView(APIView):
     """
     POST /api/accounts/users/
     Cria atomicamente um auth.User e seu UserProfile.
-    Acesso: ClassificacaoUsuario.pode_criar_usuario=True (ou PORTAL_ADMIN bootstrap).
-
-    R-01: transaction.atomic() no serializer — rollback total em falha.
-    R-02: idusuariocriacao preenchido com o admin autenticado.
-    R-03: CanCreateUser — lê ClassificacaoUsuario.pode_criar_usuario via AuthorizationService.
-    R-07: não cria UserRole — responsabilidade da Fase 4/6.
-    DYN-SCOPE: user_can_manage_target_user — gestores só criam usuários
-               com interseção de aplicações.
-    FIX: captura apenas exceções de infraestrutura (DatabaseError, IntegrityError, OperationalError).
-         ValidationError e PermissionDenied propagam para respostas 400/403 corretos.
     """
     permission_classes = [IsAuthenticated, CanCreateUser]
 
@@ -388,26 +354,12 @@ class UserCreateView(APIView):
         )
 
 
-# ─── User Create With Role View (FASE 6) ──────────────────────────────────────────────
+# ─── User Create With Role View (FASE 6) ──────────────────────────────────────
 
 class UserCreateWithRoleView(APIView):
     """
     POST /api/accounts/users/create-with-role/
-
-    Endpoint orquestrador da Fase 6.
-    Executa atomicamente: criação de auth.User + UserProfile + UserRole +
-    sincronização de permissões em uma única requisição.
-
-    R-01: transaction.atomic() dentro do serializer — rollback total em qualquer falha.
-    R-02: isappbloqueada=False + isappproductionready=True validado pelo queryset do campo aplicacao_id.
-    R-03: role.aplicacao == aplicacao validado no validate() do serializer.
-    R-04: validações de senha, unicidade, e role única por app reaplicadas.
-    R-06: CanCreateUser — lê ClassificacaoUsuario.pode_criar_usuario via AuthorizationService.
-    R-07: permissions_added reflete exatamente quantas perms foram adicionadas.
-    DYN-SCOPE: user_can_create_user_in_application — gestores só podem criar usuários
-               em aplicações onde possuem UserRole.
-    FIX: captura apenas exceções de infraestrutura (DatabaseError, IntegrityError, OperationalError).
-         ValidationError e PermissionDenied propagam para respostas 400/403 corretos.
+    Cria atomicamente auth.User + UserProfile + UserRole + sync de permissões.
     """
     permission_classes = [IsAuthenticated, CanCreateUser]
 
@@ -458,28 +410,51 @@ class UserCreateWithRoleView(APIView):
         return Response(result, status=status.HTTP_201_CREATED)
 
 
-# ─── Aplicacao ViewSet (GAP-02) ───────────────────────────────────────────────────────────────────
+# ─── Aplicacao Publica ViewSet (ARCH-01) ───────────────────────────────────────
+
+class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    GET /api/accounts/auth/aplicacoes/
+    GET /api/accounts/auth/aplicacoes/{codigointerno}/
+
+    Endpoint PÚBLICO — sem autenticação necessária.
+    Usado pelo frontend para popular o seletor de app_context na tela de login.
+
+    Retorna apenas apps ativas (não bloqueadas e prontas para produção).
+    Expõe somente codigointerno e nomeaplicacao — sem vazar flags internos.
+
+    R-01: ReadOnly — POST/PUT/PATCH/DELETE retornam 405.
+    R-02: Filtro fixo: isappbloqueada=False AND isappproductionready=True.
+    """
+    serializer_class = AplicacaoPublicaSerializer
+    permission_classes = [AllowAny]
+    lookup_field = "codigointerno"
+
+    def get_queryset(self):
+        return Aplicacao.objects.filter(
+            isappbloqueada=False,
+            isappproductionready=True,
+        ).order_by("nomeaplicacao")
+
+
+# ─── Aplicacao ViewSet (GAP-02 / ARCH-01) ─────────────────────────────────────
 
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/aplicacoes/
     GET /api/accounts/aplicacoes/{idaplicacao}/
 
-    Lista e detalha aplicações visíveis ao usuário autenticado.
+    Endpoint AUTENTICADO — pós-login.
+    Retorna as aplicações visíveis ao usuário conforme seu perfil:
+      - PORTAL_ADMIN / SuperUser: todas as apps sem restrição.
+      - Usuário comum: apenas apps onde possui UserRole,
+        filtradas por isappbloqueada=False e isappproductionready=True.
 
-    Regras de escopo:
-      - PORTAL_ADMIN / SuperUser: vê todas as aplicações sem restrição.
-      - Usuário comum: vê apenas apps onde possui UserRole,
-        que estejam não bloqueadas (isappbloqueada=False) e
-        prontas para produção (isappproductionready=True).
-    O filtro de visibilidade visual no portal é responsabilidade do frontend
-    via os flags isshowinportal, isappbloqueada e isappproductionready.
-
-    R-01: ReadOnlyModelViewSet — POST/PUT/PATCH/DELETE retornam 405 automaticamente.
-    R-02: ordenação por nomeaplicacao alfabético.
+    R-01: ReadOnly — POST/PUT/PATCH/DELETE retornam 405.
+    R-02: Ordenação alfabética por nomeaplicacao.
     """
     serializer_class = AplicacaoSerializer
-    permission_classes = [IsAuthenticated, IsPortalAdmin]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
@@ -499,16 +474,11 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
         ).order_by("nomeaplicacao")
 
 
-# ─── CRUD ViewSets ────────────────────────────────────────────────────────────────────────────────────
+# ─── CRUD ViewSets ─────────────────────────────────────────────────────────────
 
 class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """
     APIs de UserProfile.
-    - PORTAL_ADMIN: vê e edita todos os profiles.
-    - Usuário comum: vê e edita apenas o próprio profile (PATCH only).
-
-    SecureQuerysetMixin garante proteção IDOR via campo 'orgao'.
-    Para PORTAL_ADMIN o escopo é bypassado manualmente em get_queryset.
     """
     serializer_class = UserProfileSerializer
     permission_classes = [IsAuthenticated, HasRolePermission, CanEditUser]
@@ -528,11 +498,6 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
         ).order_by('user__username')
 
     def partial_update(self, request, *args, **kwargs):
-        """
-        PATCH /api/accounts/profiles/{id}/
-
-        Autorização delegada integralmente a UserProfilePolicy (domínio puro).
-        """
         instance = self.get_object()
         from apps.accounts.policies import UserProfilePolicy
 
@@ -566,8 +531,7 @@ class RoleViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/roles/
     GET /api/accounts/roles/{id}/
-
-    Lista e detalha roles disponíveis. Acesso exclusivo a PORTAL_ADMIN.
+    Acesso exclusivo a PORTAL_ADMIN.
     """
     serializer_class = RoleSerializer
     permission_classes = [IsAuthenticated, IsPortalAdmin]
@@ -587,8 +551,6 @@ class RoleViewSet(viewsets.ReadOnlyModelViewSet):
 class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     Gerencia UserRoles. Apenas PORTAL_ADMIN.
-    - POST: atribui role a usuário + sincroniza permissões atomicamente (GAP-05 Fase 4).
-    - DELETE: remove role de usuário + revoga permissões exclusivas atomicamente (GAP-05 Fase 5).
     """
     serializer_class = UserRoleSerializer
     permission_classes = [IsAuthenticated, IsPortalAdmin]

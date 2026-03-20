@@ -11,6 +11,8 @@ FIX: prints de debug removidos
 POLICY-EXPANSION: AplicacaoSerializer expõe os três flags; UserCreateWithRoleSerializer
                   filtra por isappbloqueada=False + isappproductionready=True (R-02).
 FASE-0: GPPTokenObtainPairSerializer removido — JWT eliminado do fluxo de autenticação.
+ARCH-01: AplicacaoPublicaSerializer adicionado — endpoint público de login expõe
+         apenas codigointerno + nomeaplicacao, sem vazar flags internos.
 """
 import logging
 
@@ -53,13 +55,35 @@ def _get_fk_or_400(model, pk, field_name):
     return obj
 
 
-# ─── Aplicacao ────────────────────────────────────────────────────────────────────────
+# ─── Aplicacao Publica (login) ────────────────────────────────────────────────
+
+class AplicacaoPublicaSerializer(serializers.ModelSerializer):
+    """
+    ARCH-01 — Serializer público para o endpoint de autenticação.
+
+    Expõe apenas o mínimo necessário para o seletor de app_context
+    na tela de login. Não vaza flags internos (isappbloqueada,
+    isappproductionready, base_url, isshowinportal).
+
+    Endpoint: GET /api/accounts/auth/aplicacoes/
+    Acesso: AllowAny
+    """
+
+    class Meta:
+        model = Aplicacao
+        fields = ["codigointerno", "nomeaplicacao"]
+
+
+# ─── Aplicacao (autenticado) ──────────────────────────────────────────────────
 
 class AplicacaoSerializer(serializers.ModelSerializer):
     """
-    GAP-02 — Serializer somente leitura para o model Aplicacao.
+    GAP-02 — Serializer autenticado para o model Aplicacao.
     Expõe os três flags de estado para que o frontend decida visibilidade
     e habilitação de ações sem requisições adicionais.
+
+    Endpoint: GET /api/accounts/aplicacoes/
+    Acesso: IsAuthenticated (escopo por UserRole ou PORTAL_ADMIN)
     """
 
     class Meta:
@@ -75,7 +99,7 @@ class AplicacaoSerializer(serializers.ModelSerializer):
         ]
 
 
-# ─── UserProfile ──────────────────────────────────────────────────────────────────────
+# ─── UserProfile ──────────────────────────────────────────────────────────────
 
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
@@ -91,7 +115,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ["user_id", "datacriacao", "data_alteracao"]
 
 
-# ─── UserCreate ───────────────────────────────────────────────────────────────────────
+# ─── UserCreate ───────────────────────────────────────────────────────────────
 
 class UserCreateSerializer(serializers.Serializer):
     """
@@ -134,10 +158,6 @@ class UserCreateSerializer(serializers.Serializer):
         return value
 
     def validate(self, data):
-        """
-        Valida existência das FKs de perfil antes da transação.
-        Garante 400 explícito em vez de IntegrityError → 500.
-        """
         for field, model in [
             ("status_usuario", StatusUsuario),
             ("tipo_usuario", TipoUsuario),
@@ -172,7 +192,6 @@ class UserCreateSerializer(serializers.Serializer):
         return profile
 
     def to_representation(self, instance):
-        """Formata a saída a partir de um UserProfile já criado."""
         return {
             "user_id": instance.user_id,
             "username": instance.user.username,
@@ -186,17 +205,11 @@ class UserCreateSerializer(serializers.Serializer):
         }
 
 
-# ─── Role ─────────────────────────────────────────────────────────────────────────────
+# ─── Role ─────────────────────────────────────────────────────────────────────
 
 class RoleSerializer(serializers.ModelSerializer):
     """
     GAP-03 — Serializer enriquecido de Role.
-
-    Expõe campos de Aplicacao e auth.Group desaninhados para que o frontend
-    possa popular seletores sem requisições extras.
-
-    R-06: campos group_id e group_name são allow_null=True para suportar
-    roles legadas criadas antes do signal de auto-criação de group.
     """
     aplicacao_id     = serializers.IntegerField(source="aplicacao.idaplicacao", read_only=True)
     aplicacao_codigo = serializers.CharField(source="aplicacao.codigointerno", read_only=True)
@@ -218,13 +231,13 @@ class RoleSerializer(serializers.ModelSerializer):
         ]
 
 
-# ─── UserRole ──────────────────────────────────────────────────────────────────────
+# ─── UserRole ─────────────────────────────────────────────────────────────────
 
 class UserRoleSerializer(serializers.ModelSerializer):
     """
     GAP-04 — Validações de negócio:
-    R-01: unicidade por (user, aplicacao) — 1 role por app por usuário.
-    R-02: a role atribuída deve pertencer à aplicacao informada no payload.
+    R-01: unicidade por (user, aplicacao).
+    R-02: a role atribuída deve pertencer à aplicacao informada.
     """
     role_codigo = serializers.CharField(source="role.codigoperfil", read_only=True)
     aplicacao_codigo = serializers.CharField(source="aplicacao.codigointerno", read_only=True)
@@ -238,7 +251,6 @@ class UserRoleSerializer(serializers.ModelSerializer):
         aplicacao = data.get("aplicacao")
         role = data.get("role")
 
-        # R-01: unicidade por (user, aplicacao)
         already_exists = UserRole.objects.filter(
             user=user,
             aplicacao=aplicacao,
@@ -254,7 +266,6 @@ class UserRoleSerializer(serializers.ModelSerializer):
                 }
             )
 
-        # R-02: a role deve pertencer à aplicacao informada
         if role.aplicacao != aplicacao:
             raise serializers.ValidationError(
                 {"role": "A role selecionada não pertence à aplicação informada."}
@@ -263,36 +274,19 @@ class UserRoleSerializer(serializers.ModelSerializer):
         return data
 
 
-# ─── UserCreateWithRole ───────────────────────────────────────────────────────────────
+# ─── UserCreateWithRole ───────────────────────────────────────────────────────
 
 class UserCreateWithRoleSerializer(serializers.Serializer):
     """
     FASE 6 — Criação atômica de auth.User + UserProfile + UserRole + sync de permissões.
-
-    Orquestra em uma única transação as operações das Fases 1 e 4.
-    Apenas PORTAL_ADMIN pode acionar (garantido na view).
-
-    Validações:
-      - Senha via validate_password() (Django)
-      - username e email únicos
-      - aplicacao_id apenas para apps não bloqueadas E prontas para produção (R-02)
-      - role deve pertencer à aplicacao informada (R-03)
-      - unicidade (user, aplicacao) — herdada da lógica da Fase 4 (R-04)
-      - FKs de perfil validadas antes da transação para garantir 400 em vez de 500 (FIX)
-
-    Retorno:
-      dict com user_id, username, email, name, orgao, aplicacao, role,
-      permissions_added e datacriacao.
     """
 
-    # ── Campos auth.User ──────────────────────────────────────────
     username   = serializers.CharField(max_length=150)
     email      = serializers.EmailField()
     password   = serializers.CharField(write_only=True, style={"input_type": "password"})
     first_name = serializers.CharField(max_length=150, required=False, default="")
     last_name  = serializers.CharField(max_length=150, required=False, default="")
 
-    # ── Campos UserProfile ────────────────────────────────────────
     name     = serializers.CharField(max_length=200)
     orgao    = serializers.CharField(max_length=100)
     status_usuario = serializers.PrimaryKeyRelatedField(
@@ -305,8 +299,6 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
         queryset=ClassificacaoUsuario.objects.all(), required=False
     )
 
-    # ── Campos de associação ──────────────────────────────────────
-    # R-02: só aceita apps não bloqueadas E prontas para produção
     aplicacao_id = serializers.PrimaryKeyRelatedField(
         queryset=Aplicacao.objects.filter(
             isappbloqueada=False,
@@ -340,13 +332,11 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
         aplicacao = data.get("aplicacao")
         role = data.get("role")
 
-        # R-03: role deve pertencer à aplicacao informada
         if role and aplicacao and role.aplicacao != aplicacao:
             raise serializers.ValidationError(
                 {"role_id": "A role não pertence à aplicação informada."}
             )
 
-        # FIX: valida existência das FKs de perfil opcionais antes de entrar na transação.
         if data.get("status_usuario") is None:
             _get_fk_or_400(StatusUsuario, 1, "status_usuario")
         if data.get("tipo_usuario") is None:
@@ -408,10 +398,9 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
         }
 
 
-# ─── Me Serializer ────────────────────────────────────────────────────────────────
+# ─── Me Serializer ────────────────────────────────────────────────────────────
 
 class UserRoleNestedSerializer(serializers.ModelSerializer):
-    """Serializer aninhado de UserRole para o endpoint /me/."""
     role_codigo = serializers.CharField(source="role.codigoperfil", read_only=True)
     role_nome = serializers.CharField(source="role.nomeperfil", read_only=True)
     aplicacao_codigo = serializers.CharField(source="aplicacao.codigointerno", read_only=True)
@@ -423,10 +412,6 @@ class UserRoleNestedSerializer(serializers.ModelSerializer):
 
 
 class MeSerializer(serializers.Serializer):
-    """
-    Serializer composto para GET /api/accounts/me/.
-    Agrega: dados do user, profile e roles ativas.
-    """
     id = serializers.IntegerField(source="user.id")
     username = serializers.CharField(source="user.username")
     email = serializers.EmailField(source="user.email")
@@ -434,7 +419,6 @@ class MeSerializer(serializers.Serializer):
     last_name = serializers.CharField(source="user.last_name")
     is_portal_admin = serializers.SerializerMethodField()
 
-    # Profile fields (nullable caso não exista)
     name = serializers.SerializerMethodField()
     orgao = serializers.SerializerMethodField()
     status_usuario_id = serializers.SerializerMethodField()

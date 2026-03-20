@@ -1,13 +1,15 @@
 # apps/accounts/tests/test_aplicacoes.py
 """
-Testes do AplicacaoViewSet.
+Testes do AplicacaoViewSet — endpoint AUTENTICADO.
 
-Endpoints cobertos:
-  GET /api/accounts/aplicacoes/
-  GET /api/accounts/aplicacoes/{id}/
+Endpoint coberto: GET /api/accounts/aplicacoes/
 
-Nao usa transaction=True: savepoints sao suficientes para testes HTTP
-e evitam o problema de TRUNCATE bloqueado por FK de tblusuarioresponsavel.
+Regras:
+  - Requer autenticação (401 para anônimo).
+  - PORTAL_ADMIN / SuperUser: vê TODAS as apps (inclusive bloqueadas e não prontas).
+  - Usuário comum: vê apenas apps onde possui UserRole,
+    filtradas por isappbloqueada=False e isappproductionready=True.
+  - ReadOnly: POST/PUT/DELETE retornam 405.
 """
 import pytest
 
@@ -16,7 +18,7 @@ pytestmark = pytest.mark.django_db
 URL = "/api/accounts/aplicacoes/"
 
 
-# --- PORTAL_ADMIN: visao irrestrita ------------------------------------------
+# --- PORTAL_ADMIN: visão irrestrita ------------------------------------------
 
 class TestAplicacoesPortalAdmin:
 
@@ -28,7 +30,7 @@ class TestAplicacoesPortalAdmin:
         resp = client_portal_admin.get(URL)
         assert len(resp.data) >= 3
 
-    def test_portal_admin_ve_todas_as_apps_do_initial_data(self, client_portal_admin):
+    def test_portal_admin_ve_apps_principais(self, client_portal_admin):
         resp = client_portal_admin.get(URL)
         codigos = {a["codigointerno"] for a in resp.data}
         assert {"PORTAL", "ACOES_PNGI", "CARGA_ORG_LOT"}.issubset(codigos)
@@ -43,19 +45,30 @@ class TestAplicacoesPortalAdmin:
         codigos = {a["codigointerno"] for a in resp.data}
         assert "APP_NAO_PRONTA" in codigos
 
+    def test_portal_admin_ve_flags_internos(self, client_portal_admin):
+        """Endpoint autenticado expõe flags completos (isappbloqueada, isappproductionready)."""
+        resp = client_portal_admin.get(URL)
+        app = resp.data[0]
+        assert "isappbloqueada" in app
+        assert "isappproductionready" in app
+        assert "idaplicacao" in app
+
     def test_superuser_tambem_ve_todas_as_apps(self, client_superuser):
         resp = client_superuser.get(URL)
         assert resp.status_code == 200
         assert len(resp.data) >= 3
 
 
-# --- Usuario comum: escopo restrito ------------------------------------------
+# --- Usuário comum: escopo restrito por UserRole -----------------------------
 
 class TestAplicacoesUsuarioComum:
 
-    def test_gestor_ve_acoes_pngi(self, client_gestor):
+    def test_gestor_recebe_200(self, client_gestor):
         resp = client_gestor.get(URL)
         assert resp.status_code == 200
+
+    def test_gestor_ve_acoes_pngi(self, client_gestor):
+        resp = client_gestor.get(URL)
         codigos = {a["codigointerno"] for a in resp.data}
         assert "ACOES_PNGI" in codigos
 
@@ -100,7 +113,7 @@ class TestAplicacoesUsuarioComum:
         assert "ACOES_PNGI" not in codigos
 
 
-# --- Acesso nao autenticado --------------------------------------------------
+# --- Acesso não autenticado --------------------------------------------------
 
 class TestAplicacoesNaoAutenticado:
 
