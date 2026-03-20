@@ -10,26 +10,28 @@ GAP-05 Fase 5: UserRoleViewSet.destroy() revoga permissões exclusivas atomicame
 FASE 6: UserCreateWithRoleView — fluxo orquestrado atômico User+Profile+Role+Sync
 DYN-SCOPE: escopo por aplicação centralizado em AuthorizationService
 FIX: except Exception substituído por captura específica (DatabaseError/IntegrityError/OperationalError)
-     ValidationError e PermissionDenied propagam normalmente para respostas 400/403 corretas
+     ValidationError e PermissionDenied propagam normalmente para respostas 400/403 corretos
 POLICY-EXPANSION: AplicacaoViewSet.get_queryset() diferencia usuário privilegiado de comum;
                   filtro hardcoded isshowinportal removido — lógica delegada aos flags + frontend.
 POLICY-EXPANSION: UserProfileViewSet.partial_update() migrado para UserProfilePolicy —
                   lógica de autorização inline removida; domínio puro via policy.
+FASE-0: JWT removido — LoginView, LogoutView e SwitchAppView baseadas em sessão Django.
+        GPPTokenObtainPairView e TokenRevokeView removidos.
 """
 import logging
-from datetime import datetime, timezone
+from datetime import timedelta
 
+from django.conf import settings
+from django.contrib.auth import authenticate, login, logout
 from django.db import DatabaseError, IntegrityError, OperationalError, transaction
+from django.middleware.csrf import rotate_token
 from django.utils import timezone as dj_timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError as DRFValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenObtainPairView
 
 from common.mixins import AuditableMixin, SecureQuerysetMixin
 from common.permissions import CanCreateUser, CanEditUser, HasRolePermission, IsPortalAdmin
@@ -37,7 +39,6 @@ from common.permissions import CanCreateUser, CanEditUser, HasRolePermission, Is
 from .models import AccountsSession, Aplicacao, Role, UserProfile, UserRole
 from .serializers import (
     AplicacaoSerializer,
-    GPPTokenObtainPairSerializer,
     RoleSerializer,
     UserCreateSerializer,
     UserCreateWithRoleSerializer,
@@ -49,79 +50,247 @@ from .services.permission_sync import (
     sync_user_permissions_from_group,
     revoke_user_permissions_from_group,
 )
+from .utils import get_client_ip
 
 security_logger = logging.getLogger("gpp.security")
 
 
-# ─── Auth Views ───────────────────────────────────────────────────────────────────────────────────
+# ─── Auth Views (Sessão) ──────────────────────────────────────────────────────────────
 
-class GPPTokenObtainPairView(TokenObtainPairView):
+class LoginView(APIView):
     """
-    Login endpoint.
-    Além de retornar o token, registra a sessão em AccountsSession
-    para permitir revogação explícita (anti-replay).
+    POST /api/accounts/login/
+    Realiza autenticação via sessão (cookie HttpOnly).
+    Substitui completamente o fluxo JWT.
+
+    Payload (JSON):
+      { "username": "...", "password": "...", "app_context": "PORTAL" }
+
+    Respostas:
+      200 → login bem-sucedido
+      400 → campos ausentes
+      401 → credenciais inválidas
+      403 → app inválida, bloqueada ou sem acesso
     """
-    serializer_class = GPPTokenObtainPairSerializer
+    permission_classes = [AllowAny]
     throttle_scope = "login"
 
-    def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
+    def post(self, request):
+        username    = request.data.get("username")
+        password    = request.data.get("password")
+        app_context = request.data.get("app_context")
 
-        if response.status_code == 200:
-            from rest_framework_simplejwt.tokens import AccessToken
-            access_token = AccessToken(response.data["access"])
-            jti = access_token.get("jti")
-            user_id = access_token.get("user_id")
-            exp = access_token.get("exp")
+        if not username or not password or not app_context:
+            return Response(
+                {"detail": "Credenciais ou app_context não informados.",
+                 "code": "invalid_request"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-            if jti and user_id:
-                AccountsSession.objects.create(
-                    user_id=user_id,
-                    jti=jti,
-                    expires_at=datetime.fromtimestamp(exp, tz=timezone.utc),
-                    ip_address=self._get_client_ip(request),
-                    user_agent=request.META.get("HTTP_USER_AGENT", "")[:500],
-                )
+        user = authenticate(request, username=username, password=password)
 
-        return response
+        if not user:
+            return Response(
+                {"detail": "Credenciais inválidas.", "code": "invalid_credentials"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
 
-    @staticmethod
-    def _get_client_ip(request):
-        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-        if x_forwarded_for:
-            return x_forwarded_for.split(",")[0].strip()
-        return request.META.get("REMOTE_ADDR")
+        # PASSO 1 — validar aplicação
+        app = Aplicacao.objects.filter(
+            codigointerno=app_context,
+            isappbloqueada=False
+        ).first()
+
+        if not app:
+            return Response(
+                {"detail": "Aplicação inválida ou bloqueada.",
+                 "code": "invalid_app"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # PASSO 2 — regras de acesso por app_context
+        if app_context == "PORTAL":
+            has_access = user.is_superuser or UserRole.objects.filter(
+                user=user,
+                role__codigoperfil="PORTAL_ADMIN"
+            ).exists()
+            deny_reason = "not_portal_admin"
+            deny_detail = "Acesso ao Portal restrito a administradores."
+        else:
+            has_access = UserRole.objects.filter(
+                user=user,
+                aplicacao=app
+            ).exists()
+            deny_reason = "no_role"
+            deny_detail = "Usuário sem acesso à aplicação informada."
+
+        if not has_access:
+            security_logger.warning(
+                "LOGIN_DENIED user_id=%s app_context=%s reason=%s",
+                user.id, app_context, deny_reason
+            )
+            return Response(
+                {"detail": deny_detail, "code": "forbidden"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # LOGIN
+        login(request, user)
+        request.session.cycle_key()   # proteção contra session fixation
+        rotate_token(request)         # rotaciona CSRF
+        request.session["app_context"] = app_context
+
+        # Auditoria
+        session_obj = AccountsSession.objects.create(
+            user=user,
+            session_key=request.session.session_key,
+            app_context=app_context,
+            expires_at=dj_timezone.now() + timedelta(
+                seconds=settings.SESSION_COOKIE_AGE
+            ),
+            ip_address=get_client_ip(request),
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            revoked=False
+        )
+
+        security_logger.info(
+            "LOGIN_SUCCESS user_id=%s username=%s app_context=%s session_key=%s",
+            user.id, user.username, app_context, session_obj.session_key
+        )
+
+        return Response({"detail": "Login realizado com sucesso"})
 
 
-class TokenRevokeView(APIView):
+class LogoutView(APIView):
     """
-    Revoga o access token atual marcando a sessão como revogada.
-    Também invalida o refresh token via blacklist.
+    POST /api/accounts/logout/
+    Encerra a sessão atual e revoga no banco.
+    Requer autenticação.
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        refresh_token = request.data.get("refresh")
-        jti = getattr(request, "token_jti", None)
+        session_key = request.session.session_key
 
-        if jti:
-            AccountsSession.objects.filter(jti=jti).update(
-                revoked=True,
-                revoked_at=dj_timezone.now(),
+        AccountsSession.objects.filter(
+            session_key=session_key,
+            revoked=False
+        ).update(
+            revoked=True,
+            revoked_at=dj_timezone.now()
+        )
+
+        security_logger.info(
+            "LOGOUT user_id=%s session_key=%s",
+            request.user.id, session_key
+        )
+
+        logout(request)
+
+        return Response({"detail": "Logout realizado"})
+
+
+class SwitchAppView(APIView):
+    """
+    POST /api/accounts/switch-app/
+    Troca o contexto de aplicação mantendo a mesma sessão autenticada.
+
+    Payload (JSON):
+      { "app_context": "ACOES_PNGI" }
+
+    Lógica de auditoria:
+      - Revoga o registro AccountsSession anterior (mesma session_key)
+      - Cria novo registro com o novo app_context
+      - A session_key do Django permanece a mesma
+    """
+    permission_classes = [IsAuthenticated]
+    throttle_scope = "login"
+
+    def post(self, request):
+        new_app = request.data.get("app_context")
+
+        if not new_app:
+            return Response(
+                {"detail": "app_context não informado.",
+                 "code": "invalid_request"},
+                status=status.HTTP_400_BAD_REQUEST
             )
+
+        user = request.user
+
+        app = Aplicacao.objects.filter(
+            codigointerno=new_app,
+            isappbloqueada=False
+        ).first()
+
+        if not app:
             security_logger.warning(
-                "TOKEN_REVOKED user_id=%s jti=%s",
-                request.user.id, jti,
+                "SWITCH_APP_DENIED user_id=%s to_app=%s reason=invalid_app",
+                user.id, new_app
+            )
+            return Response(
+                {"detail": "Aplicação inválida ou bloqueada.",
+                 "code": "invalid_app"},
+                status=status.HTTP_403_FORBIDDEN
             )
 
-        if refresh_token:
-            try:
-                token = RefreshToken(refresh_token)
-                token.blacklist()
-            except TokenError:
-                pass
+        if new_app == "PORTAL":
+            has_access = user.is_superuser or UserRole.objects.filter(
+                user=user,
+                role__codigoperfil="PORTAL_ADMIN"
+            ).exists()
+        else:
+            has_access = UserRole.objects.filter(
+                user=user,
+                aplicacao=app
+            ).exists()
 
-        return Response({"detail": "Sessão encerrada com sucesso."}, status=status.HTTP_200_OK)
+        if not has_access:
+            security_logger.warning(
+                "SWITCH_APP_DENIED user_id=%s to_app=%s reason=no_access",
+                user.id, new_app
+            )
+            return Response(
+                {"detail": "Usuário sem acesso à aplicação.",
+                 "code": "forbidden"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        old_app = request.session.get("app_context")
+        session_key = request.session.session_key
+
+        # Revogar registro anterior da mesma session_key
+        AccountsSession.objects.filter(
+            session_key=session_key,
+            revoked=False
+        ).update(
+            revoked=True,
+            revoked_at=dj_timezone.now()
+        )
+
+        # Atualizar sessão Django
+        request.session["app_context"] = new_app
+        request.session.save()
+
+        # Criar novo registro de auditoria
+        AccountsSession.objects.create(
+            user=user,
+            session_key=session_key,
+            app_context=new_app,
+            expires_at=dj_timezone.now() + timedelta(
+                seconds=settings.SESSION_COOKIE_AGE
+            ),
+            ip_address=get_client_ip(request),
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            revoked=False
+        )
+
+        security_logger.info(
+            "SWITCH_APP user_id=%s from_app=%s to_app=%s session_key=%s",
+            user.id, old_app, new_app, session_key
+        )
+
+        return Response({"detail": "Contexto alterado com sucesso"})
 
 
 # ─── Me View ───────────────────────────────────────────────────────────────────────────────────
@@ -320,8 +489,6 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
         )
         if is_privileged:
             return Aplicacao.objects.all().order_by("nomeaplicacao")
-        # Usuário comum: apenas apps não bloqueadas, prontas para produção,
-        # onde o usuário já possui vínculo (UserRole)
         user_app_ids = UserRole.objects.filter(user=user).values_list(
             "aplicacao_id", flat=True
         )
@@ -347,7 +514,6 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
     permission_classes = [IsAuthenticated, HasRolePermission, CanEditUser]
     http_method_names = ["get", "patch", "head", "options"]
 
-    # SecureQuerysetMixin: campos de escopo
     scope_field = "orgao"
     scope_source = "orgao"
 
@@ -366,14 +532,6 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
         PATCH /api/accounts/profiles/{id}/
 
         Autorização delegada integralmente a UserProfilePolicy (domínio puro).
-
-        Regras aplicadas pela policy:
-          - PORTAL_ADMIN / SuperUser: bypass total.
-          - Auto-edição (actor == profile.user): permitida para campos comuns.
-          - Gestor (pode_editar_usuario=True): permitido se houver interseção
-            de aplicações com o perfil alvo.
-          - Campos sensíveis (classificacao_usuario, status_usuario): apenas
-            PORTAL_ADMIN ou SuperUser, verificados antes de persistir.
         """
         instance = self.get_object()
         from apps.accounts.policies import UserProfilePolicy
@@ -410,15 +568,6 @@ class RoleViewSet(viewsets.ReadOnlyModelViewSet):
     GET /api/accounts/roles/{id}/
 
     Lista e detalha roles disponíveis. Acesso exclusivo a PORTAL_ADMIN.
-
-    GAP-03 — Filtragem por aplicacao_id:
-    R-01: sem query param retorna todas as roles (compatibilidade preservada).
-    R-02: aplicacao_id inválido (não inteiro) retorna [] — nunca 500.
-    R-03: aplicacao_id de app inexistente retorna [] — nunca 404.
-    R-04: aplicacao_id de app sem roles retorna [].
-    R-05: apenas PORTAL_ADMIN.
-    R-06: group_id/group_name são allow_null no serializer — roles sem group não quebram.
-    R-07: ordenação por nomeperfil.
     """
     serializer_class = RoleSerializer
     permission_classes = [IsAuthenticated, IsPortalAdmin]
@@ -440,10 +589,6 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
     Gerencia UserRoles. Apenas PORTAL_ADMIN.
     - POST: atribui role a usuário + sincroniza permissões atomicamente (GAP-05 Fase 4).
     - DELETE: remove role de usuário + revoga permissões exclusivas atomicamente (GAP-05 Fase 5).
-
-    R-02: a deleção do UserRole e a revogação de permissões são atômicas —
-          se a revogação falhar, o UserRole não é deletado (rollback).
-    R-05: apenas PORTAL_ADMIN (garantido por permission_classes).
     """
     serializer_class = UserRoleSerializer
     permission_classes = [IsAuthenticated, IsPortalAdmin]
@@ -458,14 +603,6 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
         serializer.save()
 
     def create(self, request, *args, **kwargs):
-        """
-        POST /api/accounts/user-roles/
-
-        GAP-04: validação de unicidade e role correta delegada ao serializer.
-        GAP-05 Fase 4: sincronização de permissões dentro de transaction.atomic().
-        R-03: se sync_user_permissions_from_group lançar exceção,
-              o UserRole NÃO é persistido — rollback total.
-        """
         security_logger.info(
             "USERROLE_ASSIGN admin_id=%s payload=%s",
             request.user.id, request.data,
@@ -492,17 +629,6 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
         return response
 
     def destroy(self, request, *args, **kwargs):
-        """
-        DELETE /api/accounts/user-roles/{id}/
-
-        GAP-05 Fase 5: revogação de permissões exclusivas dentro de transaction.atomic().
-
-        Regras:
-          R-01: só revoga permissões não cobertas por outros grupos ativos do usuário.
-          R-02: deleção e revogação são atômicas — falha na revogação faz rollback.
-          R-03: role.group=None → revogação ignorada com WARNING, sem 500.
-          R-05: apenas PORTAL_ADMIN (garantido por permission_classes).
-        """
         instance = self.get_object()
 
         security_logger.info(

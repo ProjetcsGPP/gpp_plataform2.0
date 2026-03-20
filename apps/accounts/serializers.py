@@ -10,6 +10,7 @@ FIX: FK fallback via filter().first() + ValidationError 400 explícito (elimina 
 FIX: prints de debug removidos
 POLICY-EXPANSION: AplicacaoSerializer expõe os três flags; UserCreateWithRoleSerializer
                   filtra por isappbloqueada=False + isappproductionready=True (R-02).
+FASE-0: GPPTokenObtainPairSerializer removido — JWT eliminado do fluxo de autenticação.
 """
 import logging
 
@@ -19,7 +20,6 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone as dj_timezone
 from rest_framework import serializers
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .services.permission_sync import sync_user_permissions_from_group
 
@@ -51,70 +51,6 @@ def _get_fk_or_400(model, pk, field_name):
             {field_name: f"Registro com pk={pk} não encontrado."}
         )
     return obj
-
-
-# ─── JWT Token Serializer customizado ─────────────────────────────────────────────────
-
-class GPPTokenObtainPairSerializer(TokenObtainPairSerializer):
-    """
-    Serializer de login customizado.
-    Valida:
-    1. Credenciais (username/password) — herdado do pai
-    2. UserProfile ativo (status_usuario = 1)
-    3. Ao menos 1 UserRole ativa
-    Adiciona claims extras ao token: user_id, username, is_portal_admin.
-    """
-
-    def validate(self, attrs):
-        data = super().validate(attrs)
-        user = self.user
-
-        try:
-            profile = user.profile
-            if profile.status_usuario_id != 1:
-                security_logger.warning(
-                    "LOGIN_FAILURE username=%s reason=inactive_profile",
-                    user.username,
-                )
-                raise serializers.ValidationError(
-                    "Usuário inativo. Entre em contato com o administrador."
-                )
-        except UserProfile.DoesNotExist:
-            security_logger.warning(
-                "LOGIN_FAILURE username=%s reason=no_profile",
-                user.username,
-            )
-            raise serializers.ValidationError(
-                "Perfil de usuário não encontrado."
-            )
-
-        has_role = UserRole.objects.filter(user=user).exists()
-        if not has_role:
-            security_logger.warning(
-                "LOGIN_FAILURE username=%s reason=no_role",
-                user.username,
-            )
-            raise serializers.ValidationError(
-                "Usuário sem perfil de acesso. Entre em contato com o administrador."
-            )
-
-        security_logger.info(
-            "LOGIN_SUCCESS user_id=%s username=%s",
-            user.id, user.username,
-        )
-
-        return data
-
-    @classmethod
-    def get_token(cls, user):
-        token = super().get_token(user)
-        token["username"] = user.username
-        token["email"] = user.email
-        is_admin = UserRole.objects.filter(
-            user=user, role__codigoperfil="PORTAL_ADMIN"
-        ).exists()
-        token["is_portal_admin"] = is_admin
-        return token
 
 
 # ─── Aplicacao ────────────────────────────────────────────────────────────────────────
@@ -411,9 +347,6 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
             )
 
         # FIX: valida existência das FKs de perfil opcionais antes de entrar na transação.
-        # PrimaryKeyRelatedField com required=False retorna None quando omitido.
-        # Se o default pk=1 não existir, retorna ValidationError 400 em vez de
-        # DoesNotExist / KeyError → 500 dentro do atomic().
         if data.get("status_usuario") is None:
             _get_fk_or_400(StatusUsuario, 1, "status_usuario")
         if data.get("tipo_usuario") is None:
@@ -428,13 +361,11 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
         aplicacao = validated_data["aplicacao"]
         role      = validated_data["role"]
 
-        # Usa instância validada ou busca o default pk=1 (existência já garantida em validate())
         status_usuario        = validated_data.get("status_usuario") or StatusUsuario.objects.get(pk=1)
         tipo_usuario          = validated_data.get("tipo_usuario") or TipoUsuario.objects.get(pk=1)
         classificacao_usuario = validated_data.get("classificacao_usuario") or ClassificacaoUsuario.objects.get(pk=1)
 
         with transaction.atomic():
-            # 1. Criar auth.User
             user = User.objects.create_user(
                 username=validated_data["username"],
                 email=validated_data["email"],
@@ -443,7 +374,6 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
                 last_name=validated_data.get("last_name", ""),
             )
 
-            # 2. Criar UserProfile
             profile = UserProfile.objects.create(
                 user=user,
                 name=validated_data["name"],
@@ -454,14 +384,12 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
                 idusuariocriacao=request.user,
             )
 
-            # 3. Criar UserRole
             UserRole.objects.create(
                 user=user,
                 aplicacao=aplicacao,
                 role=role,
             )
 
-            # 4. Sincronizar permissões (R-01: rollback total se falhar)
             permissions_added = sync_user_permissions_from_group(
                 user=user,
                 group=role.group,
