@@ -20,6 +20,8 @@ ARCH-01: Endpoint de aplicacoes separado em dois:
            Usado pelo seletor de login; expõe apenas apps ativas sem flags internos.
          - AplicacaoViewSet → GET /api/accounts/aplicacoes/ (IsAuthenticated)
            Pós-login; PORTAL_ADMIN vê todas, usuário comum vê só suas apps via UserRole.
+FIX-TESTS: pagination_class = None nos dois AplicacaoViewSets para evitar
+           resp.data paginado (dict) nos testes — retorna lista plana diretamente.
 """
 import logging
 from datetime import timedelta
@@ -425,9 +427,11 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
 
     R-01: ReadOnly — POST/PUT/PATCH/DELETE retornam 405.
     R-02: Filtro fixo: isappbloqueada=False AND isappproductionready=True.
+    R-03: pagination_class = None — retorna lista plana sem envelope de paginação.
     """
     serializer_class = AplicacaoPublicaSerializer
     permission_classes = [AllowAny]
+    pagination_class = None
     lookup_field = "codigointerno"
 
     def get_queryset(self):
@@ -452,9 +456,11 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
 
     R-01: ReadOnly — POST/PUT/PATCH/DELETE retornam 405.
     R-02: Ordenação alfabética por nomeaplicacao.
+    R-03: pagination_class = None — retorna lista plana sem envelope de paginação.
     """
     serializer_class = AplicacaoSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = None
 
     def get_queryset(self):
         user = self.request.user

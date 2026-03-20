@@ -11,13 +11,16 @@ Depende de:
 
 Injeta no request:
   - request.user_roles     : list[UserRole] ativos (nunca None, mínimo [])
-  - request.is_portal_admin: bool (se tem role PORTAL_ADMIN)
+  - request.is_portal_admin: bool (se tem role PORTAL_ADMIN ou is_superuser=True)
 
 Usa cache Memcached com cache versioning para invalidação
 correta sem suporte a wildcards.
 
 Evento ROLE_SWITCH é logado quando o conjunto de roles do usuário
 se altera entre requests (detecção de troca de contexto).
+
+FIX: user.is_superuser=True seta is_portal_admin=True sem exigir UserRole
+     no banco — evita 403 reason=no_role para superusers Django.
 """
 import logging
 
@@ -40,12 +43,24 @@ class RoleContextMiddleware:
             self._load_roles(request)
         else:
             request.user_roles = []
+            request.is_portal_admin = False
 
         return self.get_response(request)
 
     def _load_roles(self, request):
         user = request.user
         application = getattr(request, "application", None)
+
+        # Superuser Django → admin irrestrito sem precisar de UserRole no banco
+        if user.is_superuser:
+            request.user_roles = []
+            request.is_portal_admin = True
+            security_logger.info(
+                "ROLES_LOADED user_id=%s app=%s roles=[] is_admin=True (superuser)",
+                user.id,
+                getattr(application, "codigointerno", "none"),
+            )
+            return
 
         cache_key = self._make_cache_key(user.id, application)
         cached_roles = cache.get(cache_key)

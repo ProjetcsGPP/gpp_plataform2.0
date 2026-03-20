@@ -6,6 +6,8 @@ Nunca usar diretamente — sempre usar development.py ou production.py.
 FASE-0: JWT/simplejwt removidos; SessionAuthentication como padrão DRF;
         configurações de sessão, CSRF, CSP e AppContextMiddleware adicionados.
         CSP no formato django-csp >= 4.0 (CONTENT_SECURITY_POLICY dict).
+FIX: AUTHORIZATION_EXEMPT_PATHS expandido para incluir /api/accounts/auth/
+     (AplicacaoPublicaViewSet — AllowAny) e /api/accounts/logout/.
 """
 import os
 from pathlib import Path
@@ -222,8 +224,12 @@ APPLICATION_DOMAIN_MAP = {
 }
 
 # ─── Rotas isentas de autenticação ────────────────────────────────────────────────────
+# Prefixos: qualquer path que COMECE com estes valores é liberado pelo
+# AuthorizationMiddleware sem checagem de autenticação/roles.
 AUTHORIZATION_EXEMPT_PATHS = [
-    "/api/accounts/login/",   # novo endpoint de login (sessão)
+    "/api/accounts/login/",    # login via sessão
+    "/api/accounts/logout/",   # logout (IsAuthenticated no DRF, mas sem roles)
+    "/api/accounts/auth/",     # AplicacaoPublicaViewSet (AllowAny) — seletor de login
     "/admin/",
     "/admin",
     "/api/health/",
