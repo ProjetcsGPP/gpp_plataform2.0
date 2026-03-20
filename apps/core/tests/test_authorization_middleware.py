@@ -36,11 +36,12 @@ class AuthorizationMiddlewareTest(TestCase):
         request.is_portal_admin = is_portal_admin
         request.application = MagicMock()
         request.application.codigointerno = "ACOES_PNGI"
+        request.app_context = "ACOES_PNGI"
         return request
 
     def test_exempt_path_always_passes(self):
-        """Caso 1: Rotas isentas não são bloqueadas."""
-        request = self._make_request(path="/api/auth/token/")
+        """Caso 1: Rotas isentas não são bloqueadas (pós-Fase-0: /api/accounts/login/)."""
+        request = self._make_request(path="/api/accounts/login/")
         response = self.middleware(request)
         self.assertEqual(response.status_code, 200)
 
