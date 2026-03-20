@@ -51,10 +51,6 @@ class AplicacaoAdmin(admin.ModelAdmin):
 # USER PROFILE
 # =====================
 
-# Os inlines precisam ser registrados no admin.ModelAdmin do auth.User,
-# pois Attribute e UserRole tem FK para auth.User (nao para UserProfile).
-# UserProfileAdmin usa fieldsets e readonly_fields apenas para o perfil em si.
-
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
     list_display = (
@@ -139,23 +135,44 @@ class AttributeAdmin(admin.ModelAdmin):
 
 
 # =====================
-# SESSION (anti-replay)
+# SESSION (sessão Django)
 # =====================
 
 @admin.register(AccountsSession)
 class AccountsSessionAdmin(admin.ModelAdmin):
-    list_display = ("user", "jti_short", "ip_address", "created_at", "expires_at", "revoked")
-    list_filter = ("revoked",)
-    search_fields = ("user__username", "jti", "ip_address")
-    readonly_fields = ("user", "jti", "created_at", "expires_at", "ip_address", "user_agent")
+    list_display = (
+        "user",
+        "session_key_short",
+        "app_context",
+        "ip_address",
+        "created_at",
+        "expires_at",
+        "revoked",
+    )
+    list_filter = ("revoked", "app_context")
+    search_fields = ("user__username", "session_key", "ip_address", "app_context")
+    readonly_fields = (
+        "user",
+        "session_key",
+        "app_context",
+        "created_at",
+        "expires_at",
+        "ip_address",
+        "user_agent",
+        "revoked_at",
+    )
     ordering = ("-created_at",)
     actions = ["revoke_sessions"]
 
-    @admin.display(description="JTI")
-    def jti_short(self, obj):
-        return f"{obj.jti[:16]}..."
+    @admin.display(description="Session Key")
+    def session_key_short(self, obj):
+        return f"{obj.session_key[:12]}..."
 
     @admin.action(description="Revogar sessões selecionadas")
     def revoke_sessions(self, request, queryset):
-        updated = queryset.update(revoked=True)
+        from django.utils import timezone
+        updated = queryset.filter(revoked=False).update(
+            revoked=True,
+            revoked_at=timezone.now(),
+        )
         self.message_user(request, f"{updated} sessão(ões) revogada(s) com sucesso.")
