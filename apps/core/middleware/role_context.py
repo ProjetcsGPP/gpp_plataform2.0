@@ -6,7 +6,7 @@ Responsabilidade:
   a aplicação identificada no request.application.
 
 Depende de:
-  - request.user       (injetado pelo JWTAuthenticationMiddleware)
+  - request.user        (SessionAuthentication via Django AuthenticationMiddleware)
   - request.application (injetado pelo ApplicationContextMiddleware)
 
 Injeta no request:
@@ -22,7 +22,7 @@ se altera entre requests (detecção de troca de contexto).
 import logging
 
 from django.contrib.auth.models import AnonymousUser
-from django.core.cache import cache        # Cache miss: consulta banco
+from django.core.cache import cache
 
 from apps.accounts.models import UserRole
 
@@ -36,11 +36,10 @@ class RoleContextMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        # Só carrega roles para usuários autenticados
         if request.user and not isinstance(request.user, AnonymousUser):
             self._load_roles(request)
         else:
-            request.user_roles = []  # garantido nunca None
+            request.user_roles = []
 
         return self.get_response(request)
 
@@ -52,14 +51,12 @@ class RoleContextMiddleware:
         cached_roles = cache.get(cache_key)
 
         if cached_roles is not None:
-            request.user_roles = cached_roles or []  # garante lista nunca None
-            # is_portal_admin pode ter sido injetado pelo JWT; garantimos aqui também
+            request.user_roles = cached_roles or []
             if not getattr(request, "is_portal_admin", False):
                 request.is_portal_admin = any(
                     ur.role.codigoperfil == "PORTAL_ADMIN" for ur in request.user_roles
                 )
             return
-
 
         qs = (
             UserRole.objects
@@ -67,23 +64,18 @@ class RoleContextMiddleware:
             .select_related("role", "role__group", "aplicacao")
         )
 
-        # Filtra pela aplicação se identificada
         if application:
-            # Inclui roles da aplicação atual + PORTAL_ADMIN (acesso irrestrito)
             qs = qs.filter(
                 aplicacao=application
             ) | qs.filter(role__codigoperfil="PORTAL_ADMIN")
 
         user_roles = list(qs.distinct())
 
-        # Garante que user_roles nunca é None
         request.user_roles = user_roles or []
 
-        # Verifica PORTAL_ADMIN
         is_admin = any(ur.role.codigoperfil == "PORTAL_ADMIN" for ur in request.user_roles)
         request.is_portal_admin = is_admin
 
-        # Detecta ROLE_SWITCH: compara roles atuais com as anteriores em cache
         previous_roles_key = f"user_roles_previous:{user.id}"
         previous_roles = cache.get(previous_roles_key)
         current_role_codes = sorted([ur.role.codigoperfil for ur in request.user_roles])
@@ -97,10 +89,8 @@ class RoleContextMiddleware:
                 request.path,
             )
 
-        # Atualiza cache de roles anteriores
         cache.set(previous_roles_key, current_role_codes, CACHE_TTL)
 
-        # Armazena em cache com version key
         version = self._get_version(user.id)
         cache.set(f"{cache_key}:v{version}", request.user_roles, CACHE_TTL)
         cache.set(cache_key, request.user_roles, CACHE_TTL)

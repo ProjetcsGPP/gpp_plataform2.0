@@ -7,9 +7,10 @@ Responsabilidade:
   para a aplicação atual.
 
 Depende de:
-  - request.user          (JWTAuthenticationMiddleware)
+  - request.user          (SessionAuthentication via Django AuthenticationMiddleware)
   - request.user_roles    (RoleContextMiddleware)
   - request.is_portal_admin (RoleContextMiddleware)
+  - request.app_context   (AppContextMiddleware de apps.accounts)
 
 Regras:
   1. Rotas isentas (AUTHORIZATION_EXEMPT_PATHS) → passa sempre
@@ -19,7 +20,6 @@ Regras:
   5. Path bate com AUTHORIZATION_REQUIRED_ROLES e usuário não tem
      nenhuma das roles requeridas → 403 permission_denied
 """
-import json
 import logging
 
 from django.conf import settings
@@ -31,7 +31,7 @@ security_logger = logging.getLogger("gpp.security")
 EXEMPT_PATHS = getattr(
     settings,
     "AUTHORIZATION_EXEMPT_PATHS",
-    ["/api/auth/token/", "/api/auth/token/refresh/", "/admin/", "/api/health/"],
+    ["/api/accounts/login/", "/api/accounts/logout/", "/admin/", "/api/health/"],
 )
 
 REQUIRED_ROLES_MAP = getattr(settings, "AUTHORIZATION_REQUIRED_ROLES", {})
@@ -59,23 +59,26 @@ class AuthorizationMiddleware:
             return self._json_response(
                 status=401,
                 code="not_authenticated",
-                detail="Autenticação necessária. Forneça um token Bearer válido.",
+                detail="Autenticação necessária.",
             )
 
         # Usuário autenticado mas sem role para esta aplicação
         user_roles = getattr(request, "user_roles", [])
         if not user_roles:
-            application = getattr(request, "application", None)
-            app_code = application.codigointerno if application else "unknown"
+            # Tenta usar request.app_context (Fase-0) com fallback para request.application
+            app_context = getattr(request, "app_context", None)
+            if not app_context:
+                application = getattr(request, "application", None)
+                app_context = application.codigointerno if application else "unknown"
             security_logger.warning(
                 "403_FORBIDDEN user_id=%s path=%s app=%s reason=no_role",
-                request.user.id, request.path, app_code,
+                request.user.id, request.path, app_context,
             )
             return self._json_response(
                 status=403,
                 code="permission_denied",
                 detail=(
-                    f"Você não possui perfil de acesso para a aplicação '{app_code}'. "
+                    f"Você não possui perfil de acesso para a aplicação '{app_context}'. "
                     "Entre em contato com o administrador."
                 ),
             )
@@ -85,8 +88,10 @@ class AuthorizationMiddleware:
         if required_roles:
             user_role_codes = {ur.role.codigoperfil for ur in user_roles}
             if not user_role_codes.intersection(set(required_roles)):
-                application = getattr(request, "application", None)
-                app_code = application.codigointerno if application else "unknown"
+                app_context = getattr(request, "app_context", None)
+                if not app_context:
+                    application = getattr(request, "application", None)
+                    app_context = application.codigointerno if application else "unknown"
                 security_logger.warning(
                     "403_FORBIDDEN_ROLE user_id=%s path=%s required_roles=%s user_roles=%s",
                     request.user.id, request.path, required_roles, list(user_role_codes),
@@ -110,7 +115,6 @@ class AuthorizationMiddleware:
     def _get_required_roles(path):
         """
         Retorna a lista de roles requeridas para o path, ou None se não há restrição configurada.
-        Itera sobre AUTHORIZATION_REQUIRED_ROLES em settings.
         Relê a configuração a cada chamada para suportar @override_settings em testes.
         """
         required_roles_map = getattr(settings, "AUTHORIZATION_REQUIRED_ROLES", {})
