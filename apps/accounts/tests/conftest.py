@@ -38,6 +38,7 @@ URLs dos endpoints accounts:
 import pytest
 from django.contrib.auth.models import User
 from rest_framework.test import APIClient
+import pytest
 
 from apps.accounts.models import (
     ClassificacaoUsuario,
@@ -56,13 +57,11 @@ DEFAULT_PASSWORD = "TestPass@2026"
 # O pytest-django injeta os dados ANTES do primeiro teste de cada função.
 
 @pytest.fixture(autouse=True)
-def _load_fixtures(db, django_db_setup):
-    """
-    Garante que as fixtures JSON sejam carregadas no banco de cada teste.
-    O django_db_setup com fixtures=['...'] já trata disso quando configurado
-    no pytest.ini / conftest raiz. Esta fixture é um guard explícito.
-    """
-    pass
+def load_base_fixtures(db, django_db_setup):
+    from django.core.management import call_command
+    call_command("loaddata", "initial_data.json", verbosity=0)
+    call_command("loaddata", "policy_expansion_flags.json", verbosity=0)
+    
 
 
 # ─── Helpers internos ─────────────────────────────────────────────────────────
