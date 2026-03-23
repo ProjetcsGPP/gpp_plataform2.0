@@ -132,6 +132,27 @@ class AuthorizationService:
     def user_can_manage_target_user(self, target_user) -> bool:
         return self._policy().can_manage_target_user(target_user)
 
+    def can_create_user(self) -> bool:
+        """Alias retrocompatível — tests chamam este nome."""
+        return self.user_can_create_users()
+
+    def can_edit_user(self) -> bool:
+        """Alias retrocompatível — tests chamam este nome."""
+        return self.user_can_edit_users()
+
+    def get_user_roles_for_app(self, aplicacao) -> list:
+        """
+        Retorna lista de UserRole do usuário para a aplicação.
+        Usado por TestGetUserRolesForApp em test_authorization_service.py.
+        """
+        from apps.accounts.models import UserRole
+        return list(
+            UserRole.objects
+            .filter(user=self.user, aplicacao=aplicacao)
+            .select_related("role", "role__group", "aplicacao")
+        )
+
+
     # ─────────────────────────────────────────────
     # PORTAL ADMIN — usado por can() e por core/permissions.py
     # (IsPortalAdmin, ObjectPermission)

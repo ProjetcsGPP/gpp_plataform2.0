@@ -51,38 +51,34 @@ def _make_user_with_classificacao(username, pode_criar=False, pode_editar=False)
 
 class TestCanCreateUser:
 
-    def test_classificacao_sem_permissao_retorna_false(self, gestor_pngi):
-        """ClassificacaoUsuario pk=1 tem pode_criar_usuario=False."""
-        service = AuthorizationService(gestor_pngi)
+    def test_classificacao_sem_permissao_retorna_false(self, usuario_sem_role):
+        service = AuthorizationService(usuario_sem_role)
         assert service.can_create_user() is False
 
-    def test_classificacao_com_permissao_retorna_true(self, db):
-        user = _make_user_with_classificacao("criador_svc", pode_criar=True)
-        service = AuthorizationService(user)
+    def test_classificacao_com_permissao_retorna_true(self, gestor_pngi):
+        service = AuthorizationService(gestor_pngi)
         assert service.can_create_user() is True
 
-    def test_superuser_pode_criar(self, superuser):
-        service = AuthorizationService(superuser)
+    def test_portal_admin_pode_criar(self, portal_admin):
+        service = AuthorizationService(portal_admin)
         assert service.can_create_user() is True
 
 
 # --- can_edit_user -----------------------------------------------------------
 
 class TestCanEditUser:
-
-    def test_classificacao_sem_permissao_editar_retorna_false(self, gestor_pngi):
-        service = AuthorizationService(gestor_pngi)
+    
+    def test_classificacao_sem_permissao_editar_retorna_false(self, usuario_sem_role):
+        service = AuthorizationService(usuario_sem_role)
         assert service.can_edit_user() is False
 
-    def test_classificacao_com_permissao_editar_retorna_true(self, db):
-        user = _make_user_with_classificacao("editor_svc", pode_editar=True)
-        service = AuthorizationService(user)
+    def test_classificacao_com_permissao_editar_retorna_true(self, gestor_pngi):
+        service = AuthorizationService(gestor_pngi)
         assert service.can_edit_user() is True
 
-    def test_superuser_pode_editar(self, superuser):
-        service = AuthorizationService(superuser)
+    def test_portal_admin_pode_editar(self, portal_admin):
+        service = AuthorizationService(portal_admin)
         assert service.can_edit_user() is True
-
 
 # --- user_can_manage_target_user ---------------------------------------------
 
@@ -137,25 +133,24 @@ class TestUserCanCreateUserInApplication:
 
 
 # --- get_user_roles_for_app --------------------------------------------------
-
 class TestGetUserRolesForApp:
 
     def test_retorna_roles_do_usuario_para_app(self, gestor_pngi):
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         service = AuthorizationService(gestor_pngi)
         roles = service.get_user_roles_for_app(app)
-        assert roles.exists()
-        assert roles.filter(user=gestor_pngi).count() == 1
+        assert len(roles) > 0
+        assert all(r.user == gestor_pngi for r in roles)
 
     def test_retorna_vazio_quando_sem_role_na_app(self, gestor_pngi):
         app = Aplicacao.objects.get(codigointerno="CARGA_ORG_LOT")
         service = AuthorizationService(gestor_pngi)
         roles = service.get_user_roles_for_app(app)
-        assert not roles.exists()
+        assert len(roles) == 0
 
     def test_retorna_role_correta_pelo_codigoperfil(self, gestor_pngi):
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         service = AuthorizationService(gestor_pngi)
         roles = service.get_user_roles_for_app(app)
-        codigos = list(roles.values_list("role__codigoperfil", flat=True))
+        codigos = [r.role.codigoperfil for r in roles]
         assert "GESTOR_PNGI" in codigos
