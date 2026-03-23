@@ -119,6 +119,13 @@ class UserPolicy:
 
         app_code = getattr(aplicacao, "codigointerno", None) or str(aplicacao)
 
+        if self.user.is_superuser:
+            security_logger.info(
+                "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s reason=superuser",
+                self.user.id,
+            )
+            return True
+        
         if self._is_portal_admin():
             security_logger.info(
                 "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s app=%s reason=portal_admin",
@@ -159,6 +166,13 @@ class UserPolicy:
 
     def can_edit_target_user(self, target_user) -> bool:
 
+        if self.user.is_superuser:
+            security_logger.info(
+                "AUTHZ_EDIT_TARGET_ALLOW user_id=%s reason=superuser",
+                self.user.id,
+            )
+            return True
+        
         if self._is_portal_admin():
             security_logger.info(
                 "AUTHZ_EDIT_TARGET_ALLOW user_id=%s target_user_id=%s reason=portal_admin",
@@ -194,6 +208,13 @@ class UserPolicy:
 
     def can_manage_target_user(self, target_user) -> bool:
 
+        if self.user.is_superuser:
+            security_logger.info(
+                "AUTHZ_MANAGE_USER_ALLOW user_id=%s reason=superuser",
+                self.user.id,
+            )
+            return True
+        
         if self._is_portal_admin():
             security_logger.info(
                 "AUTHZ_MANAGE_USER_ALLOW user_id=%s target_user_id=%s reason=portal_admin",

@@ -20,14 +20,14 @@ USERS_URL       = "/api/accounts/users/"
 CREATE_ROLE_URL = "/api/accounts/users/create-with-role/"
 PROFILES_URL    = "/api/accounts/profiles/"
 
-
 def _payload_usuario(suffix):
     return {
         "username": f"novo_user_{suffix}",
         "password": "NovaSenha@2026",
         "name": f"Usuario Teste {suffix}",
+        "email": f"novo_user_{suffix}@teste.gov.br",
+        "orgao": "ORGAO_TESTE",
     }
-
 
 # --- UserCreateView ----------------------------------------------------------
 
@@ -79,9 +79,12 @@ class TestUserCreateWithRole:
             "username": f"novo_cr_{suffix}",
             "password": "NovaSenha@2026",
             "name": f"Novo CR {suffix}",
+            "email": f"novo_cr_{suffix}@teste.gov.br",  # ← adicionar
+            "orgao": "ORGAO_TESTE",                      # ← adicionar
             "aplicacao_id": app.pk,
             "role_id": role.pk,
         }
+
 
     def test_portal_admin_cria_user_com_role_retorna_201(
         self, client_portal_admin

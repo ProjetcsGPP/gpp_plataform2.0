@@ -117,6 +117,14 @@ def _bootstrap_lookup_tables():
             "pode_editar_usuario": True,
         },
     )
+    ClassificacaoUsuario.objects.get_or_create( 
+        pk=3,
+        defaults={
+            "strdescricao": "Coordenador",
+            "pode_criar_usuario": True,
+            "pode_editar_usuario": True,
+        },
+    )
 
 
 def _bootstrap_aplicacoes():

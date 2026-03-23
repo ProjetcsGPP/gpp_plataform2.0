@@ -23,7 +23,6 @@ URL = "/api/accounts/roles/"
 
 
 # --- PORTAL_ADMIN ------------------------------------------------------------
-
 class TestRolesPortalAdmin:
 
     def test_lista_retorna_200(self, client_portal_admin):
@@ -32,35 +31,34 @@ class TestRolesPortalAdmin:
 
     def test_lista_tem_pelo_menos_4_roles(self, client_portal_admin):
         resp = client_portal_admin.get(URL)
-        assert len(resp.data) >= 4
+        assert len(resp.data["results"]) >= 4
 
     def test_filtra_por_aplicacao_id_acoes_pngi(self, client_portal_admin):
-        """Aplicacao pk=2 (ACOES_PNGI) tem 3 roles no initial_data."""
         resp = client_portal_admin.get(f"{URL}?aplicacao_id=2")
         assert resp.status_code == 200
-        assert len(resp.data) >= 3
-        for role in resp.data:
-            assert role["aplicacao"] == 2
+        assert len(resp.data["results"]) >= 3
+        for role in resp.data["results"]:
+            assert role["aplicacao_id"] == 2
 
     def test_filtra_por_aplicacao_id_portal(self, client_portal_admin):
         resp = client_portal_admin.get(f"{URL}?aplicacao_id=1")
         assert resp.status_code == 200
-        for role in resp.data:
-            assert role["aplicacao"] == 1
+        for role in resp.data["results"]:
+            assert role["aplicacao_id"] == 1
 
     def test_aplicacao_id_string_invalido_retorna_lista_vazia(self, client_portal_admin):
         resp = client_portal_admin.get(f"{URL}?aplicacao_id=abc")
         assert resp.status_code == 200
-        assert resp.data == []
+        assert resp.data["results"] == []
 
     def test_aplicacao_id_inexistente_retorna_lista_vazia(self, client_portal_admin):
         resp = client_portal_admin.get(f"{URL}?aplicacao_id=9999")
         assert resp.status_code == 200
-        assert resp.data == []
+        assert resp.data["results"] == []
 
     def test_roles_pngi_contem_codigosperfil_corretos(self, client_portal_admin):
         resp = client_portal_admin.get(f"{URL}?aplicacao_id=2")
-        codigos = {r["codigoperfil"] for r in resp.data}
+        codigos = {r["codigoperfil"] for r in resp.data["results"]}
         assert {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO"}.issubset(codigos)
 
 

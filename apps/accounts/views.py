@@ -320,22 +320,23 @@ class UserCreateView(APIView):
             context={"request": request},
         )
         serializer.is_valid(raise_exception=True)
+        
+        from apps.accounts.services.authorization_service import AuthorizationService
+        service = AuthorizationService(request.user)
 
-        target_user = serializer.validated_data.get("target_user")
-        if target_user is not None:
-            from apps.accounts.services.authorization_service import AuthorizationService
-            service = AuthorizationService(request.user)
-            if not service.user_can_manage_target_user(target_user):
+        # PORTAL_ADMIN pode criar em qualquer app — sem restrição de escopo
+        if not service._is_portal_admin():
+            application = getattr(request, "application", None)
+            if not service.user_can_create_user_in_application(application):
                 security_logger.warning(
-                    "USER_CREATE_SCOPE_DENIED admin_id=%s target_user_id=%s "
-                    "reason=no_app_intersection",
-                    request.user.id, target_user.id,
+                    "USER_CREATE_DENIED user_id=%s app=%s reason=no_permission_in_app",
+                    request.user.id,
+                    getattr(application, "codigointerno", None),
                 )
                 raise PermissionDenied(
-                    "Você não tem permissão para gerenciar este usuário "
-                    "(sem interseção de aplicações)."
+                    "Você só pode criar usuários nas aplicações que gerencia."
                 )
-
+                
         try:
             profile = serializer.save()
         except (DRFValidationError, PermissionDenied):
