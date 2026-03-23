@@ -41,6 +41,13 @@ class UserPolicy:
 
     def can_create_user(self) -> bool:
 
+        if self.user.is_superuser:
+            security_logger.info(
+                "AUTHZ_USER_CREATE user_id=%s reason=superuser",
+                self.user.id,
+            )
+            return True
+
         if self._is_portal_admin():
             security_logger.info(
                 "AUTHZ_USER_CREATE user_id=%s reason=portal_admin",
@@ -72,6 +79,13 @@ class UserPolicy:
 
     def can_edit_user(self) -> bool:
 
+        if self.user.is_superuser:
+            security_logger.info(
+                "AUTHZ_USER_EDIT user_id=%s reason=superuser",
+                self.user.id,
+            )
+            return True
+        
         if self._is_portal_admin():
             security_logger.info(
                 "AUTHZ_USER_EDIT user_id=%s reason=portal_admin",
