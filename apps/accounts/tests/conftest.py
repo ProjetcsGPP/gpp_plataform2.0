@@ -214,7 +214,7 @@ def _bootstrap_all():
     
     # Garante que a sequence do PostgreSQL está além dos IDs inseridos com pk explícita
     _reset_pk_sequence('tblaplicacao', 'idaplicacao')
-    _reset_pk_sequence('tblrole', 'idrole')
+    _reset_pk_sequence('accounts_role', 'id')
 
 
 # --- Fixture autouse: garante dados base antes de qualquer teste -------------
