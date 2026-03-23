@@ -10,6 +10,8 @@ ESTRATEGIA:
   - Seguro com --reuse-db: todos os objetos sao get_or_create, nunca create.
   - THROTTLE: override de settings desativa rate limit globalmente nos testes
     para evitar 429 em endpoints publicos (AplicacaoPublicaViewSet).
+  - Para evitar problemas, após inserir os dados base, é feito o reset sequence 
+    das tabelas Aplicação e Roles ao final do bootstrap:
 
 PERFIS disponiveis:
   Role pk=1  -> PORTAL_ADMIN    / Aplicacao pk=1 (PORTAL)
@@ -33,6 +35,7 @@ URLs dos endpoints accounts:
 import pytest
 from django.contrib.auth.models import Group, User
 from rest_framework.test import APIClient
+from django.db import connection
 
 from apps.accounts.models import (
     Aplicacao,
@@ -66,6 +69,18 @@ def _disable_throttling(settings):
     drf["DEFAULT_THROTTLE_CLASSES"] = []
     drf["DEFAULT_THROTTLE_RATES"] = {}
     settings.REST_FRAMEWORK = drf
+
+
+
+def _reset_pk_sequence(table: str, pk_col: str):
+    with connection.cursor() as cur:
+        cur.execute(f"""
+            SELECT setval(
+                pg_get_serial_sequence('{table}', '{pk_col}'),
+                COALESCE((SELECT MAX({pk_col}) FROM "{table}"), 0) + 1,
+                false
+            )
+        """)
 
 
 # --- Bootstrap de dados base -------------------------------------------------
@@ -192,6 +207,10 @@ def _bootstrap_all():
     _bootstrap_lookup_tables()
     _bootstrap_aplicacoes()
     _bootstrap_roles()
+    
+    # Garante que a sequence do PostgreSQL está além dos IDs inseridos com pk explícita
+    _reset_pk_sequence('tblaplicacao', 'idaplicacao')
+    _reset_pk_sequence('tblrole', 'idrole')
 
 
 # --- Fixture autouse: garante dados base antes de qualquer teste -------------
