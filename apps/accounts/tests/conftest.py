@@ -215,8 +215,12 @@ def _bootstrap_roles():
 
 def _bootstrap_status_usuario():
     from apps.accounts.models import StatusUsuario
-    StatusUsuario.objects.get_or_create(pk=1, defaults={"descricao": "Ativo"})
-    StatusUsuario.objects.get_or_create(pk=2, defaults={"descricao": "Inativo"})
+    StatusUsuario.objects.get_or_create(
+        idstatususuario=1, defaults={"strdescricao": "Ativo"}
+    )
+    StatusUsuario.objects.get_or_create(
+        idstatususuario=2, defaults={"strdescricao": "Inativo"}
+    )
 
 
 def _bootstrap_all():

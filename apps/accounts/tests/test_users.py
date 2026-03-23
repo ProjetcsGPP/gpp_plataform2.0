@@ -210,11 +210,11 @@ class TestUserProfilePatch:
     ):
         resp = client_portal_admin.patch(
             f"{PROFILES_URL}{gestor_pngi.pk}/",
-            {"status_usuario": 2},
+            {"status_usuario": 2},  # ← referencia idstatususuario=2
             format="json",
         )
         assert resp.status_code == 200
-
+        
     def test_nao_autenticado_retorna_401_ou_403(
         self, client_anonimo, gestor_pngi
     ):
