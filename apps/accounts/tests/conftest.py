@@ -152,6 +152,10 @@ def _bootstrap_aplicacoes():
             "isappproductionready": True,
         },
     )
+    
+    # 2) Resetar a sequence AQUI, antes de qualquer insert sem pk
+    _reset_pk_sequence('tblaplicacao', 'idaplicacao')
+
     # Apps extras usadas nos testes de visibilidade
     Aplicacao.objects.get_or_create(
         codigointerno="APP_BLOQUEADA",
