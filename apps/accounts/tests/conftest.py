@@ -242,51 +242,58 @@ def _get_tipo_usuario():
 def _get_classificacao_usuario():
     return ClassificacaoUsuario.objects.get(pk=1)
 
-
-def _make_user(username, password=DEFAULT_PASSWORD, is_superuser=False):
+# DEPOIS
+def _make_user(username, password=DEFAULT_PASSWORD,
+               is_superuser=False, classificacao_pk=1):
     """
     Cria (ou recupera) auth.User + UserProfile.
     Seguro com --reuse-db: usa get_or_create e atualiza senha sempre.
+    classificacao_pk permite sobrescrever a ClassificacaoUsuario por fixture.
     """
     user, created = User.objects.get_or_create(
         username=username,
-        defaults={
-            "is_superuser": is_superuser,
-            "is_active": True,
-        },
+        defaults={"is_superuser": is_superuser, "is_active": True},
     )
-    # Atualiza senha sempre -- garante login real mesmo com --reuse-db
     user.set_password(password)
     user.is_superuser = is_superuser
     user.is_active = True
     user.save(update_fields=["password", "is_superuser", "is_active"])
 
-    UserProfile.objects.get_or_create(
+    classificacao = ClassificacaoUsuario.objects.get(pk=classificacao_pk)
+    profile, _ = UserProfile.objects.get_or_create(
         user=user,
         defaults={
             "name": username,
             "status_usuario": _get_status_usuario(),
             "tipo_usuario": _get_tipo_usuario(),
-            "classificacao_usuario": _get_classificacao_usuario(),
+            "classificacao_usuario": classificacao,
         },
     )
+    if profile.classificacao_usuario_id != classificacao_pk:
+        profile.classificacao_usuario = classificacao
+        profile.save(update_fields=["classificacao_usuario"])
     return user
 
-
+# DEPOIS
 def _assign_role(user, role_pk):
     """
     Atribui uma Role ao usuario via UserRole (idempotente).
     O lookup e por (user, aplicacao) que e a constraint de unicidade.
+    Seguro com --reuse-db: atualiza a role se o registro ja existia com outra.
     """
     role = Role.objects.get(pk=role_pk)
-    UserRole.objects.get_or_create(
+    user_role, created = UserRole.objects.get_or_create(
         user=user,
         aplicacao=role.aplicacao,
         defaults={"role": role},
     )
+    if not created and user_role.role_id != role.pk:
+        user_role.role = role
+        user_role.save(update_fields=["role"])
     if role.group:
         user.groups.add(role.group)
     return role
+
 
 
 def _do_login(client, username, app_context, password=DEFAULT_PASSWORD):
@@ -308,14 +315,14 @@ def _make_authenticated_client(username, app_context, password=DEFAULT_PASSWORD)
 
 
 # --- Fixtures de usuarios por perfil -----------------------------------------
-
+# DEPOIS
 @pytest.fixture
 def gestor_pngi(db):
     """
     Usuario com perfil GESTOR_PNGI (Role pk=2, ACOES_PNGI).
-    ClassificacaoUsuario pk=1 -> pode_criar_usuario=False.
+    ClassificacaoUsuario pk=2 -> pode_criar_usuario=True, pode_editar_usuario=True.
     """
-    user = _make_user("gestor_test")
+    user = _make_user("gestor_test", classificacao_pk=2)
     _assign_role(user, role_pk=2)
     return user
 
