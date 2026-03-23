@@ -64,10 +64,12 @@ class TestUserRoleConstraints:
     ):
         app_carga = Aplicacao.objects.get(codigointerno="CARGA_ORG_LOT")
         role_carga = Role.objects.get(codigoperfil="GESTOR_CARGA")
-        ur = UserRole.objects.create(
+        
+        # Idempotente — evita UniqueViolation com --reuse-db
+        ur, _ = UserRole.objects.get_or_create(
             user=gestor_pngi,
-            role=role_carga,
             aplicacao=app_carga,
+            defaults={"role": role_carga},
         )
         assert ur.pk is not None
         assert UserRole.objects.filter(user=gestor_pngi).count() == 2
@@ -94,6 +96,7 @@ class TestAttributeConstraints:
     def test_mesma_key_em_app_diferente_e_permitido(self, db, gestor_pngi):
         try:
             from apps.accounts.models import Attribute
+            Attribute.objects.filter(user=gestor_pngi, aplicacao_id=2, key="orgao").delete()
         except ImportError:
             pytest.skip("Model Attribute nao existe nesta versao")
         app_pngi = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
@@ -112,6 +115,10 @@ class TestAttributeConstraints:
         except ImportError:
             pytest.skip("Model Attribute nao existe nesta versao")
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
+        
+        # Limpa dados órfãos de --reuse-db
+        Attribute.objects.filter(user=gestor_pngi, aplicacao=app).delete()
+
         Attribute.objects.create(
             user=gestor_pngi, aplicacao=app, key="orgao", value="SPU"
         )

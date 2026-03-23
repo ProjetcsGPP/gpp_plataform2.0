@@ -207,8 +207,12 @@ class TestSwitchApp:
             revoked=False,
         ).exists()
 
-    def test_switch_app_sem_acesso_retorna_403(self, client_gestor):
-        """Gestor nao tem role em CARGA_ORG_LOT -- deve receber 403."""
+    def test_switch_app_sem_acesso_retorna_403(self, client_gestor, gestor_pngi):
+         # Garante que gestor NÃO tem role em CARGA_ORG_LOT
+        from apps.accounts.models import UserRole, Aplicacao
+        app_carga = Aplicacao.objects.get(codigointerno="CARGA_ORG_LOT")
+        UserRole.objects.filter(user=gestor_pngi, aplicacao=app_carga).delete()
+        
         resp = client_gestor.post(
             SWITCH_APP_URL, {"app_context": "CARGA_ORG_LOT"}, format="json"
         )

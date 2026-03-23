@@ -213,12 +213,18 @@ def _bootstrap_roles():
             },
         )
 
+def _bootstrap_status_usuario():
+    from apps.accounts.models import StatusUsuario
+    StatusUsuario.objects.get_or_create(pk=1, defaults={"descricao": "Ativo"})
+    StatusUsuario.objects.get_or_create(pk=2, defaults={"descricao": "Inativo"})
+
 
 def _bootstrap_all():
     """Ponto de entrada unico para popular todos os dados base."""
     _bootstrap_lookup_tables()
     _bootstrap_aplicacoes()
     _bootstrap_roles()
+    _bootstrap_status_usuario()
     
     # Garante que a sequence do PostgreSQL está além dos IDs inseridos com pk explícita
     _reset_pk_sequence('tblaplicacao', 'idaplicacao')

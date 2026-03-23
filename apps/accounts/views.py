@@ -168,12 +168,14 @@ class LogoutView(APIView):
     def post(self, request):
         session_key = request.session.session_key
 
+        # Revoga TODAS as sessões ativas do usuário
+        # (não só a atual — evita sessões órfãs de --reuse-db e logins paralelos)
         AccountsSession.objects.filter(
-            session_key=session_key,
-            revoked=False
+            user=request.user,
+            revoked=False,
         ).update(
             revoked=True,
-            revoked_at=dj_timezone.now()
+            revoked_at=dj_timezone.now(),
         )
 
         security_logger.info(
@@ -370,6 +372,15 @@ class UserCreateWithRoleView(APIView):
     permission_classes = [IsAuthenticated, CanCreateUser]
 
     def post(self, request):
+        from apps.accounts.services.authorization_service import AuthorizationService
+        service = AuthorizationService(request.user)
+        
+        # Apenas PORTAL_ADMIN ou superuser podem criar usuário COM role
+        if not service._is_portal_admin() and not request.user.is_superuser:
+            raise PermissionDenied(
+                "Criação de usuário com role é restrita ao administrador do portal."
+            )
+        
         serializer = UserCreateWithRoleSerializer(
             data=request.data,
             context={"request": request},
