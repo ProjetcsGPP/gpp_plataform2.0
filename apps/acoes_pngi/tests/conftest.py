@@ -21,6 +21,7 @@ URLs dos endpoints acoes_pngi:
 """
 import pytest
 from django.contrib.auth.models import Group, User
+from django.core.cache import cache
 from rest_framework.test import APIClient
 
 from apps.accounts.models import (
@@ -43,15 +44,44 @@ DEFAULT_PASSWORD = "gpp@2026"
 
 
 # ---------------------------------------------------------------------------
-# Throttle off
+# Throttle off + limpeza de cache
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
 def _disable_throttling(settings):
+    """
+    Zera as classes de throttle do DRF E limpa o cache do LocMemCache.
+
+    O LocMemCache persiste contadores de throttle entre testes no mesmo
+    processo pytest. Apenas sobrescrever DEFAULT_THROTTLE_CLASSES nao e
+    suficiente: o cache ja tem as chaves throttle:<ip>/<user> gravadas.
+    cache.clear() apaga todo o LocMemCache, garantindo contador zerado
+    antes de cada teste.
+    """
     drf = settings.REST_FRAMEWORK.copy()
     drf["DEFAULT_THROTTLE_CLASSES"] = []
     drf["DEFAULT_THROTTLE_RATES"] = {}
     settings.REST_FRAMEWORK = drf
+    cache.clear()
+
+
+# ---------------------------------------------------------------------------
+# lru_cache bust — _load_role_matrix() deve reler o banco em cada teste
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _clear_role_matrix_cache():
+    """
+    Limpa o lru_cache de _load_role_matrix() antes e apos cada teste.
+
+    Sem isso, se o cache for populado antes do _ensure_base_data criar
+    as roles no banco de teste, _load_role_matrix() retorna frozenset
+    vazio e todos os endpoints retornam 403 por falta de roles permitidas.
+    """
+    from apps.acoes_pngi.views import _load_role_matrix
+    _load_role_matrix.cache_clear()
+    yield
+    _load_role_matrix.cache_clear()
 
 
 # ---------------------------------------------------------------------------
@@ -175,8 +205,17 @@ def _assign_role(user, role_pk):
 
 
 def _login(username, app_context=None, password=DEFAULT_PASSWORD):
-    """Retorna (client, response) com sessao autenticada."""
+    """
+    Retorna (client, response) com sessao autenticada.
+
+    Envia X-Application-Code: ACOES_PNGI para que o
+    ApplicationContextMiddleware resolva request.application
+    corretamente (sem cair no fallback "portal" ou APP_CONTEXT_NONE),
+    garantindo que o RoleContextMiddleware carregue user_roles
+    filtrados pela aplicacao correta apos o login.
+    """
     client = APIClient()
+    client.credentials(HTTP_X_APPLICATION_CODE="ACOES_PNGI")
     resp = client.post(
         LOGIN_URL,
         {"username": username, "password": password, "app_context": app_context or "ACOES_PNGI"},
