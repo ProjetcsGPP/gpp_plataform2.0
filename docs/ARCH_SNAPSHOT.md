@@ -75,7 +75,10 @@ Aplicacao (tblaplicacao)
 UserProfile (tblusuario)
   user (PK, OneToOne): auth.User
   name: CharField(200)
-  orgao: CharField(100, nullable)  ← ESCOPO DE IDOR — campo crítico
+  orgao: CharField(100, nullable)  ← órgão de lotacão do usuário
+                                      Escopo de tenant apenas em apps que
+                                      usam SecureQuerysetMixin (ex: carga_org_lot).
+                                      Em acoes_pngi: apenas informativo/auditoria.
   status_usuario (FK): StatusUsuario
   tipo_usuario (FK): TipoUsuario
   classificacao_usuario (FK): ClassificacaoUsuario
@@ -201,9 +204,28 @@ class SecureQuerysetMixin:
         ...
 ```
 
-**Proteção IDOR**: toda ViewSet de recurso de usuário **deve** herdar
-`SecureQuerysetMixin`. O queryset é sempre filtrado pelo `orgao` do perfil
-do usuário autenticado.
+### Quando usar `SecureQuerysetMixin`
+
+O mixin é um filtro de **escopo de tenant** — ele restringe o queryset
+ao `orgao` do usuário autenticado. Deve ser usado **somente** em ViewSets
+cujos recursos pertencem a um órgão específico:
+
+| App / Resource | Usa `SecureQuerysetMixin`? | Motivo |
+|---|---|---|
+| `carga_org_lot` / `TokenEnvioCarga` | ✅ Sim | Carga pertence ao órgão do usuário |
+| `acoes_pngi` / `Acoes` | ❌ **Não** | Ações são independentes de órgão — iniciativas do programa PNGI que podem envolver múltiplos órgãos |
+| `acoes_pngi` / Tabelas de referência (`Eixo`, `SituacaoAcao`, etc.) | ❌ **Não** | São dados públicos da plataforma |
+
+**Controle de acesso em `acoes_pngi` é feito exclusivamente por roles**
+(`_load_role_matrix()` + `HasRolePermission`), não por escopo de órgão.
+
+### Sobre `UserProfile.orgao` em `acoes_pngi`
+
+`UserProfile.orgao` indica o órgão de lotação do usuário. Em `acoes_pngi`,
+esse campo é **informativo** — pode aparecer em relatórios ou filtros
+opcionais, mas **não controla visibilidade de registros**. A classe
+`UsuarioResponsavel` (removida) tinha `strorgao` por razões históricas;
+corrretamente removida pois duplicava o dado já presente em `UserProfile`.
 
 ---
 
@@ -238,7 +260,8 @@ Acoes (tblacoes) — herda AuditableModel
   idtipoentravealerta (FK, nullable): TipoEntraveAlerta
   ⚠️ Falta: idsituacaoacao (FK) — conectar a SituacaoAcao
   ⚠️ Falta: ideixo (FK) — conectar a Eixo
-  ⚠️ Falta: orgao CharField — escopo IDOR obrigatório para SecureQuerysetMixin
+  ✅ orgao NAO é atributo de Acoes — ações são independentes de órgão;
+     o orgao do criador fica registrado em created_by_id (chave para UserProfile)
 
 AcaoPrazo (tblacaoprazo) — herda AuditableModel
   idacaoprazo (PK), idacao (FK), isacaoprazoativo, strprazo
@@ -252,18 +275,23 @@ AcaoAnotacaoAlinhamento (tblacaoanotacaoalinhamento) — herda AuditableModel
 
 RelacaoAcaoUsuarioResponsavel (tblrelacaoacaousuarioresponsavel)
   idacao (FK): Acoes
-  idusuarioresponsavel: IntegerField  ← chave lógica, sem FK para auth_user
+  idusuarioresponsavel: IntegerField  ← chave lógica = auth.User.pk
+                                         sem FK cross-schema para auth_user
   UNIQUE: (idacao, idusuarioresponsavel)
   ✅ Correto: sem FK cross-schema
+  Nota: o orgao do responsável é consultado via UserProfile quando necessário
+        para relatórios — não é denormalizado em Acoes
 ```
 
 ### Views — scaffold ativo
 
 `AcaoPNGIViewSet` em `views.py` já existe com:
-- `SecureQuerysetMixin` + `AuditableMixin` + `IsAuthenticated` + `HasRolePermission`
+- `AuditableMixin` + `IsAuthenticated` + `HasRolePermission`
 - `_load_role_matrix()` com `lru_cache(maxsize=1)` — carrega roles do banco uma vez
 - Todas as actions retornam 501 — **domínio ainda não implementado**
 - `_EmptyQueryset` placeholder ativo
+- ❌ `SecureQuerysetMixin` presente no scaffold mas **deve ser removido**
+  pois Acoes não é recurso de tenant
 
 ### Serializers — scaffold ativo
 
@@ -279,6 +307,8 @@ RelacaoAcaoUsuarioResponsavel (tblrelacaoacaousuarioresponsavel)
 
 Ver análise original em `PROMPT_0_MODEL_AUDIT.md`.
 A principal pendência é adicionar campo `orgao` a `TokenEnvioCarga`.
+`carga_org_lot` **é** um recurso de tenant — `SecureQuerysetMixin` se
+aplicará corretamente quando o campo `orgao` for adicionado.
 
 ---
 
