@@ -45,8 +45,17 @@ class TestGestorPNGI:
         assert resp.status_code == 201
 
     @pytest.mark.django_db(transaction=True)
-    def test_pode_deletar_vigencia(self, client_gestor, vigencia):
-        resp = client_gestor.delete(f"{VIGENCIAS_URL}{vigencia.pk}/")
+    def test_pode_deletar_vigencia(self, client_gestor, vigencia_livre):
+        """
+        Usa vigencia_livre (sem Acoes vinculadas) para evitar ProtectedError.
+
+        idvigenciapngi tem on_delete=PROTECT. Com transaction=True, testes
+        anteriores que criam Acoes fazem commits reais — essas Acoes ficam
+        no banco ate o flush pre-teste seguinte. Se a fixture vigencia
+        generica fosse usada aqui, o DELETE falharia com ProtectedError
+        porque outras Acoes ja estariam apontando para ela.
+        """
+        resp = client_gestor.delete(f"{VIGENCIAS_URL}{vigencia_livre.pk}/")
         assert resp.status_code == 204
 
     @pytest.mark.django_db(transaction=True)
