@@ -1,6 +1,5 @@
 """
 GPP Plataform 2.0 — Ações PNGI Views
-FASE 6: Scaffold de APIs com SecureQuerysetMixin obrigatório.
 
 Matriz de permissões por operação:
   - list / retrieve  : ROLES_READ
@@ -10,6 +9,10 @@ Matriz de permissões por operação:
 As roles SÃO LIDAS DO BANCO DE DADOS na primeira requisição e
 cacheadas no processo via _load_role_matrix(). Não há strings
 hardcoded de codigoperfil neste módulo.
+
+Nota: SecureQuerysetMixin NÃO é usado aqui pois Acoes PNGI
+não são recursos de tenant (independentes de orgão).
+O controle de acesso é feito exclusivamente por roles.
 """
 from __future__ import annotations
 
@@ -20,7 +23,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from common.mixins import AuditableMixin, SecureQuerysetMixin
+from common.mixins import AuditableMixin
 from common.permissions import HasRolePermission
 
 # Identificador da aplicação no banco (accounts.Aplicacao.codigointerno)
@@ -89,29 +92,29 @@ def _check_roles(request, level: str) -> None:
         )
 
 
-class AcaoPNGIViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
+class AcaoPNGIViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     ViewSet scaffold para Ações PNGI.
     Models e serializers serão implementados na fase de domínio.
 
-    SecureQuerysetMixin garante filtro por orgao (proteção IDOR).
     AuditableMixin preenche created_by / updated_by automaticamente.
+    SecureQuerysetMixin não é aplicado pois Acoes são independentes
+    de orgão (não são recursos de tenant).
+    O controle de acesso é feito exclusivamente por roles via HasRolePermission.
     """
     permission_classes = [IsAuthenticated, HasRolePermission]
-    scope_field = "orgao"
-    scope_source = "orgao"
 
-    # ── Substituir nas implementações finais ──────────────────────────────
+    # ── Substituir nas implementações finais ───────────────────────────────────────
     queryset = None  # definir quando o model AcaoPNGI estiver disponível
     serializer_class = None  # definir quando o serializer estiver disponível
-    # ─────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────────
 
     def get_queryset(self):
         """
         Retorna queryset vazio até o model ser implementado.
         Quando o model estiver disponível, substituir por:
-            from .models import AcaoPNGI
-            self.queryset = AcaoPNGI.objects.all()
+            from .models import Acoes
+            self.queryset = Acoes.objects.all()
             return super().get_queryset()
         """
         return _EmptyQueryset()
@@ -142,7 +145,7 @@ class AcaoPNGIViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet
 
 
 class _EmptyQueryset:
-    """Placeholder para evitar erros enquanto o model AcaoPNGI não existe."""
+    """Placeholder para evitar erros enquanto o model Acoes não está totalmente implementado."""
 
     def none(self):
         return self
