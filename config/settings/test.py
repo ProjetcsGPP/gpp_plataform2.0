@@ -21,8 +21,11 @@ Diferencas em relacao a development.py:
 
   4. EMAIL_BACKEND: dummy — nenhum email real disparado.
 
-  5. LOGGING: handlers de arquivo desabilitados para nao criar
-     arquivos de log durante a execucao de testes.
+  5. LOGGING: sem escrita em arquivo durante testes.
+     propagate=True obrigatorio para que caplog do pytest consiga
+     interceptar os logs de gpp.security nos testes de policy.
+     level=DEBUG para capturar logs de nivel INFO emitidos pelos
+     loggers de seguranca (AUTHZ_APP_VIEW_DENY, etc.).
 """
 from .development import *  # noqa: F401, F403
 
@@ -61,7 +64,14 @@ PASSWORD_HASHERS = [
 EMAIL_BACKEND = "django.core.mail.backends.dummy.EmailBackend"
 
 # ---------------------------------------------------------------------------
-# 5. Logging — sem escrita em arquivo durante testes
+# 5. Logging — sem escrita em arquivo, propagate=True para caplog
+#
+# CRITICO: propagate=True e obrigatorio.
+# Com propagate=False os logs vao para o handler console (stderr) mas
+# nao chegam ao root logger — o caplog do pytest intercepta apenas o
+# que passa pelo root logger, entao caplog.text ficaria sempre vazio,
+# quebrando todos os testes de policy que fazem:
+#   assert 'reason=app_blocked' in caplog.text
 # ---------------------------------------------------------------------------
 LOGGING = {
     "version": 1,
@@ -74,8 +84,8 @@ LOGGING = {
     "loggers": {
         "gpp.security": {
             "handlers": ["console"],
-            "level": "WARNING",
-            "propagate": False,
+            "level": "DEBUG",
+            "propagate": True,
         },
         "django": {
             "handlers": ["console"],
