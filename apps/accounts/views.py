@@ -24,6 +24,10 @@ FIX-TESTS: pagination_class = None nos dois AplicacaoViewSets para evitar
            resp.data paginado (dict) nos testes — retorna lista plana diretamente.
 FIX-THROTTLE: throttle_classes = [] em AplicacaoPublicaViewSet — endpoint público
               não deve ser limitado por AnonRateThrottle; evita 429 nos testes.
+FIX-THROTTLE-2: throttle_scope removido de LoginView e SwitchAppView — o rate limit
+                de login é controlado globalmente via DEFAULT_THROTTLE_CLASSES no
+                settings. O conftest raiz zera as classes em tempo de teste, garantindo
+                que nenhum login seja bloqueado por 429 durante a suite completa.
 """
 import logging
 from datetime import timedelta
@@ -38,7 +42,6 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError as DRFValidationError
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
-from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
 from common.mixins import AuditableMixin, SecureQuerysetMixin
@@ -72,9 +75,11 @@ class LoginView(APIView):
     Realiza autenticação via sessão (cookie HttpOnly).
 
     Payload: { "username": "...", "password": "...", "app_context": "PORTAL" }
+
+    Rate limit: controlado via DEFAULT_THROTTLE_CLASSES no settings.
+    Em testes, o conftest raiz zera as classes — sem throttle_scope fixo aqui.
     """
     permission_classes = [AllowAny]
-    throttle_scope = "login"
 
     def post(self, request):
         username    = request.data.get("username")
@@ -191,9 +196,11 @@ class SwitchAppView(APIView):
     """
     POST /api/accounts/switch-app/
     Troca o contexto de aplicação mantendo a mesma sessão autenticada.
+
+    Rate limit: controlado via DEFAULT_THROTTLE_CLASSES no settings.
+    Em testes, o conftest raiz zera as classes — sem throttle_scope fixo aqui.
     """
     permission_classes = [IsAuthenticated]
-    throttle_scope = "login"
 
     def post(self, request):
         new_app = request.data.get("app_context")
