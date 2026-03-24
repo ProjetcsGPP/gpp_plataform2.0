@@ -72,16 +72,19 @@ def _disable_throttling(settings):
 @pytest.fixture(autouse=True)
 def _clear_role_matrix_cache():
     """
-    Limpa o lru_cache de _load_role_matrix() antes e apos cada teste.
+    Limpa o lru_cache de _load_role_matrix() e _load_vigencia_role_matrix()
+    antes e apos cada teste.
 
     Sem isso, se o cache for populado antes do _ensure_base_data criar
     as roles no banco de teste, _load_role_matrix() retorna frozenset
     vazio e todos os endpoints retornam 403 por falta de roles permitidas.
     """
-    from apps.acoes_pngi.views import _load_role_matrix
+    from apps.acoes_pngi.views import _load_role_matrix, _load_vigencia_role_matrix
     _load_role_matrix.cache_clear()
+    _load_vigencia_role_matrix.cache_clear()
     yield
     _load_role_matrix.cache_clear()
+    _load_vigencia_role_matrix.cache_clear()
 
 
 # ---------------------------------------------------------------------------
@@ -304,11 +307,19 @@ def client_anonimo():
 
 @pytest.fixture
 def vigencia(db):
-    obj, _ = VigenciaPNGI.objects.get_or_create(
+    """
+    Cria uma VigenciaPNGI isolada para o teste corrente.
+
+    USA create() — nao get_or_create — porque strdescricao nao tem
+    unique=True no model. Com get_or_create, execucoes anteriores da
+    suite acumulavam registros com o mesmo strdescricao no banco de
+    testes persistente, causando MultipleObjectsReturned no proximo run.
+    O rollback de transaction=True cuida da limpeza apos cada teste.
+    """
+    return VigenciaPNGI.objects.create(
         strdescricao="PNGI 2025-2028",
-        defaults={"datiniciovigencia": "2025-01-01"},
+        datiniciovigencia="2025-01-01",
     )
-    return obj
 
 
 @pytest.fixture
