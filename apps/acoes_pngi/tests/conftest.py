@@ -304,25 +304,32 @@ def client_anonimo():
 
 @pytest.fixture
 def vigencia(db):
-    return VigenciaPNGI.objects.create(
+    obj, _ = VigenciaPNGI.objects.get_or_create(
         strdescricao="PNGI 2025-2028",
-        datiniciovigencia="2025-01-01",
+        defaults={"datiniciovigencia": "2025-01-01"},
     )
+    return obj
 
 
 @pytest.fixture
 def eixo(db):
-    return Eixo.objects.create(
-        strdescricaoeixo="Infraestrutura",
+    obj, _ = Eixo.objects.get_or_create(
         stralias="INF",
+        defaults={"strdescricaoeixo": "Infraestrutura"},
     )
+    return obj
 
 
 @pytest.fixture
 def situacao(db):
-    return SituacaoAcao.objects.create(
+    """
+    Usa get_or_create para evitar UniqueViolation quando _ensure_base_data
+    ou outro teste ja inseriu 'Em andamento' na mesma transacao.
+    """
+    obj, _ = SituacaoAcao.objects.get_or_create(
         strdescricaosituacao="Em andamento",
     )
+    return obj
 
 
 @pytest.fixture
