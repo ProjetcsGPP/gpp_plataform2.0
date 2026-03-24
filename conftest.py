@@ -36,24 +36,16 @@ def _disable_drf_throttle(settings):
     A fixture sobrescreve DEFAULT_THROTTLE_CLASSES e DEFAULT_THROTTLE_RATES
     via pytest-django settings fixture, que reverte automaticamente ao fim
     de cada teste (sem efeito colateral entre runs).
+
+    IMPORTANTE: NAO fazer cache.clear() aqui. O LocMemCache armazena sessoes
+    Django alem dos contadores de throttle. Limpar o cache apos o login de
+    fixtures (ex: client_gestor) destroi a sessao autenticada, causando 401
+    ou lista vazia nos testes que dependem de sessao valida.
+    Cada conftest de app e responsavel por limpar seu proprio cache ANTES
+    de criar usuarios/logins, na ordem correta.
     """
     settings.REST_FRAMEWORK = {
         **settings.REST_FRAMEWORK,
         "DEFAULT_THROTTLE_CLASSES": [],
         "DEFAULT_THROTTLE_RATES": {},
     }
-
-
-@pytest.fixture(autouse=True)
-def _clear_cache_between_tests():
-    """
-    Limpa o cache Django inteiro antes de cada teste.
-
-    Garante que contadores de throttle residuais do LocMemCache não
-    contaminem testes subsequentes — especialmente ao rodar a suite
-    completa múltiplas vezes consecutivas com --reuse-db.
-    """
-    from django.core.cache import cache
-    cache.clear()
-    yield
-    cache.clear()
