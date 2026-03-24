@@ -2,7 +2,6 @@
 GPP Plataform 2.0 — Ações PNGI
 Todos os models usam schema 'acoes_pngi' no PostgreSQL.
 """
-from django.conf import settings
 from django.db import models
 from common.models import AuditableModel
 
@@ -97,30 +96,6 @@ class VigenciaPNGI(AuditableModel):
     class Meta:
         db_table = '"acoes_pngi"."tblvigenciapngi"'
         ordering = ["-datiniciovigencia"]
-
-
-class UsuarioResponsavel(models.Model):
-
-    idusuario = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        db_column="idusuario",
-        on_delete=models.CASCADE,
-        primary_key=True,
-        related_name="usuario_responsavel_pngi"
-    )
-
-    strtelefone = models.CharField(
-        db_column="strtelefone",
-        max_length=20
-    )
-
-    strorgao = models.CharField(
-        db_column="strorgao",
-        max_length=50
-    )
-
-    class Meta:
-        db_table = '"acoes_pngi"."tblusuarioresponsavel"'
 
 
 class Acoes(AuditableModel):
@@ -245,6 +220,12 @@ class AcaoAnotacaoAlinhamento(AuditableModel):
 
 
 class RelacaoAcaoUsuarioResponsavel(models.Model):
+    """
+    Relação entre uma Ação e um usuário responsável.
+    idusuarioresponsavel é uma chave lógica (IntegerField) referenciando
+    o id do usuário em accounts.UserProfile — sem FK cross-schema para
+    auth_user, evitando conflitos de TRUNCATE no teardown do pytest-django.
+    """
 
     idacao = models.ForeignKey(
         Acoes,
@@ -252,10 +233,9 @@ class RelacaoAcaoUsuarioResponsavel(models.Model):
         on_delete=models.CASCADE
     )
 
-    idusuarioresponsavel = models.ForeignKey(
-        UsuarioResponsavel,
+    idusuarioresponsavel = models.IntegerField(
         db_column="idusuarioresponsavel",
-        on_delete=models.CASCADE
+        help_text="ID lógico do usuário responsável (sem FK para auth_user)"
     )
 
     class Meta:
