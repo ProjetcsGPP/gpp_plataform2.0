@@ -8,6 +8,9 @@ ESTRATEGIA:
   - Usuarios e roles especificos de acoes_pngi sao criados aqui.
   - Login real via POST /api/accounts/login/ — sem force_authenticate.
   - Todos os testes usam @pytest.mark.django_db(transaction=True).
+  - THROTTLE: desabilitado globalmente pelo conftest raiz (session-scoped).
+    Não há override local aqui nem cache.clear() — o controle está
+    centralizado em conftest.py (raiz).
 
 URLs dos endpoints acoes_pngi:
   GET/POST   /api/acoes-pngi/acoes/
@@ -21,7 +24,6 @@ URLs dos endpoints acoes_pngi:
 """
 import pytest
 from django.contrib.auth.models import Group, User
-from django.core.cache import cache
 from rest_framework.test import APIClient
 
 from apps.accounts.models import (
@@ -41,28 +43,6 @@ VIGENCIAS_URL = "/api/acoes-pngi/vigencias/"
 EIXOS_URL = "/api/acoes-pngi/eixos/"
 SITUACOES_URL = "/api/acoes-pngi/situacoes/"
 DEFAULT_PASSWORD = "gpp@2026"
-
-
-# ---------------------------------------------------------------------------
-# Throttle off + limpeza de cache
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(autouse=True)
-def _disable_throttling(settings):
-    """
-    Zera as classes de throttle do DRF E limpa o cache do LocMemCache.
-
-    O LocMemCache persiste contadores de throttle entre testes no mesmo
-    processo pytest. Apenas sobrescrever DEFAULT_THROTTLE_CLASSES nao e
-    suficiente: o cache ja tem as chaves throttle:<ip>/<user> gravadas.
-    cache.clear() apaga todo o LocMemCache, garantindo contador zerado
-    antes de cada teste.
-    """
-    drf = settings.REST_FRAMEWORK.copy()
-    drf["DEFAULT_THROTTLE_CLASSES"] = []
-    drf["DEFAULT_THROTTLE_RATES"] = {}
-    settings.REST_FRAMEWORK = drf
-    cache.clear()
 
 
 # ---------------------------------------------------------------------------
