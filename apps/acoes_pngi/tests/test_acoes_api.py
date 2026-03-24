@@ -53,11 +53,20 @@ def test_list_acoes_consultor_retorna_200(client_consultor):
 
 @pytest.mark.django_db(transaction=True)
 def test_list_acoes_retorna_lista(client_gestor, acao):
-    """List deve retornar lista com a acao criada."""
-    resp = client_gestor.get(ACOES_URL)
+    """
+    List filtrado por idacao deve retornar exatamente a acao criada.
+
+    Usa ?idacao={pk} para evitar falso negativo por paginacao:
+    com --reuse-db e transaction=True o banco acumula Acoes de runs
+    anteriores e a acao do teste pode estar em paginas alem da primeira
+    (PAGE_SIZE=20). Filtrar por pk garante resultado determinista
+    independente do volume acumulado no banco de testes.
+    """
+    resp = client_gestor.get(ACOES_URL, {"idacao": acao.pk})
     assert resp.status_code == 200
     data = resp.json()
     items = data.get("results", data) if isinstance(data, dict) else data
+    assert len(items) >= 1
     assert any(a["idacao"] == acao.pk for a in items)
 
 
