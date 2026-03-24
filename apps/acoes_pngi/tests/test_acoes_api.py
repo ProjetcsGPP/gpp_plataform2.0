@@ -19,14 +19,18 @@ def test_list_acoes_sem_autenticacao(client_anonimo):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_list_acoes_sem_role_retorna_403(db, usuario_sem_role):
-    """Usuario autenticado mas sem role em ACOES_PNGI deve receber 403."""
-    from rest_framework.test import APIClient
+def test_list_acoes_sem_role_retorna_401(db, usuario_sem_role):
+    """
+    Usuario sem role em ACOES_PNGI nao consegue logar (LoginView retorna 403).
+    Sem sessao valida, a requisicao a API retorna 401 (nao autenticado).
+    """
     from .conftest import _login
-    client, resp = _login("sem_role_pngi_u")
-    assert resp.status_code == 200  # login ok
+    client, login_resp = _login("sem_role_pngi_u")
+    # Login negado pelo sistema (sem role na aplicacao)
+    assert login_resp.status_code != 200
+    # Client sem sessao -> API retorna 401
     resp = client.get(ACOES_URL)
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +57,6 @@ def test_list_acoes_retorna_lista(client_gestor, acao):
     resp = client_gestor.get(ACOES_URL)
     assert resp.status_code == 200
     data = resp.json()
-    # Suporte a paginacao ou lista direta
     items = data.get("results", data) if isinstance(data, dict) else data
     assert any(a["idacao"] == acao.pk for a in items)
 

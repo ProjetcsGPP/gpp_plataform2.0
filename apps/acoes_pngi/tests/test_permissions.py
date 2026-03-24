@@ -6,7 +6,7 @@ Matriz esperada:
   COORDENADOR_PNGI → READ ✅  WRITE ✅  DELETE ❌
   OPERADOR_ACAO    → READ ✅  WRITE ✅  DELETE ❌
   CONSULTOR_PNGI   → READ ✅  WRITE ❌  DELETE ❌
-  SEM_ROLE         → todas ❌
+  SEM_ROLE         → todas ❌ (login negado → 401 na API)
 """
 import pytest
 
@@ -144,20 +144,21 @@ def test_consultor_nao_pode_deletar(client_consultor, acao):
 
 
 # ---------------------------------------------------------------------------
-# SEM ROLE — todas as operacoes negadas
+# SEM ROLE — login negado pelo LoginView (sem role na aplicacao)
+# Usuario sem sessao valida → API retorna 401, nao 403
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db(transaction=True)
 def test_sem_role_nao_pode_listar(db, usuario_sem_role):
-    from rest_framework.test import APIClient
     from .conftest import _login
-    client, _ = _login("sem_role_pngi_u")
-    assert client.get(ACOES_URL).status_code == 403
+    client, login_resp = _login("sem_role_pngi_u")
+    assert login_resp.status_code != 200  # login negado
+    assert client.get(ACOES_URL).status_code == 401
 
 
 @pytest.mark.django_db(transaction=True)
 def test_sem_role_nao_pode_criar(db, usuario_sem_role, payload_acao):
-    from rest_framework.test import APIClient
     from .conftest import _login
-    client, _ = _login("sem_role_pngi_u")
-    assert client.post(ACOES_URL, payload_acao, format="json").status_code == 403
+    client, login_resp = _login("sem_role_pngi_u")
+    assert login_resp.status_code != 200  # login negado
+    assert client.post(ACOES_URL, payload_acao, format="json").status_code == 401
