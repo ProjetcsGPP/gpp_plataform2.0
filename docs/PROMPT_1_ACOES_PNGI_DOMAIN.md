@@ -7,7 +7,7 @@
 ## Objetivo
 
 Implementar o domínio completo de `acoes_pngi`:
-1. Corrigir os 3 gaps no `models.py`
+1. Corrigir os 2 gaps no `models.py` (`idsituacaoacao` e `ideixo` em `Acoes`)
 2. Implementar `serializers.py` usando `AuditableModelSerializer`
 3. Substituir o scaffold placeholder em `views.py` pela implementação real
 4. Gerar migration
@@ -26,15 +26,19 @@ Os campos de auditoria são `created_by_id`, `created_by_name`,
 `updated_by_id`, `updated_by_name`. **Sem `created_by` como FK**.
 Preenchidos automaticamente pelo `AuditableMixin` — nunca manualmente.
 
-### SecureQuerysetMixin
-Toda ViewSet que expõe recursos de usuário **deve** herdar
-`SecureQuerysetMixin`. Ele filtra o queryset por `orgao`
-(campo no model) = `request.user.profile.orgao` (campo no UserProfile).
-**Acoes precisa ter campo `orgao`** para que isso funcione.
+### Acoes NÃO é recurso de tenant
+`Acoes` é uma iniciativa do programa PNGI — pode envolver múltiplos
+órgãos. **`AcaoViewSet` não deve herdar `SecureQuerysetMixin`**.
+O controle de acesso é feito exclusivamente por **roles**
+(`_load_role_matrix()` + `HasRolePermission`).
+
+O `orgao` do usuário criador fica registrado indiretamente via
+`created_by_id` (chave lógica para `UserProfile`) — disponibilizado
+em relatórios sob demanda, sem campo denormalizado em `Acoes`.
 
 ### AuditableModelSerializer
 Disponível em `common/serializers.py`. Todos os serializers de
-`acoes_pngi` devem herdar dele:
+`acoes_pngi` que herdam `AuditableModel` devem herdar dele:
 ```python
 from common.serializers import AuditableModelSerializer
 
@@ -52,20 +56,7 @@ class AcoesSerializer(AuditableModelSerializer):
 
 ## Passo 1 — Corrigir `apps/acoes_pngi/models.py`
 
-### 1.1 Adicionar `orgao` a `Acoes`
-
-Campo obrigatório para o `SecureQuerysetMixin` funcionar:
-
-```python
-# Em Acoes:
-orgao = models.CharField(
-    max_length=100,
-    db_column="orgao",
-    help_text="Código do órgão responsável. Escopo de IDOR — preenchido no create via request.user.profile.orgao."
-)
-```
-
-### 1.2 Conectar `Acoes` a `SituacaoAcao`
+### 1.1 Conectar `Acoes` a `SituacaoAcao`
 
 ```python
 # Em Acoes (adicionar ao bloco de FKs):
@@ -80,7 +71,7 @@ idsituacaoacao = models.ForeignKey(
 )
 ```
 
-### 1.3 Conectar `Acoes` a `Eixo`
+### 1.2 Conectar `Acoes` a `Eixo`
 
 ```python
 # Em Acoes (adicionar ao bloco de FKs):
@@ -100,27 +91,26 @@ ideixo = models.ForeignKey(
 ## Passo 2 — Implementar `apps/acoes_pngi/serializers.py`
 
 Um serializer por model que herda `AuditableModel`.
-Models de referência (sem `AuditableModel`) usam `ModelSerializer` simples.
+Models de referência simples (sem `AuditableModel`) usam `ModelSerializer`.
 
 ### Serializers necessários:
 
 ```
-EixoSerializer              → Eixo
-SituacaoAcaoSerializer      → SituacaoAcao
-VigenciaPNGISerializer      → VigenciaPNGI
-TipoEntraveAlertaSerializer → TipoEntraveAlerta
-AcoesSerializer             → Acoes  (principal)
-AcaoPrazoSerializer         → AcaoPrazo
-AcaoDestaqueSerializer      → AcaoDestaque
-AcaoAnotacaoAlinhamentoSerializer → AcaoAnotacaoAlinhamento
+EixoSerializer              → Eixo                      (herda ModelSerializer)
+SituacaoAcaoSerializer      → SituacaoAcao              (herda ModelSerializer)
+VigenciaPNGISerializer      → VigenciaPNGI              (herda AuditableModelSerializer)
+TipoEntraveAlertaSerializer → TipoEntraveAlerta         (herda ModelSerializer)
+AcoesSerializer             → Acoes                     (herda AuditableModelSerializer)
+AcaoPrazoSerializer         → AcaoPrazo                 (herda AuditableModelSerializer)
+AcaoDestaqueSerializer      → AcaoDestaque              (herda AuditableModelSerializer)
+AcaoAnotacaoAlinhamentoSerializer → AcaoAnotacaoAlinhamento (herda AuditableModelSerializer)
 ```
 
 ### Regras de serialização para `AcoesSerializer`:
 - `idacao`, `strapelido`, `strdescricaoacao`, `strdescricaoentrega`,
-  `datdataentrega`, `orgao` — leitura e escrita
+  `datdataentrega` — leitura e escrita
 - `idvigenciapngi`, `idtipoentravealerta`, `idsituacaoacao`, `ideixo` — write como PK int
 - Campos de auditoria — herdados de `AuditableModelSerializer` (read-only)
-- `orgao` deve ser **read-only no serializer** e preenchido na view via `perform_create`
 
 ---
 
@@ -143,33 +133,51 @@ AcaoAnotacaoViewSet     → AcaoAnotacaoAlinhamento (nested em Acao)
 ### Regras para `AcaoViewSet`:
 
 ```python
-class AcaoViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
+class AcaoViewSet(AuditableMixin, viewsets.ModelViewSet):
+    """
+    Acoes sao independentes de orgao (iniciativas do programa PNGI).
+    Controle de acesso exclusivamente por roles via _load_role_matrix().
+    NAO herda SecureQuerysetMixin.
+    """
     queryset = Acoes.objects.select_related(
         "idvigenciapngi", "idtipoentravealerta", "idsituacaoacao", "ideixo"
     )
     serializer_class = AcoesSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
-    scope_field = "orgao"     # campo em Acoes
-    scope_source = "orgao"    # campo em UserProfile
 
-    def perform_create(self, serializer):
-        # Herdar de AuditableMixin e adicionar orgao:
-        user = self.request.user
-        name = user.get_full_name().strip() or user.username
-        serializer.save(
-            orgao=user.profile.orgao,
-            created_by_id=user.pk,
-            created_by_name=name,
-            updated_by_id=user.pk,
-            updated_by_name=name,
-        )
+    def list(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().retrieve(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_DELETE)
+        return super().destroy(request, *args, **kwargs)
+```
+
+### `AuditableMixin` já cobre `perform_create` e `perform_update`:
+
+```python
+# NAO precisa sobrescrever perform_create para injetar orgao.
+# AuditableMixin preenche created_by_id, created_by_name,
+# updated_by_id, updated_by_name automaticamente.
 ```
 
 ### Manter `_load_role_matrix()` do scaffold:
 
 A função `_load_role_matrix()` com `lru_cache(maxsize=1)` que já existe
-no scaffold está correta e deve ser mantida. Ela carrega as roles do banco
-**uma vez por processo** sem string hardcoded.
+no scaffold está correta e deve ser mantida sem alterações.
 
 ---
 
@@ -179,14 +187,14 @@ Após editar `models.py`, gerar a migration:
 
 ```bash
 python manage.py makemigrations acoes_pngi \
-    --name add_orgao_situacao_eixo_to_acoes
+    --name add_situacao_eixo_to_acoes
 ```
 
 Após gerar, verificar se a migration:
-- Adiciona `orgao` como `VARCHAR(100) NOT NULL` (definir default para migration)
 - Adiciona `idsituacaoacao_id` como FK nullable para `tblsituacaoacao`
 - Adiciona `ideixo_id` como FK nullable para `tbleixos`
 - **Não cria FK para `auth_user`** em nenhum campo
+- **Não adiciona campo `orgao`** a `tblacoes`
 
 ---
 
@@ -194,7 +202,8 @@ Após gerar, verificar se a migration:
 
 - [ ] `makemigrations` sem warnings
 - [ ] `migrate` aplica sem erro
-- [ ] `AcaoPNGIViewSet` (agora `AcaoViewSet`) funcional com queryset real
+- [ ] `AcaoViewSet` funcional com queryset real (sem `SecureQuerysetMixin`)
 - [ ] Todos os serializers herdam `AuditableModelSerializer` ou `ModelSerializer`
 - [ ] Nenhuma FK para `auth_user` nos models de `acoes_pngi`
+- [ ] Nenhum campo `orgao` em `tblacoes`
 - [ ] `pytest apps/acoes_pngi/ -v` sem FAILED
