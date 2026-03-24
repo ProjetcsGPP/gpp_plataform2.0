@@ -8,9 +8,9 @@ ESTRATEGIA:
     ClassificacaoUsuario, Aplicacao, Group, Role) via get_or_create.
   - Login real via POST /api/accounts/login/ -- sem force_authenticate, mock.
   - Seguro com --reuse-db: todos os objetos sao get_or_create, nunca create.
-  - THROTTLE: override de settings desativa rate limit globalmente nos testes
-    para evitar 429 em endpoints publicos (AplicacaoPublicaViewSet).
-  - Para evitar problemas, após inserir os dados base, é feito o reset sequence 
+  - THROTTLE: desabilitado globalmente pelo conftest raiz (session-scoped).
+    Não há override local aqui -- o controle está centralizado em conftest.py.
+  - Para evitar problemas, após inserir os dados base, é feito o reset sequence
     das tabelas Aplicação e Roles ao final do bootstrap:
 
 PERFIS disponiveis:
@@ -49,27 +49,6 @@ from apps.accounts.models import (
 
 LOGIN_URL = "/api/accounts/login/"
 DEFAULT_PASSWORD = "TestPass@2026"
-
-
-# --- Override de throttle para todos os testes desta app ---------------------
-#
-# O DRF aplica AnonRateThrottle globalmente. Em testes que disparam multiplas
-# requisicoes anonimas em rapida sucessao (ex: test_auth_aplicacoes.py), o
-# contador de throttle acumula e retorna 429. Zeramos os limites aqui para que
-# os testes nao dependam de timing nem de cache de throttle entre runs.
-
-@pytest.fixture(autouse=True)
-def _disable_throttling(settings):
-    """
-    Sobrescreve DEFAULT_THROTTLE_RATES e DEFAULT_THROTTLE_CLASSES para vazio
-    durante toda a suite de testes desta app. Isso garante que nenhum endpoint
-    retorne 429 por acumulacao de rate limit entre testes consecutivos.
-    """
-    drf = settings.REST_FRAMEWORK.copy()
-    drf["DEFAULT_THROTTLE_CLASSES"] = []
-    drf["DEFAULT_THROTTLE_RATES"] = {}
-    settings.REST_FRAMEWORK = drf
-
 
 
 def _reset_pk_sequence(table: str, pk_col: str):
@@ -117,7 +96,7 @@ def _bootstrap_lookup_tables():
             "pode_editar_usuario": True,
         },
     )
-    ClassificacaoUsuario.objects.get_or_create( 
+    ClassificacaoUsuario.objects.get_or_create(
         pk=3,
         defaults={
             "strdescricao": "Coordenador",
@@ -160,8 +139,8 @@ def _bootstrap_aplicacoes():
             "isappproductionready": True,
         },
     )
-    
-    # 2) Resetar a sequence AQUI, antes de qualquer insert sem pk
+
+    # Resetar a sequence antes de qualquer insert sem pk
     _reset_pk_sequence('tblaplicacao', 'idaplicacao')
 
     # Apps extras usadas nos testes de visibilidade
@@ -213,6 +192,7 @@ def _bootstrap_roles():
             },
         )
 
+
 def _bootstrap_status_usuario():
     from apps.accounts.models import StatusUsuario
     StatusUsuario.objects.get_or_create(
@@ -229,7 +209,7 @@ def _bootstrap_all():
     _bootstrap_aplicacoes()
     _bootstrap_roles()
     _bootstrap_status_usuario()
-    
+
     # Garante que a sequence do PostgreSQL está além dos IDs inseridos com pk explícita
     _reset_pk_sequence('tblaplicacao', 'idaplicacao')
     _reset_pk_sequence('accounts_role', 'id')
@@ -260,7 +240,7 @@ def _get_tipo_usuario():
 def _get_classificacao_usuario():
     return ClassificacaoUsuario.objects.get(pk=1)
 
-# DEPOIS
+
 def _make_user(username, password=DEFAULT_PASSWORD,
                is_superuser=False, classificacao_pk=1):
     """
@@ -292,7 +272,7 @@ def _make_user(username, password=DEFAULT_PASSWORD,
         profile.save(update_fields=["classificacao_usuario"])
     return user
 
-# DEPOIS
+
 def _assign_role(user, role_pk):
     """
     Atribui uma Role ao usuario via UserRole (idempotente).
@@ -311,7 +291,6 @@ def _assign_role(user, role_pk):
     if role.group:
         user.groups.add(role.group)
     return role
-
 
 
 def _do_login(client, username, app_context, password=DEFAULT_PASSWORD):
@@ -333,7 +312,7 @@ def _make_authenticated_client(username, app_context, password=DEFAULT_PASSWORD)
 
 
 # --- Fixtures de usuarios por perfil -----------------------------------------
-# DEPOIS
+
 @pytest.fixture
 def gestor_pngi(db):
     """
