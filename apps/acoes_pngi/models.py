@@ -139,6 +139,24 @@ class Acoes(AuditableModel):
         related_name="acoes"
     )
 
+    idsituacaoacao = models.ForeignKey(
+        SituacaoAcao,
+        db_column="idsituacaoacao",
+        on_delete=models.PROTECT,
+        related_name="acoes",
+        null=True,
+        blank=True
+    )
+
+    ideixo = models.ForeignKey(
+        Eixo,
+        db_column="ideixo",
+        on_delete=models.PROTECT,
+        related_name="acoes",
+        null=True,
+        blank=True
+    )
+
     class Meta:
         db_table = '"acoes_pngi"."tblacoes"'
         ordering = ["strapelido"]
