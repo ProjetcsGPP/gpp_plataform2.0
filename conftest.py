@@ -11,6 +11,7 @@ Configurações globais de pytest que se aplicam a todas as apps.
 # Também carregado automaticamente pelo pytest, garantindo que o sys.path
 # parta sempre da raiz do projeto em ambos os runners.
 
+import re
 import pytest
 
 
@@ -24,76 +25,64 @@ def pytest_configure(config):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _disable_drf_throttle_session(django_db_setup):
+def _disable_throttle_session(django_db_setup):
     """
-    Desabilita o throttle do DRF no settings ANTES de qualquer fixture de
-    login/sessão ser criada.
+    Desabilita throttle do DRF e limpa o cache UMA VEZ para toda a sessão.
 
-    POR QUE session-scope:
-    As fixtures de login (client_portaladmin, client_gestor, etc.) são
-    'db'-scoped ou 'session'-scoped e rodam ANTES das fixtures function-scoped.
-    O throttle do DRF é avaliado no momento do POST /api/accounts/login/ —
-    se o settings ainda carrega AnonRateThrottle/UserRateThrottle nesse
-    momento, o 429 dispara antes do _disable_drf_throttle function-scoped
-    ter qualquer efeito.
+    POR QUE session-scoped com django.conf.settings diretamente:
+    A fixture `settings` do pytest-django é function-scoped por design.
+    As fixtures de login (client_gestor, client_portal_admin, etc.) são
+    chamadas no `setup` do pytest — o throttle é avaliado no momento do
+    POST /api/accounts/login/, ANTES de qualquer fixture function-scoped
+    ter efeito. Usar `settings` function-scoped aqui não resolve o timing.
 
-    SOLUCAO: sobrescrever REST_FRAMEWORK diretamente no objeto settings do
-    Django (django.conf.settings) no escopo de session, antes da primeira
-    fixture de login. A fixture function-scoped abaixo continua existindo
-    para garantir isolamento entre testes individuais.
+    SOLUÇÃO: sobrescrever django.conf.settings diretamente no escopo de
+    sessão. O cache.clear() elimina contadores remanescentes de runs
+    anteriores (problema típico com --reuse-db).
 
-    NAO usa a fixture 'settings' do pytest-django aqui pois ela e
-    function-scoped por design — usamos django.conf.settings diretamente.
+    IMPORTANTE: este clear() é feito UMA VEZ no início da sessão, não
+    entre testes — para não destruir sessões Django autenticadas criadas
+    pelas fixtures de login com escopo maior (module/class).
     """
-    from django.conf import settings as django_settings
-    from django.test.signals import setting_changed
+    from django.conf import settings as dj_settings
+    from django.core.cache import cache
 
-    original = django_settings.REST_FRAMEWORK.copy()
+    original = dj_settings.REST_FRAMEWORK.copy()
 
-    django_settings.REST_FRAMEWORK = {
+    dj_settings.REST_FRAMEWORK = {
         **original,
         "DEFAULT_THROTTLE_CLASSES": [],
         "DEFAULT_THROTTLE_RATES": {},
     }
 
+    # Limpa contadores de throttle remanescentes de runs anteriores
+    cache.clear()
+
     yield
 
-    # Restaura ao fim de toda a suite (boa prática, sem efeito em CI)
-    django_settings.REST_FRAMEWORK = original
+    # Restaura ao fim da sessão (boa prática, sem efeito prático em CI)
+    dj_settings.REST_FRAMEWORK = original
 
 
 @pytest.fixture(autouse=True)
-def _disable_drf_throttle(settings):
+def _clear_throttle_keys():
     """
-    Garante throttle zerado para cada teste individualmente.
+    Limpa APENAS as chaves de throttle do LocMemCache antes de cada teste.
 
-    Complementa _disable_drf_throttle_session: mesmo que o settings já
-    esteja zerado a nível de session, esta fixture garante que qualquer
-    reset feito por outras fixtures (ex.: override de REST_FRAMEWORK em
-    conftest de app) não reative o throttle durante o corpo do teste.
+    Não usa cache.clear() — isso destruiria sessões Django autenticadas
+    criadas por fixtures de escopo maior (module/class/session).
 
-    Também limpa CIRURGICAMENTE as chaves de throttle do LocMemCache
-    antes de cada teste, sem destruir sessões Django:
-    - O LocMemCache armazena sessões com chave prefixada ':1:django.contrib.sessions.*'
-    - Chaves de throttle do DRF usam padrão ':1:throttle_*'
-    - Iteramos apenas sobre as chaves de throttle e as removemos
-
-    IMPORTANTE: cache.clear() NAO e usado aqui — destruiria sessões
-    autenticadas de fixtures de escopo maior (session/module/class).
+    O LocMemCache expõe _cache (dict interno) — acesso seguro apenas
+    em testes. Chaves de throttle do DRF seguem o padrão:
+    ':1:throttle_<scope>_<identifier>'
     """
-    import re
     from django.core.cache import cache
 
-    # Remove apenas entradas de throttle do LocMemCache sem tocar em sessões
-    # LocMemCache expoe _cache (dict interno) — acesso seguro apenas em testes
     raw = getattr(cache, "_cache", None)
     if raw is not None:
-        throttle_keys = [k for k in list(raw.keys()) if re.search(r"throttle", k, re.IGNORECASE)]
+        throttle_keys = [
+            k for k in list(raw.keys())
+            if re.search(r"throttle", k, re.IGNORECASE)
+        ]
         for key in throttle_keys:
             cache.delete(key)
-
-    settings.REST_FRAMEWORK = {
-        **settings.REST_FRAMEWORK,
-        "DEFAULT_THROTTLE_CLASSES": [],
-        "DEFAULT_THROTTLE_RATES": {},
-    }
