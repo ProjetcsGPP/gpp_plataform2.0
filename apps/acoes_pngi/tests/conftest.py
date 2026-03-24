@@ -78,6 +78,12 @@ def _clear_role_matrix_cache():
     Sem isso, se o cache for populado antes do _ensure_base_data criar
     as roles no banco de teste, _load_role_matrix() retorna frozenset
     vazio e todos os endpoints retornam 403 por falta de roles permitidas.
+
+    IMPORTANTE: com transaction=True cada teste faz commits reais.
+    O lru_cache sobrevive entre testes no mesmo processo — sem o bust,
+    _load_vigencia_role_matrix() pode retornar uma matrix carregada em
+    run anterior onde OPERADOR_ACAO tinha permissao WRITE (cache stale),
+    fazendo test_nao_pode_criar_vigencia retornar 201 em vez de 403.
     """
     from apps.acoes_pngi.views import _load_role_matrix, _load_vigencia_role_matrix
     _load_role_matrix.cache_clear()
@@ -315,10 +321,39 @@ def vigencia(db):
     suite acumulavam registros com o mesmo strdescricao no banco de
     testes persistente, causando MultipleObjectsReturned no proximo run.
     O rollback de transaction=True cuida da limpeza apos cada teste.
+
+    ATENCAO: NAO usar esta fixture em testes de DELETE de vigencia.
+    Como transaction=True faz commits reais, Acoes criadas por testes
+    anteriores (que usam a fixture acao) podem estar vinculadas a esta
+    VigenciaPNGI via idvigenciapngi (on_delete=PROTECT), causando
+    ProtectedError. Use vigencia_livre nesses casos.
     """
     return VigenciaPNGI.objects.create(
         strdescricao="PNGI 2025-2028",
         datiniciovigencia="2025-01-01",
+    )
+
+
+@pytest.fixture
+def vigencia_livre(db):
+    """
+    VigenciaPNGI garantidamente sem nenhuma Acoes vinculada.
+
+    Usar EXCLUSIVAMENTE em testes de DELETE de vigencia.
+
+    Contexto: idvigenciapngi tem on_delete=PROTECT. Com transaction=True
+    os testes fazem commits reais no banco — Acoes criadas por testes
+    anteriores da mesma suite (ex: test_pode_criar_acao) podem estar
+    apontando para a vigencia generica. Ao tentar deletar, Django lanca
+    ProtectedError porque existem Acoes dependentes.
+
+    Esta fixture cria uma VigenciaPNGI com datiniciovigencia futura e
+    strdescricao unica para que nenhum outro teste a referencie,
+    garantindo que o DELETE retorne 204 sem conflito de FK.
+    """
+    return VigenciaPNGI.objects.create(
+        strdescricao="PNGI Vigencia Livre - Delete Test",
+        datiniciovigencia="2099-01-01",
     )
 
 
