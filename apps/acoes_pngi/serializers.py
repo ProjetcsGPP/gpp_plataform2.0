@@ -89,11 +89,43 @@ class AcoesSerializer(AuditableModelSerializer):
     """
     Serializer principal de Acoes.
 
-    FKs (idvigenciapngi, idtipoentravealerta, idsituacaoacao, ideixo) aceitam
-    escrita via PK inteiro e expondo o id no output.
-    Campos de auditoria são read-only (herdados de AuditableModelSerializer).
+    FKs declaradas explicitamente como PrimaryKeyRelatedField(source=...) para
+    garantir escrita correta via payload _id.
+
+    O DRF NÃO resolve automaticamente `idvigenciapngi_id` como campo writable
+    quando o atributo ORM se chama `idvigenciapngi` (ForeignKey): ele gera um
+    IntegerField read-only, ignora o valor recebido e salva null → NotNullViolation.
+    A solução é declarar o campo explicitamente com source apontando para o
+    atributo ORM real.
+
     orgao NÃO aparece aqui — Ações são independentes de orgão.
     """
+
+    # FK obrigatória
+    idvigenciapngi_id = serializers.PrimaryKeyRelatedField(
+        source="idvigenciapngi",
+        queryset=VigenciaPNGI.objects.all(),
+    )
+
+    # FKs opcionais
+    idtipoentravealerta_id = serializers.PrimaryKeyRelatedField(
+        source="idtipoentravealerta",
+        queryset=TipoEntraveAlerta.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    idsituacaoacao_id = serializers.PrimaryKeyRelatedField(
+        source="idsituacaoacao",
+        queryset=SituacaoAcao.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    ideixo_id = serializers.PrimaryKeyRelatedField(
+        source="ideixo",
+        queryset=Eixo.objects.all(),
+        required=False,
+        allow_null=True,
+    )
 
     class Meta(AuditableModelSerializer.Meta):
         model = Acoes
@@ -114,6 +146,11 @@ class AcoesSerializer(AuditableModelSerializer):
 
 
 class AcaoPrazoSerializer(AuditableModelSerializer):
+    idacao_id = serializers.PrimaryKeyRelatedField(
+        source="idacao",
+        queryset=Acoes.objects.all(),
+    )
+
     class Meta(AuditableModelSerializer.Meta):
         model = AcaoPrazo
         fields = AuditableModelSerializer.Meta.fields + [
@@ -128,6 +165,11 @@ class AcaoPrazoSerializer(AuditableModelSerializer):
 
 
 class AcaoDestaqueSerializer(AuditableModelSerializer):
+    idacao_id = serializers.PrimaryKeyRelatedField(
+        source="idacao",
+        queryset=Acoes.objects.all(),
+    )
+
     class Meta(AuditableModelSerializer.Meta):
         model = AcaoDestaque
         fields = AuditableModelSerializer.Meta.fields + [
@@ -141,6 +183,17 @@ class AcaoDestaqueSerializer(AuditableModelSerializer):
 
 
 class AcaoAnotacaoAlinhamentoSerializer(AuditableModelSerializer):
+    idacao_id = serializers.PrimaryKeyRelatedField(
+        source="idacao",
+        queryset=Acoes.objects.all(),
+    )
+    idtipoanotacaoalinhamento_id = serializers.PrimaryKeyRelatedField(
+        source="idtipoanotacaoalinhamento",
+        queryset=TipoAnotacaoAlinhamento.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+
     class Meta(AuditableModelSerializer.Meta):
         model = AcaoAnotacaoAlinhamento
         fields = AuditableModelSerializer.Meta.fields + [
