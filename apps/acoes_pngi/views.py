@@ -18,18 +18,35 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from rest_framework import status, viewsets
+from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 
 from common.mixins import AuditableMixin
 from common.permissions import HasRolePermission
 
+from .models import (
+    Acoes,
+    AcaoAnotacaoAlinhamento,
+    AcaoDestaque,
+    AcaoPrazo,
+    Eixo,
+    SituacaoAcao,
+    VigenciaPNGI,
+)
+from .serializers import (
+    AcaoAnotacaoAlinhamentoSerializer,
+    AcaoDestaqueSerializer,
+    AcaoPrazoSerializer,
+    AcoesSerializer,
+    EixoSerializer,
+    SituacaoAcaoSerializer,
+    VigenciaPNGISerializer,
+)
+
 # Identificador da aplicação no banco (accounts.Aplicacao.codigointerno)
 _APP_CODE = "acoes_pngi"
 
-# Nomes lógicos dos conjuntos de permissão usados neste módulo
 _LEVEL_READ = "READ"
 _LEVEL_WRITE = "WRITE"
 _LEVEL_DELETE = "DELETE"
@@ -40,31 +57,26 @@ def _load_role_matrix() -> dict[str, frozenset[str]]:
     """
     Consulta o banco e monta a matriz de permissões para acoes_pngi.
 
-    Retorna um dict com a estrutura:
+    Retorna:
         {
           "READ":   frozenset({"GESTOR_PNGI", "COORDENADOR_PNGI", ...}),
           "WRITE":  frozenset({"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO"}),
           "DELETE": frozenset({"GESTOR_PNGI"}),
         }
 
-    O lru_cache(maxsize=1) garante que a query ao banco é feita apenas
-    uma vez por processo (worker). Se as roles mudarem em produção,
-    reinicie os workers ou chame _load_role_matrix.cache_clear().
+    lru_cache(maxsize=1) → query ao banco feita apenas uma vez por worker.
+    Para recarregar: _load_role_matrix.cache_clear()
     """
     from apps.accounts.models import Role
 
-    # Traz todas as roles da aplicação de uma só vez
     roles_qs = Role.objects.filter(
         aplicacao__codigointerno=_APP_CODE
     ).values_list("codigoperfil", flat=True)
 
     all_roles: frozenset[str] = frozenset(roles_qs)
 
-    # Regras de negócio: quais roles têm cada nível de acesso.
-    # A lógica hierárquica fica aqui, centralizada, e reflete
-    # o que está no banco — se uma role não existir lá, não entra.
-    read_codes  = {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO", "CONSULTOR_PNGI"}
-    write_codes = {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO"}
+    read_codes   = {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO", "CONSULTOR_PNGI"}
+    write_codes  = {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO"}
     delete_codes = {"GESTOR_PNGI"}
 
     return {
@@ -78,6 +90,7 @@ def _check_roles(request, level: str) -> None:
     """
     Verifica se o usuário possui alguma role do nível solicitado.
     Lança PermissionDenied (403) caso contrário.
+    Portal admin bypass via request.is_portal_admin.
     """
     if getattr(request, "is_portal_admin", False):
         return
@@ -92,69 +105,245 @@ def _check_roles(request, level: str) -> None:
         )
 
 
-class AcaoPNGIViewSet(AuditableMixin, viewsets.ModelViewSet):
-    """
-    ViewSet scaffold para Ações PNGI.
-    Models e serializers serão implementados na fase de domínio.
+# ---------------------------------------------------------------------------
+# ViewSets de referência (somente leitura)
+# ---------------------------------------------------------------------------
 
-    AuditableMixin preenche created_by / updated_by automaticamente.
-    SecureQuerysetMixin não é aplicado pois Acoes são independentes
-    de orgão (não são recursos de tenant).
-    O controle de acesso é feito exclusivamente por roles via HasRolePermission.
+class EixoViewSet(viewsets.ReadOnlyModelViewSet):
     """
+    Eixos temáticos do programa PNGI.
+    Somente leitura para todos os usuários autenticados.
+    """
+    queryset = Eixo.objects.all()
+    serializer_class = EixoSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
-
-    # ── Substituir nas implementações finais ───────────────────────────────────────
-    queryset = None  # definir quando o model AcaoPNGI estiver disponível
-    serializer_class = None  # definir quando o serializer estiver disponível
-    # ─────────────────────────────────────────────────────────────────────────────
-
-    def get_queryset(self):
-        """
-        Retorna queryset vazio até o model ser implementado.
-        Quando o model estiver disponível, substituir por:
-            from .models import Acoes
-            self.queryset = Acoes.objects.all()
-            return super().get_queryset()
-        """
-        return _EmptyQueryset()
 
     def list(self, request, *args, **kwargs):
         _check_roles(request, _LEVEL_READ)
-        return Response([])
+        return super().list(request, *args, **kwargs)
 
     def retrieve(self, request, *args, **kwargs):
         _check_roles(request, _LEVEL_READ)
-        return Response({})
+        return super().retrieve(request, *args, **kwargs)
+
+
+class SituacaoAcaoViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Situações possíveis de uma Ação PNGI.
+    Somente leitura para todos os usuários autenticados.
+    """
+    queryset = SituacaoAcao.objects.all()
+    serializer_class = SituacaoAcaoSerializer
+    permission_classes = [IsAuthenticated, HasRolePermission]
+
+    def list(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().retrieve(request, *args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# VigenciaPNGIViewSet (CRUD completo — apenas GESTOR_PNGI pode escrever)
+# ---------------------------------------------------------------------------
+
+class VigenciaPNGIViewSet(AuditableMixin, viewsets.ModelViewSet):
+    """
+    Vigências do programa PNGI.
+    CRUD completo restrito a GESTOR_PNGI para escrita.
+    Leitura: todos os roles READ.
+    """
+    queryset = VigenciaPNGI.objects.all()
+    serializer_class = VigenciaPNGISerializer
+    permission_classes = [IsAuthenticated, HasRolePermission]
+
+    def list(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().retrieve(request, *args, **kwargs)
 
     def create(self, request, *args, **kwargs):
         _check_roles(request, _LEVEL_WRITE)
-        return Response({"detail": "Não implementado."}, status=status.HTTP_501_NOT_IMPLEMENTED)
+        return super().create(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
         _check_roles(request, _LEVEL_WRITE)
-        return Response({"detail": "Não implementado."}, status=status.HTTP_501_NOT_IMPLEMENTED)
+        return super().update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):
         _check_roles(request, _LEVEL_WRITE)
-        return Response({"detail": "Não implementado."}, status=status.HTTP_501_NOT_IMPLEMENTED)
+        return super().partial_update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
         _check_roles(request, _LEVEL_DELETE)
-        return Response({"detail": "Não implementado."}, status=status.HTTP_501_NOT_IMPLEMENTED)
+        return super().destroy(request, *args, **kwargs)
 
 
-class _EmptyQueryset:
-    """Placeholder para evitar erros enquanto o model Acoes não está totalmente implementado."""
+# ---------------------------------------------------------------------------
+# AcaoViewSet (CRUD completo com matrix de roles)
+# ---------------------------------------------------------------------------
 
-    def none(self):
-        return self
+class AcaoViewSet(AuditableMixin, viewsets.ModelViewSet):
+    """
+    Ações PNGI — entidade principal.
 
-    def filter(self, **kwargs):
-        return self
+    Acoes são independentes de orgão (iniciativas do programa PNGI).
+    NÃO herda SecureQuerysetMixin.
+    Controle de acesso exclusivamente por roles via _load_role_matrix().
+    AuditableMixin preenche created_by_id/name e updated_by_id/name.
+    """
+    queryset = Acoes.objects.select_related(
+        "idvigenciapngi",
+        "idtipoentravealerta",
+        "idsituacaoacao",
+        "ideixo",
+    )
+    serializer_class = AcoesSerializer
+    permission_classes = [IsAuthenticated, HasRolePermission]
 
-    def __iter__(self):
-        return iter([])
+    def list(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().list(request, *args, **kwargs)
 
-    def __len__(self):
-        return 0
+    def retrieve(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().retrieve(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_DELETE)
+        return super().destroy(request, *args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# ViewSets nested em Acao
+# ---------------------------------------------------------------------------
+
+class AcaoPrazoViewSet(AuditableMixin, viewsets.ModelViewSet):
+    """
+    Prazos de uma Ação PNGI.
+    Filtrado pelo idacao passado na URL.
+    """
+    serializer_class = AcaoPrazoSerializer
+    permission_classes = [IsAuthenticated, HasRolePermission]
+
+    def get_queryset(self):
+        return AcaoPrazo.objects.filter(
+            idacao_id=self.kwargs["acao_pk"]
+        )
+
+    def list(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().retrieve(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_DELETE)
+        return super().destroy(request, *args, **kwargs)
+
+
+class AcaoDestaqueViewSet(AuditableMixin, viewsets.ModelViewSet):
+    """
+    Destaques de uma Ação PNGI.
+    Filtrado pelo idacao passado na URL.
+    """
+    serializer_class = AcaoDestaqueSerializer
+    permission_classes = [IsAuthenticated, HasRolePermission]
+
+    def get_queryset(self):
+        return AcaoDestaque.objects.filter(
+            idacao_id=self.kwargs["acao_pk"]
+        )
+
+    def list(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().retrieve(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_DELETE)
+        return super().destroy(request, *args, **kwargs)
+
+
+class AcaoAnotacaoViewSet(AuditableMixin, viewsets.ModelViewSet):
+    """
+    Anotações de alinhamento de uma Ação PNGI.
+    Filtrado pelo idacao passado na URL.
+    """
+    serializer_class = AcaoAnotacaoAlinhamentoSerializer
+    permission_classes = [IsAuthenticated, HasRolePermission]
+
+    def get_queryset(self):
+        return AcaoAnotacaoAlinhamento.objects.filter(
+            idacao_id=self.kwargs["acao_pk"]
+        )
+
+    def list(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_READ)
+        return super().retrieve(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_WRITE)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        _check_roles(request, _LEVEL_DELETE)
+        return super().destroy(request, *args, **kwargs)
