@@ -45,7 +45,8 @@ from .serializers import (
 )
 
 # Identificador da aplicação no banco (accounts.Aplicacao.codigointerno)
-_APP_CODE = "acoes_pngi"
+# ATENÇÃO: deve ser MAIÚSCULO — idêntico ao valor gravado em Aplicacao.codigointerno
+_APP_CODE = "ACOES_PNGI"
 
 _LEVEL_READ = "READ"
 _LEVEL_WRITE = "WRITE"
