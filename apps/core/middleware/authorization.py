@@ -19,6 +19,11 @@ Regras:
   4. Usuário sem nenhuma role para a app atual → 403
   5. Path bate com AUTHORIZATION_REQUIRED_ROLES e usuário não tem
      nenhuma das roles requeridas → 403 permission_denied
+
+FIX: EXEMPT_PATHS e REQUIRED_ROLES_MAP são lidos de settings a cada
+     request (via `django.conf.settings`) em vez de no __init__ (load time).
+     Isso garante que @override_settings nos testes funcione corretamente
+     sem precisar de workarounds ou recriação do middleware.
 """
 import logging
 
@@ -28,14 +33,6 @@ from django.http import JsonResponse
 
 security_logger = logging.getLogger("gpp.security")
 
-EXEMPT_PATHS = getattr(
-    settings,
-    "AUTHORIZATION_EXEMPT_PATHS",
-    ["/api/accounts/login/", "/api/accounts/logout/", "/admin/", "/api/health/"],
-)
-
-REQUIRED_ROLES_MAP = getattr(settings, "AUTHORIZATION_REQUIRED_ROLES", {})
-
 
 class AuthorizationMiddleware:
     def __init__(self, get_response):
@@ -43,6 +40,7 @@ class AuthorizationMiddleware:
 
     def __call__(self, request):
         # Rotas isentas — nunca bloquear
+        # Lido de settings a cada request para suportar @override_settings nos testes
         if self._is_exempt(request.path):
             return self.get_response(request)
 
@@ -65,11 +63,7 @@ class AuthorizationMiddleware:
         # Usuário autenticado mas sem role para esta aplicação
         user_roles = getattr(request, "user_roles", [])
         if not user_roles:
-            # Tenta usar request.app_context (Fase-0) com fallback para request.application
-            app_context = getattr(request, "app_context", None)
-            if not app_context:
-                application = getattr(request, "application", None)
-                app_context = application.codigointerno if application else "unknown"
+            app_context = self._resolve_app_context(request)
             security_logger.warning(
                 "403_FORBIDDEN user_id=%s path=%s app=%s reason=no_role",
                 request.user.id, request.path, app_context,
@@ -88,10 +82,7 @@ class AuthorizationMiddleware:
         if required_roles:
             user_role_codes = {ur.role.codigoperfil for ur in user_roles}
             if not user_role_codes.intersection(set(required_roles)):
-                app_context = getattr(request, "app_context", None)
-                if not app_context:
-                    application = getattr(request, "application", None)
-                    app_context = application.codigointerno if application else "unknown"
+                app_context = self._resolve_app_context(request)
                 security_logger.warning(
                     "403_FORBIDDEN_ROLE user_id=%s path=%s required_roles=%s user_roles=%s",
                     request.user.id, request.path, required_roles, list(user_role_codes),
@@ -109,19 +100,40 @@ class AuthorizationMiddleware:
 
     @staticmethod
     def _is_exempt(path):
-        return any(path.startswith(p) for p in EXEMPT_PATHS)
+        """
+        Verifica se o path está isento de autenticação.
+        Lido de settings a cada chamada para respeitar @override_settings nos testes.
+        """
+        exempt_paths = getattr(
+            settings,
+            "AUTHORIZATION_EXEMPT_PATHS",
+            ["/api/accounts/login/", "/api/accounts/logout/", "/admin/", "/api/health/"],
+        )
+        return any(path.startswith(p) for p in exempt_paths)
 
     @staticmethod
     def _get_required_roles(path):
         """
-        Retorna a lista de roles requeridas para o path, ou None se não há restrição configurada.
-        Relê a configuração a cada chamada para suportar @override_settings em testes.
+        Retorna a lista de roles requeridas para o path, ou None se não há restrição.
+        Lido de settings a cada chamada para respeitar @override_settings nos testes.
         """
         required_roles_map = getattr(settings, "AUTHORIZATION_REQUIRED_ROLES", {})
         for pattern, roles in required_roles_map.items():
             if path.startswith(pattern):
                 return roles
         return None
+
+    @staticmethod
+    def _resolve_app_context(request):
+        """
+        Resolve o código da aplicação atual para uso em logs e mensagens de erro.
+        Usa request.app_context (Fase-0) com fallback para request.application.
+        """
+        app_context = getattr(request, "app_context", None)
+        if not app_context:
+            application = getattr(request, "application", None)
+            app_context = application.codigointerno if application else "unknown"
+        return app_context
 
     @staticmethod
     def _json_response(status, code, detail):
