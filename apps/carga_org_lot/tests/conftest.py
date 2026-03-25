@@ -4,26 +4,42 @@ Conftest local para a app carga_org_lot.
 
 Reutiliza os helpers do conftest de accounts e os
 client_* fixtures já disponíveis naquele escopo.
-O conftest raiz (accounts) é auto-importado pelo pytest
-por estar em apps/accounts/tests/ — aqui apenas
-criamos as fixtures específicas de carga.
+
+IMPORTANTE: O fixture autouse _ensure_base_data do conftest de accounts
+NÃO se propaga automaticamente para apps irmãs — o pytest só carrega
+conftest.py dos diretórios pai do arquivo de teste, nunca de apps irmãs.
+Por isso declaramos _ensure_base_data_carga (autouse) aqui, que chama
+_bootstrap_all() explicitamente antes de cada teste desta app.
 
 Fixtures exportadas:
-  client_gestor_carga  — GESTOR_CARGA autenticado em CARGA_ORG_LOT
-  client_sem_role_carga — usuário sem role alguma
-
-Nota: _ensure_base_data (autouse) do conftest de accounts
-popula as Roles e Aplicacoes necessárias antes de cada teste.
+  gestor_carga_lot       — User com Role pk=6 (GESTOR_CARGA)
+  client_gestor_carga_lot — APIClient autenticado como GESTOR_CARGA
+  usuario_sem_role_carga  — User sem nenhuma role
+  client_sem_role_carga   — APIClient autenticado sem role
+  client_anonimo_carga    — APIClient sem autenticação
 """
 import pytest
 from rest_framework.test import APIClient
 
 from apps.accounts.tests.conftest import (
-    DEFAULT_PASSWORD,
     _assign_role,
+    _bootstrap_all,
     _make_authenticated_client,
     _make_user,
 )
+
+
+@pytest.fixture(autouse=True)
+def _ensure_base_data_carga(db):
+    """
+    Garante que ClassificacaoUsuario, Aplicacao, Role e demais dados base
+    existam no banco de teste antes de cada teste desta app.
+
+    Necessário porque o _ensure_base_data (autouse) definido em
+    apps/accounts/tests/conftest.py só é ativado automaticamente
+    para testes dentro de apps/accounts/tests/ — não para apps irmãs.
+    """
+    _bootstrap_all()
 
 
 @pytest.fixture
@@ -52,9 +68,12 @@ def usuario_sem_role_carga(db):
 
 @pytest.fixture
 def client_sem_role_carga(db, usuario_sem_role_carga):
-    """APIClient autenticado sem role."""
+    """APIClient autenticado sem role.
+
+    O login retorna 200 mesmo sem role na app (autenticação passou),
+    o 403 será retornado nos endpoints que exigem a role.
+    """
     client, resp = _make_authenticated_client("sem_role_carga_test", "CARGA_ORG_LOT")
-    # O login pode retornar 200 mesmo sem role na app — o 403 vem no endpoint
     return client
 
 

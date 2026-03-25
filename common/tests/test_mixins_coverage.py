@@ -16,12 +16,16 @@ Caminhos cobertos:
 Estratégia:
   - Criar um FakeViewSet inline (sem registrar URL) que monta o mixin
     diretamente e chama filter_queryset_by_scope()
-  - Usar MagicMock para simular request.user e request.user.profile
+  - MagicMock é usado apenas para simular request.user e serializer,
+    seguindo o padrão já estabelecido nos outros testes do projeto.
+  - Para o caso de AttributeError em user.profile: usa-se PropertyMock
+    que levanta a exceção diretamente (ao contrário do generator-throw
+    que não executa na avaliação da expressão).
   - Para AuditableMixin: usar um serializer falso e verificar os campos
     de auditoria passados pelo save()
 """
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from common.mixins import AuditableMixin, SecureQuerysetMixin
 
@@ -79,11 +83,17 @@ class TestSecureQuerysetMixinScopeNone:
         assert result is qs
 
     def test_profile_attribute_error_retorna_none(self):
-        """user.profile lança AttributeError → scope_value = None → qs.none()."""
-        user = MagicMock()
-        user.id = 42
-        # Configura .profile como property que lança AttributeError
-        type(user).profile = property(lambda self: (_ for _ in ()).throw(AttributeError("no profile")))
+        """
+        user.profile lança AttributeError → bloco except captura →
+        scope_value = None → qs.none().
+
+        Usa PropertyMock com side_effect=AttributeError para garantir que
+        o acesso a user.profile levante a exceção imediatamente na avaliação
+        da expressão — ao contrário do padrão generator-throw que retorna
+        um objeto generator truthy sem lançar nada.
+        """
+        user = MagicMock(spec=MagicMock)
+        type(user).profile = PropertyMock(side_effect=AttributeError("no profile"))
 
         qs = MagicMock()
         qs.none.return_value = qs

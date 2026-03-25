@@ -16,6 +16,8 @@ Estratégia:
   - _load_carga_roles.cache_clear() antes de cada teste para garantir
     que a query seja refeita a partir do banco de teste
   - portal_admin bypass testado via client_portal_admin do conftest de accounts
+  - TestLoadCargaRoles.test_contem_gestor_carga depende de gestor_carga_lot
+    para garantir que Role pk=6/GESTOR_CARGA exista no banco antes da query
 """
 import pytest
 from apps.carga_org_lot.views import _load_carga_roles, _EmptyQueryset
@@ -183,7 +185,14 @@ class TestLoadCargaRoles:
         roles = _load_carga_roles()
         assert isinstance(roles, frozenset)
 
-    def test_contem_gestor_carga(self):
+    def test_contem_gestor_carga(self, gestor_carga_lot):
+        """
+        Depende de gestor_carga_lot para garantir que Role pk=6 / GESTOR_CARGA
+        exista no banco antes de _load_carga_roles() executar a query.
+        _ensure_base_data_carga (autouse) garante os dados base, mas a Role
+        de GESTOR_CARGA é criada pelo próprio fixture gestor_carga_lot via
+        _assign_role — portanto o fixture é necessário aqui.
+        """
         roles = _load_carga_roles()
         assert "GESTOR_CARGA" in roles
 
