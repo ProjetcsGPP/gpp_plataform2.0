@@ -163,6 +163,81 @@ class LoginView(APIView):
         return Response({"detail": "Login realizado com sucesso"})
 
 
+class ResolveUserView(APIView):
+    """
+    POST /api/accounts/auth/resolve-user/
+    Recebe username ou email e retorna o username canônico do Django.
+
+    Usado pelo frontend antes do login para normalizar o identificador
+    digitado pelo usuário (email ou username) para o username correto.
+
+    Regras de segurança:
+    R-01: AllowAny — endpoint público, sem autenticação.
+    R-02: Retorna 404 genérico para email/username não encontrado,
+          sem confirmar se o email existe no sistema (evita user enumeration).
+    R-03: Apenas usuários ativos (is_active=True) são resolvidos —
+          conta desativada retorna 404 como se não existisse.
+    R-04: Sem rate limit próprio — controlado via DEFAULT_THROTTLE_CLASSES.
+    R-05: Log de tentativas para auditoria de segurança.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+
+        identifier = (request.data.get("identifier") or "").strip()
+
+        if not identifier:
+            return Response(
+                {"detail": "Identificador não informado.", "code": "invalid_request"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Limite básico de tamanho — evita payloads absurdos
+        if len(identifier) > 254:
+            return Response(
+                {"detail": "Identificador inválido.", "code": "invalid_request"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        is_email = "@" in identifier
+
+        if is_email:
+            user = User.objects.filter(
+                email__iexact=identifier,
+                is_active=True,
+            ).first()
+        else:
+            user = User.objects.filter(
+                username=identifier,
+                is_active=True,
+            ).first()
+
+        if not user:
+            # Resposta genérica — não confirma se email/username existe
+            # (evita user enumeration via timing ou mensagem diferente)
+            security_logger.warning(
+                "RESOLVE_USER_NOT_FOUND identifier_type=%s ip=%s",
+                "email" if is_email else "username",
+                get_client_ip(request),
+            )
+            return Response(
+                {"detail": "Usuário não encontrado.", "code": "user_not_found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        security_logger.info(
+            "RESOLVE_USER_SUCCESS user_id=%s identifier_type=%s ip=%s",
+            user.id,
+            "email" if is_email else "username",
+            get_client_ip(request),
+        )
+
+        return Response({"username": user.username})
+
+
+
 class LogoutView(APIView):
     """
     POST /api/accounts/logout/

@@ -13,6 +13,7 @@ from .views import (
     UserCreateWithRoleView,
     UserProfileViewSet,
     UserRoleViewSet,
+    ResolveUserView,
 )
 
 app_name = "accounts"
@@ -31,6 +32,7 @@ auth_router.register(r"aplicacoes", AplicacaoPublicaViewSet, basename="auth-apli
 urlpatterns = [
     # Endpoints públicos de suporte ao fluxo de login
     path("auth/",  include(auth_router.urls)),
+    path("auth/resolve-user/", ResolveUserView.as_view(), name="resolve-user"),
 
     # Endpoints autenticados
     path("", include(router.urls)),
