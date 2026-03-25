@@ -46,28 +46,28 @@ gpp_plataform2.0/
 
 ## Tecnologias e Dependências
 
-| Componente | Tecnologia |
-|---|---|
-| Framework Web | Django 4.x + Django REST Framework |
-| Banco de Dados | PostgreSQL (schemas qualificados via `db_table`) |
-| Autenticação | Django Session (cookie `sessionid` httpOnly) |
-| Autorização | RBAC via `Role`/`UserRole` + ABAC via `Attribute` |
-| Testes | `pytest-django` + `APIClient` DRF |
-| URLs nested | `rest_framework_nested` |
-| Dev tools | `django-debug-toolbar`, `pytest-cov` |
+| Componente     | Tecnologia                                        |
+|----------------|---------------------------------------------------|
+| Framework Web  | Django 4.x + Django REST Framework                |
+| Banco de Dados | PostgreSQL (schemas qualificados via `db_table`)  |
+| Autenticação   | Django Session (cookie `sessionid` httpOnly)      |
+| Autorização    | RBAC via `Role`/`UserRole` + ABAC via `Attribute` |
+| Testes         | `pytest-django` + `APIClient` DRF                 |
+| URLs nested    | `rest_framework_nested`                           |
+| Dev tools      | `django-debug-toolbar`, `pytest-cov`              |
 
 ---
 
 ## Apps e Responsabilidades
 
-| App | `app_label` | Responsabilidade | Schema PostgreSQL |
-|---|---|---|---|
-| `accounts` | `accounts` | IAM: autenticação, users, roles, sessões, ABAC | `public` |
-| `acoes_pngi` | `acoes_pngi` | Ações do programa PNGI | `acoes_pngi` |
-| `carga_org_lot` | `carga_org_lot` | Carga de organogramas e lotações | `carga_org_lot` |
-| `portal` | `portal` | Portal institucional | `public` |
-| `core` | `core` | Permissões base (`CanCreateUser`, `CanEditUser`), utilitários | `public` |
-| `common` | `common` | Infra compartilhada — sem models de negócio | — |
+| App                 | `app_label`     | Responsabilidade                                              | Schema PostgreSQL |
+|---------------------|-----------------|---------------------------------------------------------------|-------------------|
+| `accounts`          | `accounts`      | IAM: autenticação, users, roles, sessões, ABAC                | `public`          |
+| `acoes_pngi`        | `acoes_pngi`    | Ações do programa PNGI                                        | `acoes_pngi`      |
+| `carga_org_lot`     | `carga_org_lot` | Carga de organogramas e lotações                              | `carga_org_lot`   |
+| `portal`            | `portal`        | Portal institucional                                          | `public`          |
+| `core`              | `core`          | Permissões base (`CanCreateUser`, `CanEditUser`), utilitários | `public`          |
+| `common`            | `common`        | Infra compartilhada — sem models de negócio                   | ————————————————— |
 
 > **Nota sobre schemas PostgreSQL**: cada app define `db_table` com schema qualificado
 > (ex: `'"acoes_pngi"."tblacoes"'`). Todas as apps usam o banco `default` via `SchemaRouter`.
@@ -148,11 +148,11 @@ Detalhes em [`COMMON_INFRA.md`](./COMMON_INFRA.md).
 
 ## Backlog Priorizado
 
-| # | Escopo | Arquivo(s) | Status |
-|---|--------|-----------|--------|
-| 1 | Campo `orgao` em `carga_org_lot.TokenEnvioCarga` | `models.py` + migrations | 🟡 identificado |
-| 2 | Campo `telefone` em `accounts.UserProfile` | `accounts/models.py` | 🟡 identificado |
-| 3 | Testes nested resources `acoes_pngi` (prazos, destaques, anotações) | `tests/` | 🟡 identificado |
-| 4 | Testes de policy para `carga_org_lot` | `tests/policies/` | 🔴 pendente |
-| 5 | Implementação completa de `portal` | `apps/portal/` | 🔴 pendente |
-| 6 | Relacionamento `Acoes` ↔ `UsuarioResponsavel` nos testes | `tests/` | 🟡 identificado |
+| # | Escopo                                                              | Arquivo(s)               | Status           |
+|---|---------------------------------------------------------------------|--------------------------|                  |
+| 1 | Campo `orgao` em `carga_org_lot.TokenEnvioCarga`                    | `models.py` + migrations | 🟡 identificado |
+| 2 | Campo `telefone` em `accounts.UserProfile`                          | `accounts/models.py`     | 🟡 identificado |
+| 3 | Testes nested resources `acoes_pngi` (prazos, destaques, anotações) | `tests/`                 | 🟡 identificado |
+| 4 | Testes de policy para `carga_org_lot`                               | `tests/policies/`        | 🔴 pendente     |
+| 5 | Implementação completa de `portal`                                  | `apps/portal/`           | 🔴 pendente     |
+| 6 | Relacionamento `Acoes` ↔ `UsuarioResponsavel` nos testes            | `tests/`                 | 🟡 identificado |
