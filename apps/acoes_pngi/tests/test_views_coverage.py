@@ -6,7 +6,7 @@ que ficaram descobertas — principalmente os branches _check_roles() com
 COORDENADOR_PNGI, OPERADOR_ACAO e CONSULTOR_PNGI nas operações WRITE/DELETE
 e os ViewSets nested (AcaoPrazoViewSet, AcaoDestaqueViewSet, AcaoAnotacaoViewSet).
 
-Estratégia:
+Estraégia:
   - Autenticação real via sessão Django (client_* fixtures do conftest.py)
   - Testar explicitamente os roles que não existiam nos testes anteriores:
       COORDENADOR_PNGI  → pode WRITE Acao, NÃO pode DELETE, NÃO pode WRITE Vigencia
@@ -93,33 +93,35 @@ def client_consultor(db, consultor_pngi):
 def vigencia(db):
     """VigenciaPNGI base para testes."""
     return VigenciaPNGI.objects.create(
-        nomevigencia="Vigencia Teste",
-        anoinicio=2026,
-        anofim=2028,
+        strdescricao="Vigencia Teste",
+        datiniciovigencia="2026-01-01",
     )
 
 
 @pytest.fixture
 def eixo(db):
-    return Eixo.objects.create(nomeeixo="Eixo Teste", descricao="Desc")
+    obj, _ = Eixo.objects.get_or_create(
+        stralias="TST",
+        defaults={"strdescricaoeixo": "Eixo Teste"},
+    )
+    return obj
 
 
 @pytest.fixture
 def situacao(db):
-    return SituacaoAcao.objects.create(nomesituacao="Em andamento", descricao="")
+    obj, _ = SituacaoAcao.objects.get_or_create(
+        strdescricaosituacao="Em andamento",
+    )
+    return obj
 
 
 @pytest.fixture
-def acao(db, vigencia, eixo, situacao):
+def acao(db, vigencia):
     return Acoes.objects.create(
-        nomeacao="Acao Teste",
+        strapelido="ACAO-COV-001",
+        strdescricaoacao="Acao de cobertura",
+        strdescricaoentrega="Entrega esperada",
         idvigenciapngi=vigencia,
-        ideixo=eixo,
-        idsituacaoacao=situacao,
-        created_by_id=1,
-        created_by_name="sistema",
-        updated_by_id=1,
-        updated_by_name="sistema",
     )
 
 
@@ -135,12 +137,12 @@ class TestCoordenadorPermissions:
         resp = client_coordenador.get(ACOES_URL)
         assert resp.status_code == 200
 
-    def test_coordenador_pode_criar_acao(self, client_coordenador, vigencia, eixo, situacao):
+    def test_coordenador_pode_criar_acao(self, client_coordenador, vigencia):
         payload = {
-            "nomeacao": "Nova Acao Coordenador",
-            "idvigenciapngi": vigencia.pk,
-            "ideixo": eixo.pk,
-            "idsituacaoacao": situacao.pk,
+            "strapelido": "ACAO-COORD-001",
+            "strdescricaoacao": "Nova Acao Coordenador",
+            "strdescricaoentrega": "Entrega coordenador",
+            "idvigenciapngi_id": vigencia.pk,
         }
         resp = client_coordenador.post(ACOES_URL, payload, format="json")
         assert resp.status_code == 201
@@ -151,9 +153,8 @@ class TestCoordenadorPermissions:
 
     def test_coordenador_pode_criar_vigencia(self, client_coordenador):
         payload = {
-            "nomevigencia": "Vigencia Coordenador",
-            "anoinicio": 2026,
-            "anofim": 2028,
+            "strdescricao": "Vigencia Coordenador",
+            "datiniciovigencia": "2026-01-01",
         }
         resp = client_coordenador.post(VIGENCIAS_URL, payload, format="json")
         assert resp.status_code == 201
@@ -175,12 +176,12 @@ class TestOperadorPermissions:
         resp = client_operador.get(ACOES_URL)
         assert resp.status_code == 200
 
-    def test_operador_pode_criar_acao(self, client_operador, vigencia, eixo, situacao):
+    def test_operador_pode_criar_acao(self, client_operador, vigencia):
         payload = {
-            "nomeacao": "Nova Acao Operador",
-            "idvigenciapngi": vigencia.pk,
-            "ideixo": eixo.pk,
-            "idsituacaoacao": situacao.pk,
+            "strapelido": "ACAO-OPER-001",
+            "strdescricaoacao": "Nova Acao Operador",
+            "strdescricaoentrega": "Entrega operador",
+            "idvigenciapngi_id": vigencia.pk,
         }
         resp = client_operador.post(ACOES_URL, payload, format="json")
         assert resp.status_code == 201
@@ -192,9 +193,8 @@ class TestOperadorPermissions:
     def test_operador_nao_pode_criar_vigencia(self, client_operador):
         """OPERADOR_ACAO não tem WRITE na matriz de vigencias."""
         payload = {
-            "nomevigencia": "Vigencia Operador",
-            "anoinicio": 2026,
-            "anofim": 2028,
+            "strdescricao": "Vigencia Operador",
+            "datiniciovigencia": "2026-01-01",
         }
         resp = client_operador.post(VIGENCIAS_URL, payload, format="json")
         assert resp.status_code == 403
@@ -220,12 +220,12 @@ class TestConsultorPermissions:
         resp = client_consultor.get(ACOES_URL)
         assert resp.status_code == 200
 
-    def test_consultor_nao_pode_criar_acao(self, client_consultor, vigencia, eixo, situacao):
+    def test_consultor_nao_pode_criar_acao(self, client_consultor, vigencia):
         payload = {
-            "nomeacao": "Acao Bloqueada",
-            "idvigenciapngi": vigencia.pk,
-            "ideixo": eixo.pk,
-            "idsituacaoacao": situacao.pk,
+            "strapelido": "ACAO-BLOCK",
+            "strdescricaoacao": "Acao Bloqueada",
+            "strdescricaoentrega": "Bloqueada",
+            "idvigenciapngi_id": vigencia.pk,
         }
         resp = client_consultor.post(ACOES_URL, payload, format="json")
         assert resp.status_code == 403
@@ -235,7 +235,7 @@ class TestConsultorPermissions:
         assert resp.status_code == 403
 
     def test_consultor_nao_pode_criar_vigencia(self, client_consultor):
-        payload = {"nomevigencia": "Blocked", "anoinicio": 2026, "anofim": 2028}
+        payload = {"strdescricao": "Blocked", "datiniciovigencia": "2026-01-01"}
         resp = client_consultor.post(VIGENCIAS_URL, payload, format="json")
         assert resp.status_code == 403
 
@@ -288,7 +288,7 @@ class TestVigenciaPartialUpdate:
     def test_gestor_pode_patch_vigencia(self, client_gestor, vigencia):
         resp = client_gestor.patch(
             f"{VIGENCIAS_URL}{vigencia.pk}/",
-            {"nomevigencia": "Vigencia Atualizada"},
+            {"strdescricao": "Vigencia Atualizada"},
             format="json",
         )
         assert resp.status_code == 200
@@ -296,7 +296,7 @@ class TestVigenciaPartialUpdate:
     def test_coordenador_pode_patch_vigencia(self, client_coordenador, vigencia):
         resp = client_coordenador.patch(
             f"{VIGENCIAS_URL}{vigencia.pk}/",
-            {"nomevigencia": "Atualizado Coord"},
+            {"strdescricao": "Atualizado Coord"},
             format="json",
         )
         assert resp.status_code == 200
@@ -304,7 +304,7 @@ class TestVigenciaPartialUpdate:
     def test_operador_nao_pode_patch_vigencia(self, client_operador, vigencia):
         resp = client_operador.patch(
             f"{VIGENCIAS_URL}{vigencia.pk}/",
-            {"nomevigencia": "Tentativa Operador"},
+            {"strdescricao": "Tentativa Operador"},
             format="json",
         )
         assert resp.status_code == 403
@@ -321,7 +321,7 @@ class TestAcaoPartialUpdate:
     def test_operador_pode_patch_acao(self, client_operador, acao):
         resp = client_operador.patch(
             f"{ACOES_URL}{acao.pk}/",
-            {"nomeacao": "Acao Patched"},
+            {"strdescricaoacao": "Acao Patched"},
             format="json",
         )
         assert resp.status_code == 200
@@ -329,7 +329,7 @@ class TestAcaoPartialUpdate:
     def test_consultor_nao_pode_patch_acao(self, client_consultor, acao):
         resp = client_consultor.patch(
             f"{ACOES_URL}{acao.pk}/",
-            {"nomeacao": "Tentativa Consultor"},
+            {"strdescricaoacao": "Tentativa Consultor"},
             format="json",
         )
         assert resp.status_code == 403
@@ -351,19 +351,15 @@ class TestNestedViewSets:
     def test_gestor_cria_prazo(self, client_gestor, acao):
         url = f"/api/acoes-pngi/acoes/{acao.pk}/prazos/"
         resp = client_gestor.post(url, {
-            "descricao": "Prazo Teste",
-            "idacao": acao.pk,
+            "idacao_id": acao.pk,
+            "strdescricao": "Prazo Teste",
             "dataprazo": "2026-12-31",
-            "created_by_id": 1,
-            "created_by_name": "sistema",
-            "updated_by_id": 1,
-            "updated_by_name": "sistema",
         }, format="json")
         assert resp.status_code in (201, 400)  # 400 se campo obrigatório
 
     def test_consultor_nao_pode_criar_prazo(self, client_consultor, acao):
         url = f"/api/acoes-pngi/acoes/{acao.pk}/prazos/"
-        resp = client_consultor.post(url, {"descricao": "blocked"}, format="json")
+        resp = client_consultor.post(url, {"strdescricao": "blocked"}, format="json")
         assert resp.status_code == 403
 
     def test_gestor_lista_destaques(self, client_gestor, acao):
@@ -373,7 +369,7 @@ class TestNestedViewSets:
 
     def test_consultor_nao_pode_criar_destaque(self, client_consultor, acao):
         url = f"/api/acoes-pngi/acoes/{acao.pk}/destaques/"
-        resp = client_consultor.post(url, {"descricao": "blocked"}, format="json")
+        resp = client_consultor.post(url, {"strdescricao": "blocked"}, format="json")
         assert resp.status_code == 403
 
     def test_gestor_lista_anotacoes(self, client_gestor, acao):
@@ -383,18 +379,14 @@ class TestNestedViewSets:
 
     def test_consultor_nao_pode_criar_anotacao(self, client_consultor, acao):
         url = f"/api/acoes-pngi/acoes/{acao.pk}/anotacoes/"
-        resp = client_consultor.post(url, {"descricao": "blocked"}, format="json")
+        resp = client_consultor.post(url, {"strdescricao": "blocked"}, format="json")
         assert resp.status_code == 403
 
     def test_operador_nao_pode_deletar_prazo(self, client_operador, acao):
         prazo = AcaoPrazo.objects.create(
             idacao=acao,
-            descricao="prazo a deletar",
+            strdescricao="prazo a deletar",
             dataprazo="2026-12-31",
-            created_by_id=1,
-            created_by_name="sistema",
-            updated_by_id=1,
-            updated_by_name="sistema",
         )
         url = f"/api/acoes-pngi/acoes/{acao.pk}/prazos/{prazo.pk}/"
         resp = client_operador.delete(url)
@@ -403,11 +395,7 @@ class TestNestedViewSets:
     def test_gestor_pode_deletar_destaque(self, client_gestor, acao):
         destaque = AcaoDestaque.objects.create(
             idacao=acao,
-            descricao="destaque a deletar",
-            created_by_id=1,
-            created_by_name="sistema",
-            updated_by_id=1,
-            updated_by_name="sistema",
+            strdescricao="destaque a deletar",
         )
         url = f"/api/acoes-pngi/acoes/{acao.pk}/destaques/{destaque.pk}/"
         resp = client_gestor.delete(url)
