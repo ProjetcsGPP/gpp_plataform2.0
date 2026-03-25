@@ -3,7 +3,7 @@ GPP Plataform 2.0 — Carga Org Lot Views
 FASE 6: Scaffold de APIs com SecureQuerysetMixin obrigatório.
 
 Todos os endpoints exigem que o usuário possua a role associada
-à aplicação 'carga_org_lot'. A role NÃO está hardcoded: ela é
+à aplicação 'CARGA_ORG_LOT'. A role NÃO está hardcoded: ela é
 lida do banco de dados via _load_carga_roles().
 """
 from __future__ import annotations
@@ -19,14 +19,15 @@ from common.mixins import AuditableMixin, SecureQuerysetMixin
 from common.permissions import HasRolePermission
 
 # Identificador da aplicação no banco (accounts.Aplicacao.codigointerno)
-_APP_CODE = "carga_org_lot"
+# DEVE ser maiúsculo para corresponder ao valor gravado no banco.
+_APP_CODE = "CARGA_ORG_LOT"
 
 
 @lru_cache(maxsize=1)
 def _load_carga_roles() -> frozenset[str]:
     """
     Consulta o banco e retorna o conjunto de codigoperfil
-    autorizados para a aplicação carga_org_lot.
+    autorizados para a aplicação CARGA_ORG_LOT.
 
     O lru_cache(maxsize=1) garante que a query ao banco é feita
     apenas uma vez por processo (worker). Para forçar recarregamento:
@@ -43,7 +44,7 @@ def _load_carga_roles() -> frozenset[str]:
 
 def _check_carga_role(request) -> None:
     """
-    Verifica se o usuário possui alguma role autorizada para carga_org_lot.
+    Verifica se o usuário possui alguma role autorizada para CARGA_ORG_LOT.
     Lança PermissionDenied (403) caso contrário.
     """
     if getattr(request, "is_portal_admin", False):
@@ -70,10 +71,10 @@ class CargaOrgLotViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
     scope_field = "orgao"
     scope_source = "orgao"
 
-    # ── Substituir nas implementações finais ──────────────────────────────
+    # ── Substituir nas implementações finais ────────────────────────────────────
     queryset = None  # definir quando o model CargaOrgLot estiver disponível
     serializer_class = None  # definir quando o serializer estiver disponível
-    # ─────────────────────────────────────────────────────────────────────
+    # ───────────────────────────────────────────────────────────────────────────────────
 
     def get_queryset(self):
         """
