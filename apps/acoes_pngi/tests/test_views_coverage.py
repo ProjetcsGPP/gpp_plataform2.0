@@ -352,14 +352,13 @@ class TestNestedViewSets:
         url = f"/api/acoes-pngi/acoes/{acao.pk}/prazos/"
         resp = client_gestor.post(url, {
             "idacao_id": acao.pk,
-            "strdescricao": "Prazo Teste",
-            "dataprazo": "2026-12-31",
+            "strprazo": "Prazo Teste",
         }, format="json")
-        assert resp.status_code in (201, 400)  # 400 se campo obrigatório
+        assert resp.status_code in (201, 400)
 
     def test_consultor_nao_pode_criar_prazo(self, client_consultor, acao):
         url = f"/api/acoes-pngi/acoes/{acao.pk}/prazos/"
-        resp = client_consultor.post(url, {"strdescricao": "blocked"}, format="json")
+        resp = client_consultor.post(url, {"strprazo": "blocked"}, format="json")
         assert resp.status_code == 403
 
     def test_gestor_lista_destaques(self, client_gestor, acao):
@@ -369,7 +368,7 @@ class TestNestedViewSets:
 
     def test_consultor_nao_pode_criar_destaque(self, client_consultor, acao):
         url = f"/api/acoes-pngi/acoes/{acao.pk}/destaques/"
-        resp = client_consultor.post(url, {"strdescricao": "blocked"}, format="json")
+        resp = client_consultor.post(url, {"datdatadestaque": "2026-01-01T00:00:00Z"}, format="json")
         assert resp.status_code == 403
 
     def test_gestor_lista_anotacoes(self, client_gestor, acao):
@@ -383,19 +382,21 @@ class TestNestedViewSets:
         assert resp.status_code == 403
 
     def test_operador_nao_pode_deletar_prazo(self, client_operador, acao):
+        # AcaoPrazo: campos reais = idacao (FK), strprazo (CharField), isacaoprazoativo (Boolean)
         prazo = AcaoPrazo.objects.create(
             idacao=acao,
-            strdescricao="prazo a deletar",
-            dataprazo="2026-12-31",
+            strprazo="prazo a deletar",
         )
         url = f"/api/acoes-pngi/acoes/{acao.pk}/prazos/{prazo.pk}/"
         resp = client_operador.delete(url)
         assert resp.status_code == 403
 
     def test_gestor_pode_deletar_destaque(self, client_gestor, acao):
+        # AcaoDestaque: campos reais = idacao (FK), datdatadestaque (DateTimeField, obrigatório)
+        from django.utils import timezone
         destaque = AcaoDestaque.objects.create(
             idacao=acao,
-            strdescricao="destaque a deletar",
+            datdatadestaque=timezone.now(),
         )
         url = f"/api/acoes-pngi/acoes/{acao.pk}/destaques/{destaque.pk}/"
         resp = client_gestor.delete(url)
