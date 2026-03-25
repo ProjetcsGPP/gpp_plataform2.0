@@ -55,6 +55,7 @@ class TipoEntraveAlerta(models.Model):
 
     class Meta:
         db_table = '"acoes_pngi"."tbltipoentravealerta"'
+        ordering = ["strdescricaotipoentravealerta"]
 
 
 class TipoAnotacaoAlinhamento(models.Model):
@@ -71,6 +72,7 @@ class TipoAnotacaoAlinhamento(models.Model):
 
     class Meta:
         db_table = '"acoes_pngi"."tbltipoanotacaoalinhamento"'
+        ordering = ["strdescricaotipoanotacaoalinhamento"]
 
 
 class VigenciaPNGI(AuditableModel):
@@ -185,6 +187,7 @@ class AcaoPrazo(AuditableModel):
 
     class Meta:
         db_table = '"acoes_pngi"."tblacaoprazo"'
+        ordering = ["idacaoprazo"]
 
 
 class AcaoDestaque(AuditableModel):
@@ -207,6 +210,7 @@ class AcaoDestaque(AuditableModel):
 
     class Meta:
         db_table = '"acoes_pngi"."tblacaodestaque"'
+        ordering = ["-datdatadestaque"]
 
 
 class AcaoAnotacaoAlinhamento(AuditableModel):
@@ -235,6 +239,7 @@ class AcaoAnotacaoAlinhamento(AuditableModel):
 
     class Meta:
         db_table = '"acoes_pngi"."tblacaoanotacaoalinhamento"'
+        ordering = ["idacaoanotacaoalinhamento"]
 
 
 class RelacaoAcaoUsuarioResponsavel(models.Model):
@@ -258,4 +263,4 @@ class RelacaoAcaoUsuarioResponsavel(models.Model):
 
     class Meta:
         db_table = '"acoes_pngi"."tblrelacaoacaousuarioresponsavel"'
-        unique_together = ("idacao", "idusuarioresponsavel")
+        unique_together = (("idacao", "idusuarioresponsavel"),)
