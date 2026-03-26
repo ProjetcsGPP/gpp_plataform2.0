@@ -520,7 +520,7 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     Usado pelo frontend para popular o seletor de app_context na tela de login.
 
     Retorna apenas apps ativas (não bloqueadas e prontas para produção).
-    Expõe somente codigointerno e nomeaplicacao — sem vazar flags internos.
+    Expõe somente idaplicacao, codigointerno e nomeaplicacao — sem vazar flags internos.
 
     R-01: ReadOnly — POST/PUT/PATCH/DELETE retornam 405.
     R-02: Filtro fixo: isappbloqueada=False AND isappproductionready=True.

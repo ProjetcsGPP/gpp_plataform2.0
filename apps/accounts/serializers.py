@@ -71,7 +71,7 @@ class AplicacaoPublicaSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Aplicacao
-        fields = ["codigointerno", "nomeaplicacao"]
+        fields = ["idaplicacao", "codigointerno", "nomeaplicacao"]
 
 
 # ─── Aplicacao (autenticado) ──────────────────────────────────────────────────
