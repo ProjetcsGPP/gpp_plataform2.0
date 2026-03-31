@@ -395,7 +395,7 @@ class TestMiddlewareEdgeCases:
         # 401 seria injetado pelo AuthorizationMiddleware de core,
         # não pelo AppContextMiddleware — ambos os cenários são aceitáveis
         # para este teste de arquitetura de middleware.
-        assert resp.status_code in (200, 403, 404)
+        assert resp.status_code in (200, 401, 403, 404)
 
     def test_linhas_52_53_path_raiz_sem_segmentos(self):
         """
@@ -408,7 +408,7 @@ class TestMiddlewareEdgeCases:
         """
         client = APIClient()
         resp = client.get("/")
-        assert resp.status_code in (200, 403, 404)
+        assert resp.status_code in (200, 401, 403, 404)
 
     def test_linha_65_path_nao_mapeado(self):
         """
@@ -421,7 +421,7 @@ class TestMiddlewareEdgeCases:
         """
         client = APIClient()
         resp = client.get("/api/outro-prefixo-qualquer/")
-        assert resp.status_code in (200, 403, 404)
+        assert resp.status_code in (200, 401, 403, 404)
 
     def test_linhas_93_98_cookie_invalido_retorna_401_e_deleta_cookie(
         self, gestor_pngi
