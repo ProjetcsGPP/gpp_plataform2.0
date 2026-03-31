@@ -14,36 +14,32 @@ from .views import (
     UserRoleViewSet,
     ResolveUserView,
     LogoutAppView,
-    #SwitchAppView,
 )
 
 app_name = "accounts"
 
-# Router principal — endpoints autenticados
+# Routers existentes (OK)
 router = DefaultRouter()
-router.register(r"aplicacoes", AplicacaoViewSet,      basename="aplicacao")
-router.register(r"profiles",   UserProfileViewSet,    basename="userprofile")
-router.register(r"roles",      RoleViewSet,           basename="role")
-router.register(r"user-roles", UserRoleViewSet,       basename="userrole")
+router.register(r"aplicacoes", AplicacaoViewSet)
+router.register(r"profiles", UserProfileViewSet)
+router.register(r"roles", RoleViewSet)
+router.register(r"user-roles", UserRoleViewSet)
 
-# Router de autenticação — endpoints públicos (AllowAny)
 auth_router = DefaultRouter()
-auth_router.register(r"aplicacoes", AplicacaoPublicaViewSet, basename="auth-aplicacao")
+auth_router.register(r"aplicacoes", AplicacaoPublicaViewSet)
 
 urlpatterns = [
-    # Endpoints públicos de suporte ao fluxo de login
-    path("auth/",  include(auth_router.urls)),
+    path("auth/", include(auth_router.urls)),
     path("auth/resolve-user/", ResolveUserView.as_view(), name="resolve-user"),
 
-    # Endpoints autenticados
     path("", include(router.urls)),
-    path("login/",                      LoginView.as_view(),             name="login"),
-    path("logout/",                     LogoutView.as_view(),            name="logout"),
-    #path("switch-app/",                SwitchAppView.as_view(),         name="switch-app"),
+    path("login/", LoginView.as_view(), name="login"),
+    path("logout/", LogoutView.as_view(), name="logout"),  # Global
     
+    # 🔥 LOGOUT POR APP SIMPLES (sem conflito DRF)
     path("logout/<str:app_slug>/", LogoutAppView.as_view(), name="logout_app"),
     
-    path("me/",                         MeView.as_view(),                name="me"),
-    path("users/",                      UserCreateView.as_view(),        name="user-create"),
-    path("users/create-with-role/",     UserCreateWithRoleView.as_view(),name="user-create-with-role"),
+    path("me/", MeView.as_view(), name="me"),
+    path("users/", UserCreateView.as_view(), name="user-create"),
+    path("users/create-with-role/", UserCreateWithRoleView.as_view(), name="user-create-with-role"),
 ]
