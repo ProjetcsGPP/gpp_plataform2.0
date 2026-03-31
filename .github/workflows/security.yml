@@ -1,0 +1,103 @@
+name: Security + Quality Pipeline
+
+on:
+  pull_request:
+  push:
+    branches: [ "main" ]
+
+jobs:
+
+  # 🔐 CodeQL (SAST)
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python
+
+      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
+
+
+  # 🔑 Secrets (CRÍTICO)
+  gitleaks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: gitleaks/gitleaks-action@v2
+
+
+  # 📦 Dependências
+  trivy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aquasecurity/trivy-action@0.20.0
+        with:
+          scan-type: fs
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+
+  # 🧪 TESTES CRÍTICOS (separados)
+  test-auth:
+    name: Auth & Middleware Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
+
+      - name: Run multi-cookie tests
+        run: pytest apps/accounts/tests/test_multi_cookie.py -v
+
+
+  test-policies:
+    name: RBAC Policy Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
+
+      - name: Run policy tests
+        run: pytest apps/accounts/tests/policies/ -v
+
+
+  # 🧪 FULL TEST SUITE + COVERAGE
+  tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
+
+      - name: Run full test suite
+        run: pytest --cov=apps --cov=common --cov-report=term-missing
