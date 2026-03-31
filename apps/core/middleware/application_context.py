@@ -33,6 +33,14 @@ class ApplicationContextMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        if getattr(request, "is_logout_request", False)  or "/api/accounts/" in request.path:
+            security_logger.debug(
+                "LOGOUT_REQUEST — skipping application resolution path=%s",
+                request.path
+            )
+            request.application = None
+            return self.get_response(request)
+        
         request.application = self._resolve_application(request)
         if request.application is None:
             security_logger.warning(

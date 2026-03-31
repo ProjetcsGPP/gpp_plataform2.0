@@ -36,8 +36,16 @@ class AppContextMiddleware:
         session_key = request.COOKIES.get(expected_cookie)
         
         # 🔥 BYPASS PARA LOGOUT (NOVO - 4 linhas)
-        if '/auth/logout/' in request.path or '/logout/' in request.path:
-            request.app_context = path_prefix
+        if "/api/accounts/logout/" in request.path:
+            
+            request.is_logout_request = True  # 🔥 NOVO
+            
+            try:
+                app_slug = request.path.split("logout/")[1].split("/")[0]
+                request.app_context = app_slug.upper()
+            except IndexError:
+                request.app_context = "ACCOUNTS"            
+            
             return self.get_response(request)
         
         if not session_key:
@@ -46,15 +54,29 @@ class AppContextMiddleware:
             return self.get_response(request)
         
         # Seu código original (mantido)
-        is_revoked = AccountsSession.objects.filter(
+        #is_revoked = AccountsSession.objects.filter(
+        #    session_key=session_key,
+        #    session_cookie_name=expected_cookie,
+        #    revoked=True
+        #).exists()
+        #
+        #if is_revoked:
+        #    response = JsonResponse(
+        #        {"detail": f"Sessão {path_prefix} revogada. Faça login novamente.", "code": "session_revoked"},
+        #        status=401
+        #    )
+        #    response.delete_cookie(expected_cookie)
+        #    return response
+        
+        session = AccountsSession.objects.filter(
             session_key=session_key,
             session_cookie_name=expected_cookie,
-            revoked=True
-        ).exists()
+            revoked=False
+        ).first()
         
-        if is_revoked:
+        if not session:
             response = JsonResponse(
-                {"detail": f"Sessão {path_prefix} revogada. Faça login novamente.", "code": "session_revoked"},
+                {"detail": f"Sessão {path_prefix} inválida.", "code": "session_invalid"},
                 status=401
             )
             response.delete_cookie(expected_cookie)
@@ -63,4 +85,6 @@ class AppContextMiddleware:
         # Sessão válida
         request.session_key = session_key
         request.app_context = path_prefix
+        request.user = getattr(session, "user", AnonymousUser())
+        
         return self.get_response(request)
