@@ -110,6 +110,8 @@ class AppContextMiddleware:
         }
 
         if all_gpp_cookies:
+            # FIX: select_related não suporta reverse FK (userrole_set).
+            # A verificação de portal_admin é feita abaixo com query separada.
             session = (
                 AccountsSession.objects
                 .filter(
@@ -117,7 +119,7 @@ class AppContextMiddleware:
                     session_cookie_name__in=list(all_gpp_cookies.keys()),
                     revoked=False,
                 )
-                .select_related("user", "user__userrole_set__role")
+                .select_related("user")
                 .first()
             )
             if session:
