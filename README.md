@@ -32,8 +32,8 @@
 A GPP Plataform 2.0 é uma API centralizada que serve múltiplas aplicações governamentais sob um único backend Django. Cada aplicação possui seu próprio contexto de autenticação (cookie de sessão dedicado), schema PostgreSQL isolado e conjunto de roles/permissões.
 
 **Branch principal de desenvolvimento:** `Main`
+---
 **Branchs para desenvolvimento ou de correção devem ser criadas para novas funcionalidades**
-
 ---
 
 ## Arquitetura
