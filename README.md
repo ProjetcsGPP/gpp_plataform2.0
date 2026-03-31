@@ -34,7 +34,7 @@ A GPP Plataform 2.0 é uma API centralizada que serve múltiplas aplicações go
 **Branch principal de desenvolvimento:** `Main`
 ---
 ## Branchs para desenvolvimento ou de correção devem ser criadas para novas funcionalidades
-## Veja https://github.com/ProjetcsGPP/gpp_plataform2.0/blob/main/README.md#conven%C3%A7%C3%B5es-de-branch para maiores detalhes.
+## Veja em [Convenções de Branch](https://github.com/ProjetcsGPP/gpp_plataform2.0/blob/main/README.md#conven%C3%A7%C3%B5es-de-branch) para maiores detalhes.
 ---
 
 ## Arquitetura
