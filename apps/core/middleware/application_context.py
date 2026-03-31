@@ -7,9 +7,12 @@ Responsabilidade:
 
 Ordem de resolução:
   1. Header X-Application-Code
-  2. Prefixo da URL  (/api/acoes-pngi/ → acoes_pngi)
-  3. Domínio da request (pngi.api.gov.br → acoes_pngi)
+  2. Prefixo da URL  (/api/acoes-pngi/ → ACOES_PNGI)
+  3. Domínio da request (pngi.api.gov.br → ACOES_PNGI)
   4. Fallback: "portal"
+
+NOTA: /api/accounts/ NÃO é bypassado aqui — o AppContextMiddleware
+      cuida de autenticar esses endpoints via _authenticate_any_cookie.
 """
 import logging
 
@@ -21,10 +24,10 @@ security_logger = logging.getLogger("gpp.security")
 
 # Mapeamento de prefixo de URL → codigointerno da Aplicacao
 URL_PREFIX_MAP = {
-    "acoes-pngi": "ACOES_PNGI",
+    "acoes-pngi":    "ACOES_PNGI",
     "carga-org-lot": "CARGA_ORG_LOT",
-    "portal": "PORTAL",
-    "accounts": "accounts",
+    "portal":        "PORTAL",
+    "accounts":      "accounts",
 }
 
 
@@ -33,22 +36,23 @@ class ApplicationContextMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if getattr(request, "is_logout_request", False)  or "/api/accounts/" in request.path:
+        # Bypass APENAS para requests de logout explícito
+        # (is_logout_request é setado pelo LogoutMiddleware antes desta camada)
+        if getattr(request, "is_logout_request", False):
             security_logger.debug(
                 "LOGOUT_REQUEST — skipping application resolution path=%s",
-                request.path
+                request.path,
             )
             request.application = None
             return self.get_response(request)
-        
+
         request.application = self._resolve_application(request)
         if request.application is None:
             security_logger.warning(
                 "APP_CONTEXT_NONE path=%s — application could not be resolved, leaving as None",
                 request.path,
             )
-        response = self.get_response(request)
-        return response
+        return self.get_response(request)
 
     def _resolve_application(self, request):
         """
@@ -80,9 +84,8 @@ class ApplicationContextMiddleware:
             return registry.get(app_code)
 
         # 4. Fallback: portal
-        fallback = registry.get("portal")
         security_logger.debug(
             "APP_CONTEXT_FALLBACK path=%s resolved=portal",
             request.path,
         )
-        return fallback
+        return registry.get("portal")
