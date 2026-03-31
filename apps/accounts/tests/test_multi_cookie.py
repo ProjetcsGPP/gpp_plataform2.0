@@ -2,6 +2,9 @@ import pytest
 from rest_framework.test import APIClient
 from django.urls import get_resolver
 
+from apps.accounts.models import Role, UserRole
+
+
 # =========================================================
 # HELPERS (infra-level)
 # =========================================================
@@ -43,6 +46,32 @@ def urls():
         "ACOES": get_any_url_for_app("api/acoes-pngi"),
         "CARGA": get_any_url_for_app("api/carga-org-lot"),
     }
+
+
+@pytest.fixture
+def grant_role(db):
+    """
+    Fixture factory: atribui uma Role extra a um usuário pelo codigoperfil.
+    Usa get_or_create para ser idempotente (seguro com --reuse-db).
+
+    Uso:
+        grant_role(user, "GESTOR_CARGA")
+    """
+    def _grant(user, codigoperfil: str):
+        role = Role.objects.get(codigoperfil=codigoperfil)
+        user_role, created = UserRole.objects.get_or_create(
+            user=user,
+            aplicacao=role.aplicacao,
+            defaults={"role": role},
+        )
+        if not created and user_role.role_id != role.pk:
+            user_role.role = role
+            user_role.save(update_fields=["role"])
+        if role.group:
+            user.groups.add(role.group)
+        return role
+
+    return _grant
 
 
 # =========================================================
