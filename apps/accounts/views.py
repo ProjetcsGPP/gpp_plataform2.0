@@ -14,7 +14,7 @@ FIX: except Exception substituído por captura específica (DatabaseError/Integr
 POLICY-EXPANSION: AplicacaoViewSet.get_queryset() diferencia usuário privilegiado de comum;
                   filtro hardcoded isshowinportal removido — lógica delegada aos flags + frontend.
 POLICY-EXPANSION: UserProfileViewSet.partial_update() migrado para UserProfilePolicy.
-FASE-0: JWT removido — LoginView, LogoutView e SwitchAppView baseadas em sessão Django.
+FASE-0: JWT removido — LoginView e LogoutView baseadas em sessão Django.
 ARCH-01: Endpoint de aplicacoes separado em dois:
          - AplicacaoPublicaViewSet → GET /api/accounts/auth/aplicacoes/ (AllowAny)
            Usado pelo seletor de login; expõe apenas apps ativas sem flags internos.
@@ -24,10 +24,13 @@ FIX-TESTS: pagination_class = None nos dois AplicacaoViewSets para evitar
            resp.data paginado (dict) nos testes — retorna lista plana diretamente.
 FIX-THROTTLE: throttle_classes = [] em AplicacaoPublicaViewSet — endpoint público
               não deve ser limitado por AnonRateThrottle; evita 429 nos testes.
-FIX-THROTTLE-2: throttle_scope removido de LoginView e SwitchAppView — o rate limit
-                de login é controlado globalmente via DEFAULT_THROTTLE_CLASSES no
-                settings. O conftest raiz zera as classes em tempo de teste, garantindo
+FIX-THROTTLE-2: throttle_scope removido de LoginView — o rate limit de login é
+                controlado globalmente via DEFAULT_THROTTLE_CLASSES no settings.
+                O conftest raiz zera as classes em tempo de teste, garantindo
                 que nenhum login seja bloqueado por 429 durante a suite completa.
+MULTI-COOKIE: cada app possui sessão independente (gpp_session_{APP}).
+              SwitchAppView removida — obsoleta neste modelo; o frontend
+              simplesmente faz um segundo login na app destino.
 """
 import logging
 from datetime import timedelta
@@ -68,7 +71,6 @@ security_logger = logging.getLogger("gpp.security")
 
 
 # ─── Auth Views (Sessão) ──────────────────────────────────────────────────────
-
 class LoginView(APIView):
     """
     POST /api/accounts/login/
@@ -82,19 +84,17 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        username    = request.data.get("username")
-        password    = request.data.get("password")
+        username = request.data.get("username")
+        password = request.data.get("password")
         app_context = request.data.get("app_context")
 
-        if not username or not password or not app_context:
+        if not all([username, password, app_context]):
             return Response(
-                {"detail": "Credenciais ou app_context não informados.",
-                 "code": "invalid_request"},
+                {"detail": "Credenciais ou app_context não informados.", "code": "invalid_request"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         user = authenticate(request, username=username, password=password)
-
         if not user:
             return Response(
                 {"detail": "Credenciais inválidas.", "code": "invalid_credentials"},
@@ -108,8 +108,7 @@ class LoginView(APIView):
 
         if not app:
             return Response(
-                {"detail": "Aplicação inválida ou bloqueada.",
-                 "code": "invalid_app"},
+                {"detail": "Aplicação inválida ou bloqueada.", "code": "invalid_app"},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -118,49 +117,60 @@ class LoginView(APIView):
                 user=user,
                 role__codigoperfil="PORTAL_ADMIN"
             ).exists()
-            deny_reason = "not_portal_admin"
-            deny_detail = "Acesso ao Portal restrito a administradores."
+            if not has_access:
+                return Response(
+                    {"detail": "Acesso ao Portal restrito a administradores.", "code": "not_portal_admin"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         else:
             has_access = UserRole.objects.filter(
                 user=user,
                 aplicacao=app
             ).exists()
-            deny_reason = "no_role"
-            deny_detail = "Usuário sem acesso à aplicação informada."
 
-        if not has_access:
-            security_logger.warning(
-                "LOGIN_DENIED user_id=%s app_context=%s reason=%s",
-                user.id, app_context, deny_reason
-            )
-            return Response(
-                {"detail": deny_detail, "code": "forbidden"},
-                status=status.HTTP_403_FORBIDDEN
-            )
+            if not has_access:
+                security_logger.warning(
+                    "LOGIN_DENIED user_id=%s app_context=%s reason=no_role",
+                    user.id, app_context
+                )
+                return Response(
+                    {"detail": "Usuário sem acesso à aplicação informada.", "code": "no_role"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
 
         login(request, user)
         request.session.cycle_key()
-        rotate_token(request)
         request.session["app_context"] = app_context
+        rotate_token(request)
 
-        session_obj = AccountsSession.objects.create(
+        cookie_name = f"gpp_session_{app_context}"
+        session_key = request.session.session_key
+
+        AccountsSession.objects.update_or_create(
             user=user,
-            session_key=request.session.session_key,
-            app_context=app_context,
-            expires_at=dj_timezone.now() + timedelta(
-                seconds=settings.SESSION_COOKIE_AGE
-            ),
-            ip_address=get_client_ip(request),
-            user_agent=request.META.get("HTTP_USER_AGENT", ""),
-            revoked=False
+            session_key=session_key,
+            defaults={
+                "app_context": app_context,
+                "session_cookie_name": cookie_name,
+                "expires_at": dj_timezone.now() + timedelta(seconds=settings.SESSION_COOKIE_AGE),
+                "ip_address": get_client_ip(request),
+                "user_agent": request.META.get("HTTP_USER_AGENT", ""),
+                "revoked": False,
+            }
         )
 
-        security_logger.info(
-            "LOGIN_SUCCESS user_id=%s username=%s app_context=%s session_key=%s",
-            user.id, user.username, app_context, session_obj.session_key
-        )
+        security_logger.info("LOGIN_SUCCESS user_id=%s app=%s cookie=%s", user.id, app_context, cookie_name)
 
-        return Response({"detail": "Login realizado com sucesso"})
+        response = Response({"detail": "Login realizado com sucesso"})
+        response.set_cookie(
+            key=cookie_name,
+            value=session_key,
+            max_age=settings.SESSION_COOKIE_AGE,
+            httponly=True,
+            samesite="Lax",
+            secure=getattr(settings, "SESSION_COOKIE_SECURE", False),
+        )
+        return response
 
 
 class ResolveUserView(APIView):
@@ -194,7 +204,6 @@ class ResolveUserView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Limite básico de tamanho — evita payloads absurdos
         if len(identifier) > 254:
             return Response(
                 {"detail": "Identificador inválido.", "code": "invalid_request"},
@@ -215,8 +224,6 @@ class ResolveUserView(APIView):
             ).first()
 
         if not user:
-            # Resposta genérica — não confirma se email/username existe
-            # (evita user enumeration via timing ou mensagem diferente)
             security_logger.warning(
                 "RESOLVE_USER_NOT_FOUND identifier_type=%s ip=%s",
                 "email" if is_email else "username",
@@ -233,9 +240,7 @@ class ResolveUserView(APIView):
             "email" if is_email else "username",
             get_client_ip(request),
         )
-
         return Response({"username": user.username})
-
 
 
 class LogoutView(APIView):
@@ -248,8 +253,6 @@ class LogoutView(APIView):
     def post(self, request):
         session_key = request.session.session_key
 
-        # Revoga TODAS as sessões ativas do usuário
-        # (não só a atual — evita sessões órfãs de --reuse-db e logins paralelos)
         AccountsSession.objects.filter(
             user=request.user,
             revoked=False,
@@ -267,95 +270,27 @@ class LogoutView(APIView):
         return Response({"detail": "Logout realizado"})
 
 
-class SwitchAppView(APIView):
-    """
-    POST /api/accounts/switch-app/
-    Troca o contexto de aplicação mantendo a mesma sessão autenticada.
+class LogoutAppView(APIView):
+    authentication_classes = []
+    permission_classes = []
 
-    Rate limit: controlado via DEFAULT_THROTTLE_CLASSES no settings.
-    Em testes, o conftest raiz zera as classes — sem throttle_scope fixo aqui.
-    """
-    permission_classes = [IsAuthenticated]
+    def post(self, request, app_slug):
+        app_context = app_slug.upper()
+        cookie_name = f"gpp_session_{app_context}"
+        session_key = request.COOKIES.get(cookie_name)
 
-    def post(self, request):
-        new_app = request.data.get("app_context")
+        if session_key:
+            AccountsSession.objects.filter(
+                session_key=session_key,
+                session_cookie_name=cookie_name,
+            ).update(revoked=True, revoked_at=dj_timezone.now())
 
-        if not new_app:
-            return Response(
-                {"detail": "app_context não informado.", "code": "invalid_request"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        user = request.user
-
-        app = Aplicacao.objects.filter(
-            codigointerno=new_app,
-            isappbloqueada=False
-        ).first()
-
-        if not app:
-            security_logger.warning(
-                "SWITCH_APP_DENIED user_id=%s to_app=%s reason=invalid_app",
-                user.id, new_app
-            )
-            return Response(
-                {"detail": "Aplicação inválida ou bloqueada.", "code": "invalid_app"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        if new_app == "PORTAL":
-            has_access = user.is_superuser or UserRole.objects.filter(
-                user=user,
-                role__codigoperfil="PORTAL_ADMIN"
-            ).exists()
+            response = Response(f"Logout de {app_context} realizado com sucesso")
+            response.delete_cookie(cookie_name)
         else:
-            has_access = UserRole.objects.filter(
-                user=user,
-                aplicacao=app
-            ).exists()
+            response = Response("Nenhuma sessão ativa para esta app")
 
-        if not has_access:
-            security_logger.warning(
-                "SWITCH_APP_DENIED user_id=%s to_app=%s reason=no_access",
-                user.id, new_app
-            )
-            return Response(
-                {"detail": "Usuário sem acesso à aplicação.", "code": "forbidden"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        old_app = request.session.get("app_context")
-        session_key = request.session.session_key
-
-        AccountsSession.objects.filter(
-            session_key=session_key,
-            revoked=False
-        ).update(
-            revoked=True,
-            revoked_at=dj_timezone.now()
-        )
-
-        request.session["app_context"] = new_app
-        request.session.save()
-
-        AccountsSession.objects.create(
-            user=user,
-            session_key=session_key,
-            app_context=new_app,
-            expires_at=dj_timezone.now() + timedelta(
-                seconds=settings.SESSION_COOKIE_AGE
-            ),
-            ip_address=get_client_ip(request),
-            user_agent=request.META.get("HTTP_USER_AGENT", ""),
-            revoked=False
-        )
-
-        security_logger.info(
-            "SWITCH_APP user_id=%s from_app=%s to_app=%s session_key=%s",
-            user.id, old_app, new_app, session_key
-        )
-
-        return Response({"detail": "Contexto alterado com sucesso"})
+        return response
 
 
 # ─── Me View ──────────────────────────────────────────────────────────────────
@@ -404,11 +339,10 @@ class UserCreateView(APIView):
             context={"request": request},
         )
         serializer.is_valid(raise_exception=True)
-        
+
         from apps.accounts.services.authorization_service import AuthorizationService
         service = AuthorizationService(request.user)
 
-        # PORTAL_ADMIN pode criar em qualquer app — sem restrição de escopo
         if not service._is_portal_admin():
             application = getattr(request, "application", None)
             if not service.user_can_create_user_in_application(application):
@@ -420,7 +354,7 @@ class UserCreateView(APIView):
                 raise PermissionDenied(
                     "Você só pode criar usuários nas aplicações que gerencia."
                 )
-                
+
         try:
             profile = serializer.save()
         except (DRFValidationError, PermissionDenied):
@@ -456,13 +390,12 @@ class UserCreateWithRoleView(APIView):
     def post(self, request):
         from apps.accounts.services.authorization_service import AuthorizationService
         service = AuthorizationService(request.user)
-        
-        # Apenas PORTAL_ADMIN ou superuser podem criar usuário COM role
+
         if not service._is_portal_admin() and not request.user.is_superuser:
             raise PermissionDenied(
                 "Criação de usuário com role é restrita ao administrador do portal."
             )
-        
+
         serializer = UserCreateWithRoleSerializer(
             data=request.data,
             context={"request": request},
@@ -529,7 +462,7 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     """
     serializer_class = AplicacaoPublicaSerializer
     permission_classes = [AllowAny]
-    throttle_classes = []  # sem rate limit — endpoint público de lookup
+    throttle_classes = []
     pagination_class = None
     lookup_field = "codigointerno"
 

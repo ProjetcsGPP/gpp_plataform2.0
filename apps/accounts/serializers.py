@@ -11,8 +11,8 @@ FIX: prints de debug removidos
 POLICY-EXPANSION: AplicacaoSerializer expõe os três flags; UserCreateWithRoleSerializer
                   filtra por isappbloqueada=False + isappproductionready=True (R-02).
 FASE-0: GPPTokenObtainPairSerializer removido — JWT eliminado do fluxo de autenticação.
-ARCH-01: AplicacaoPublicaSerializer adicionado — endpoint público de login expõe
-         apenas codigointerno + nomeaplicacao, sem vazar flags internos.
+ARCH-01: AplicacaoPublicaSerializer — endpoint público expõe apenas codigointerno +
+         nomeaplicacao, sem vazar flags internos nem idaplicacao (PK interna).
 """
 import logging
 
@@ -39,7 +39,7 @@ from .models import (
 security_logger = logging.getLogger("gpp.security")
 
 
-# ─── Helpers internos ─────────────────────────────────────────────────────────
+# ─── Helpers internos ────────────────────────────────────────────────────────────────────
 
 def _get_fk_or_400(model, pk, field_name):
     """
@@ -55,7 +55,7 @@ def _get_fk_or_400(model, pk, field_name):
     return obj
 
 
-# ─── Aplicacao Publica (login) ────────────────────────────────────────────────
+# ─── Aplicacao Publica (login) ────────────────────────────────────────────────────
 
 class AplicacaoPublicaSerializer(serializers.ModelSerializer):
     """
@@ -63,7 +63,8 @@ class AplicacaoPublicaSerializer(serializers.ModelSerializer):
 
     Expõe apenas o mínimo necessário para o seletor de app_context
     na tela de login. Não vaza flags internos (isappbloqueada,
-    isappproductionready, base_url, isshowinportal).
+    isappproductionready, base_url, isshowinportal) nem PKs internas
+    (idaplicacao).
 
     Endpoint: GET /api/accounts/auth/aplicacoes/
     Acesso: AllowAny
@@ -71,10 +72,10 @@ class AplicacaoPublicaSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Aplicacao
-        fields = ["idaplicacao", "codigointerno", "nomeaplicacao"]
+        fields = ["codigointerno", "nomeaplicacao"]
 
 
-# ─── Aplicacao (autenticado) ──────────────────────────────────────────────────
+# ─── Aplicacao (autenticado) ──────────────────────────────────────────────────────
 
 class AplicacaoSerializer(serializers.ModelSerializer):
     """
@@ -99,7 +100,7 @@ class AplicacaoSerializer(serializers.ModelSerializer):
         ]
 
 
-# ─── UserProfile ──────────────────────────────────────────────────────────────
+# ─── UserProfile ────────────────────────────────────────────────────────────────────────
 
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
@@ -115,28 +116,28 @@ class UserProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ["user_id", "datacriacao", "data_alteracao"]
 
 
-# ─── UserCreate ───────────────────────────────────────────────────────────────
+# ─── UserCreate ─────────────────────────────────────────────────────────────────────────
 
 class UserCreateSerializer(serializers.Serializer):
     """
     GAP-01 — Criação atômica de auth.User + UserProfile.
     Apenas PORTAL_ADMIN pode acionar este serializer (garantido na view).
     """
-    # ── Campos auth.User ──────────────────────────────────────────
+    # ── Campos auth.User ──────────────────────────────────────────────────
     username = serializers.CharField(max_length=150)
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, style={"input_type": "password"})
     first_name = serializers.CharField(max_length=150, required=False, default="")
     last_name = serializers.CharField(max_length=150, required=False, default="")
 
-    # ── Campos UserProfile ────────────────────────────────────────
+    # ── Campos UserProfile ──────────────────────────────────────────────────
     name = serializers.CharField(max_length=200)
     orgao = serializers.CharField(max_length=100)
     status_usuario = serializers.IntegerField(required=False, default=1)
     tipo_usuario = serializers.IntegerField(required=False, default=1)
     classificacao_usuario = serializers.IntegerField(required=False, default=1)
 
-    # ── Saída (read) ──────────────────────────────────────────────
+    # ── Saída (read) ──────────────────────────────────────────────────────
     user_id = serializers.IntegerField(read_only=True, source="user.id")
     datacriacao = serializers.DateTimeField(read_only=True)
 
@@ -205,7 +206,7 @@ class UserCreateSerializer(serializers.Serializer):
         }
 
 
-# ─── Role ─────────────────────────────────────────────────────────────────────
+# ─── Role ───────────────────────────────────────────────────────────────────────────────
 
 class RoleSerializer(serializers.ModelSerializer):
     """
@@ -231,7 +232,7 @@ class RoleSerializer(serializers.ModelSerializer):
         ]
 
 
-# ─── UserRole ─────────────────────────────────────────────────────────────────
+# ─── UserRole ─────────────────────────────────────────────────────────────────────────
 
 class UserRoleSerializer(serializers.ModelSerializer):
     """
@@ -274,7 +275,7 @@ class UserRoleSerializer(serializers.ModelSerializer):
         return data
 
 
-# ─── UserCreateWithRole ───────────────────────────────────────────────────────
+# ─── UserCreateWithRole ───────────────────────────────────────────────────────────────
 
 class UserCreateWithRoleSerializer(serializers.Serializer):
     """
@@ -398,7 +399,7 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
         }
 
 
-# ─── Me Serializer ────────────────────────────────────────────────────────────
+# ─── Me Serializer ────────────────────────────────────────────────────────────────────
 
 class UserRoleNestedSerializer(serializers.ModelSerializer):
     role_codigo = serializers.CharField(source="role.codigoperfil", read_only=True)

@@ -35,10 +35,27 @@ CACHE_TTL = 300  # 5 minutos
 
 
 class RoleContextMiddleware:
+   
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
+        
+        # 🔥 BYPASS TOTAL PARA LOGOUT
+        if getattr(request, "is_logout_request", False):
+            security_logger.debug(
+                "LOGOUT_REQUEST — skipping role loading path=%s",
+                request.path
+            )
+            request.user_roles = []
+            request.is_portal_admin = False
+    
+            # 🔥 opcional (blindagem extra)
+            if not hasattr(request, "user"):
+                request.user = AnonymousUser()
+                
+            return self.get_response(request)
+        
         if request.user and not isinstance(request.user, AnonymousUser):
             self._load_roles(request)
         else:
