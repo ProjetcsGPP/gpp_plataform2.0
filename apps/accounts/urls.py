@@ -6,14 +6,15 @@ from .views import (
     AplicacaoViewSet,
     LoginView,
     LogoutView,
+    LogoutAppView,
     MeView,
     RoleViewSet,
+    SwitchAppView,
     UserCreateView,
     UserCreateWithRoleView,
     UserProfileViewSet,
     UserRoleViewSet,
     ResolveUserView,
-    LogoutAppView,
 )
 
 app_name = "accounts"
@@ -36,10 +37,9 @@ urlpatterns = [
 
     path("", include(router.urls)),
     path("login/", LoginView.as_view(), name="login"),
-    path("logout/", LogoutView.as_view(), name="logout"),  # Global
-
-    # 🔥 LOGOUT POR APP SIMPLES (sem conflito DRF)
-    path("logout/<str:app_slug>/", LogoutAppView.as_view(), name="logout_app"),
+    path("logout/", LogoutView.as_view(), name="logout"),          # Logout global
+    path("logout/<str:app_slug>/", LogoutAppView.as_view(), name="logout_app"),  # Logout por app
+    path("switch-app/", SwitchAppView.as_view(), name="switch-app"),  # Troca de contexto de app
 
     path("me/", MeView.as_view(), name="me"),
     path("users/", UserCreateView.as_view(), name="user-create"),
