@@ -1,7 +1,7 @@
 import pytest
 from rest_framework.test import APIClient
 
-from apps.accounts.models import Role, UserRole
+from apps.accounts.models import AccountsSession, Role, UserRole
 
 
 # =========================================================
@@ -98,7 +98,7 @@ def grant_role(db):
 
 
 # =========================================================
-# TESTES
+# TESTES ORIGINAIS
 # =========================================================
 
 @pytest.mark.django_db(transaction=True)
@@ -342,3 +342,173 @@ def test_full_multi_app_regression_flow(gestor_pngi, grant_role, urls):
 
     # CARGA continua valido
     assert_access_ok(client.get(urls["CARGA"]))
+
+
+# =========================================================
+# EDGE CASES DO MIDDLEWARE (novos — cobrindo gaps de coverage)
+# =========================================================
+
+@pytest.mark.django_db(transaction=True)
+class TestMiddlewareEdgeCases:
+    """
+    Cobre os branches do middleware que o relatório de coverage apontou:
+      - Linha 46: bypass is_logout_request
+      - Linhas 52–53: path sem prefixo 'api/' → prefix=None
+      - Linha 65: path /api/<outro-prefixo>/ não mapeado
+      - Linhas 93–98: cookie presente mas session_key inválido no banco
+      - Linhas 125→142: portal_admin fallback em app dedicada
+      - Linhas 175–177: _authenticate_any_cookie sem nenhum cookie
+    """
+
+    def test_linha_46_logout_request_bypass(self, gestor_pngi):
+        """
+        Linha 46: quando is_logout_request=True o middleware deve retornar
+        get_response sem tentar autenticar — o endpoint de logout não pode
+        ser bloqueado por falta de cookie.
+        """
+        client = APIClient()
+        # Faz login para criar a sessão
+        resp_login = client.post("/api/accounts/login/", {
+            "username": gestor_pngi.username,
+            "password": "TestPass@2026",
+            "app_context": "ACOES_PNGI",
+        }, format="json")
+        assert resp_login.status_code == 200
+
+        # O endpoint /api/accounts/logout/<slug>/ aciona is_logout_request=True
+        # via LogoutAppView (authentication_classes=[], permission_classes=[]).
+        # Deve retornar 200 independentemente do estado do cookie.
+        resp_logout = client.post("/api/accounts/logout/ACOES_PNGI/")
+        assert resp_logout.status_code == 200
+
+    def test_linhas_52_53_path_sem_prefixo_api(self):
+        """
+        Linhas 52–53: path que não começa com 'api' (ex: /health/)
+        resulta em prefix=None → middleware passa sem autenticar.
+        """
+        client = APIClient()
+        # /health/ ou qualquer path não-api deve passar pelo middleware sem
+        # tentar autenticar; se o endpoint não existir retorna 404 (não 401/403
+        # por falta de autenticação).
+        resp = client.get("/health/")
+        # O importante é que não retornou 401 por ausência de cookie —
+        # o middleware deu pass-through.
+        assert resp.status_code != 401
+
+    def test_linhas_52_53_path_raiz_sem_segmentos(self):
+        """
+        Linhas 52–53: IndexError no parse do path — path como '/' ou '/api'
+        sem segmento [1] gera prefix=None via except IndexError.
+        """
+        client = APIClient()
+        resp = client.get("/")
+        assert resp.status_code != 401
+
+    def test_linha_65_path_nao_mapeado(self):
+        """
+        Linha 65: prefixo que não está em APP_COOKIE_MAP nem é 'accounts'
+        → middleware passa sem autenticar (qualquer outro path).
+        """
+        client = APIClient()
+        # /api/outro-prefixo/ não está mapeado no middleware
+        resp = client.get("/api/outro-prefixo-qualquer/")
+        # Deve passar sem 401 por middleware (pode ser 404 do router)
+        assert resp.status_code != 401
+
+    def test_linhas_93_98_cookie_invalido_retorna_401_e_deleta_cookie(
+        self, gestor_pngi
+    ):
+        """
+        Linhas 93–98: cookie gpp_session_ACOES_PNGI presente mas a session_key
+        não existe no banco (ou foi revogada) → 401 + cookie deletado no response.
+        """
+        client = APIClient()
+        # Injeta cookie com session_key fictícia (não existe no banco)
+        client.cookies["gpp_session_ACOES_PNGI"] = "session_key_invalida_xyz"
+
+        resp = client.get("/api/acoes-pngi/")
+        assert resp.status_code == 401
+        assert resp.data.get("code") == "session_invalid"
+        # O response deve instruir o browser a deletar o cookie
+        assert "gpp_session_ACOES_PNGI" in resp.cookies
+
+    def test_linhas_125_142_portal_admin_fallback_em_app_dedicada(
+        self, portal_admin
+    ):
+        """
+        Linhas 125→142: portal_admin logado em PORTAL (com cookie gpp_session_PORTAL)
+        acessa /api/acoes-pngi/ sem ter cookie gpp_session_ACOES_PNGI →
+        deve ser autenticado via fallback (portal_admin check).
+        """
+        client = APIClient()
+        # Login apenas em PORTAL
+        resp_login = client.post("/api/accounts/login/", {
+            "username": portal_admin.username,
+            "password": "TestPass@2026",
+            "app_context": "PORTAL",
+        }, format="json")
+        assert resp_login.status_code == 200
+        assert "gpp_session_PORTAL" in client.cookies
+
+        # Garante que NÃO há cookie da app ACOES_PNGI
+        if "gpp_session_ACOES_PNGI" in client.cookies:
+            del client.cookies["gpp_session_ACOES_PNGI"]
+
+        # Acessa endpoint de ACOES_PNGI — fallback deve autenticar via gpp_session_PORTAL
+        resp = client.get("/api/acoes-pngi/")
+        # O middleware deve autenticar o portal_admin via fallback; a view pode
+        # retornar 200 ou 403 (permissão da view), mas NUNCA 401 por ausência de sessão.
+        assert resp.status_code in (200, 403), (
+            f"Esperado 200 ou 403 (fallback portal_admin), recebido {resp.status_code}"
+        )
+
+    def test_linhas_175_177_sem_nenhum_cookie_gpp_session(
+        self
+    ):
+        """
+        Linhas 175–177: _authenticate_any_cookie chamado sem nenhum cookie
+        gpp_session_* → user=AnonymousUser → endpoint autenticado retorna 401/403.
+        """
+        client = APIClient()
+        # Sem nenhum cookie — acessa endpoint de /api/accounts/ que requer autenticação
+        resp = client.get("/api/accounts/me/")
+        assert resp.status_code in (401, 403), (
+            f"Esperado 401 ou 403 sem cookie, recebido {resp.status_code}"
+        )
+
+    def test_logout_app_sem_cookie_retorna_200(
+        self, gestor_pngi
+    ):
+        """
+        views.py 291: LogoutAppView branch sem cookie da app
+        → retorna 200 com mensagem 'Nenhuma sessão ativa para esta app'.
+        """
+        client = APIClient()
+        # Não faz login — não há cookie
+        resp = client.post("/api/accounts/logout/ACOES_PNGI/")
+        assert resp.status_code == 200
+
+    def test_logout_app_com_cookie_revoga_sessao_e_deleta_cookie(
+        self, gestor_pngi
+    ):
+        """
+        views.py 309–310: LogoutAppView branch com session_key presente
+        → AccountsSession marcada como revoked + cookie deletado no response.
+        """
+        client = APIClient()
+        resp_login = client.post("/api/accounts/login/", {
+            "username": gestor_pngi.username,
+            "password": "TestPass@2026",
+            "app_context": "ACOES_PNGI",
+        }, format="json")
+        assert resp_login.status_code == 200
+        session_key = client.cookies["gpp_session_ACOES_PNGI"].value
+
+        resp_logout = client.post("/api/accounts/logout/ACOES_PNGI/")
+        assert resp_logout.status_code == 200
+
+        # Sessão deve estar revogada no banco
+        from apps.accounts.models import AccountsSession
+        session = AccountsSession.objects.filter(session_key=session_key).first()
+        assert session is not None
+        assert session.revoked is True

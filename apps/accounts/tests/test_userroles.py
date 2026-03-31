@@ -16,7 +16,7 @@ Dados base: initial_data.json
   Role pk=4  -> OPERADOR_ACAO
 """
 import pytest
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import Group, Permission
 from django.contrib.contenttypes.models import ContentType
 
 from apps.accounts.models import Aplicacao, Role, UserRole
@@ -209,3 +209,62 @@ class TestUserRoleRevoke:
         userrole = UserRole.objects.get(user=operador_acao)
         resp = client_anonimo.delete(f"{URL}{userrole.pk}/")
         assert resp.status_code in (401, 403)
+
+
+# --- Edge Cases de Destroy e Serializer (novos — cobrindo gaps) --------------
+
+class TestUserRoleDestroyEdgeCases:
+
+    def test_destroy_com_role_group_none_nao_lanca_attribute_error(
+        self, client_portal_admin, usuario_alvo
+    ):
+        """
+        views.py 545–549: deletar UserRole onde role.group=None →
+        log deve conter 'None' sem lançar AttributeError.
+        """
+        from apps.accounts.models import Aplicacao, Role
+
+        # Cria uma Role sem group
+        app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
+        role_sem_group, _ = Role.objects.get_or_create(
+            codigoperfil="ROLE_SEM_GROUP_TEST",
+            aplicacao=app,
+            defaults={"nomeperfil": "Role Sem Group", "group": None},
+        )
+        # Força group=None mesmo que já existisse
+        role_sem_group.group = None
+        role_sem_group.save(update_fields=["group"])
+
+        # Atribui a role ao usuário alvo diretamente
+        userrole = UserRole.objects.create(
+            user=usuario_alvo,
+            aplicacao=app,
+            role=role_sem_group,
+        )
+
+        resp = client_portal_admin.delete(f"{URL}{userrole.pk}/")
+        # Deve retornar 204 sem AttributeError
+        assert resp.status_code == 204
+
+    def test_serializer_role_nao_pertence_a_app_retorna_400(
+        self, client_portal_admin, usuario_alvo
+    ):
+        """
+        serializers.py 260: tentar criar UserRole com role que não pertence
+        à app → 400 com 'role': 'A role selecionada não pertence à aplicação informada.'
+        """
+        app_carga = Aplicacao.objects.get(codigointerno="CARGA_ORG_LOT")
+        role_pngi = Role.objects.get(codigoperfil="GESTOR_PNGI")
+        resp = client_portal_admin.post(
+            URL,
+            {
+                "user": usuario_alvo.pk,
+                "aplicacao": app_carga.pk,
+                "role": role_pngi.pk,
+            },
+            format="json",
+        )
+        assert resp.status_code == 400
+        resp_str = str(resp.data)
+        assert "role" in resp_str
+        assert "não pertence" in resp_str
