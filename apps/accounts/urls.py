@@ -9,7 +9,6 @@ from .views import (
     LogoutAppView,
     MeView,
     RoleViewSet,
-    SwitchAppView,
     UserCreateView,
     UserCreateWithRoleView,
     UserProfileViewSet,
@@ -37,9 +36,8 @@ urlpatterns = [
 
     path("", include(router.urls)),
     path("login/", LoginView.as_view(), name="login"),
-    path("logout/", LogoutView.as_view(), name="logout"),          # Logout global
-    path("logout/<str:app_slug>/", LogoutAppView.as_view(), name="logout_app"),  # Logout por app
-    path("switch-app/", SwitchAppView.as_view(), name="switch-app"),  # Troca de contexto de app
+    path("logout/", LogoutView.as_view(), name="logout"),
+    path("logout/<str:app_slug>/", LogoutAppView.as_view(), name="logout_app"),
 
     path("me/", MeView.as_view(), name="me"),
     path("users/", UserCreateView.as_view(), name="user-create"),

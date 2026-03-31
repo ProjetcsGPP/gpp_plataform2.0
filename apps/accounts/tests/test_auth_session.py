@@ -5,7 +5,6 @@ Testes de autenticacao baseada em sessao Django.
 Endpoints cobertos:
   POST /api/accounts/login/
   POST /api/accounts/logout/
-  POST /api/accounts/switch-app/
   GET  /api/accounts/me/
 
 USA transaction=True porque:
@@ -13,16 +12,21 @@ USA transaction=True porque:
     dentro do mesmo teste (sem savepoints intermediarios que escondam o estado).
   - O teardown usa TRUNCATE CASCADE via fixture local para evitar o bloqueio
     de tblusuarioresponsavel.
+
+NOTA ARQUITETURAL — SwitchAppView removida:
+  No modelo multi-cookie cada app possui sessao independente
+  (gpp_session_{APP}). Nao ha contexto unico para "trocar" — o frontend
+  simplesmente faz um segundo POST /login/ com o app_context desejado,
+  recebendo um cookie distinto sem invalidar os demais.
 """
 import pytest
 from apps.accounts.models import AccountsSession
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
-LOGIN_URL      = "/api/accounts/login/"
-LOGOUT_URL     = "/api/accounts/logout/"
-SWITCH_APP_URL = "/api/accounts/switch-app/"
-ME_URL         = "/api/accounts/me/"
+LOGIN_URL  = "/api/accounts/login/"
+LOGOUT_URL = "/api/accounts/logout/"
+ME_URL     = "/api/accounts/me/"
 
 
 # --- Login -------------------------------------------------------------------
@@ -161,73 +165,6 @@ class TestLogout:
 
     def test_logout_sem_autenticacao_retorna_401_ou_403(self, client_anonimo):
         resp = client_anonimo.post(LOGOUT_URL, format="json")
-        assert resp.status_code in (401, 403)
-
-
-# --- SwitchApp ---------------------------------------------------------------
-
-class TestSwitchApp:
-
-    def test_switch_app_cria_nova_session(
-        self, client_gestor, gestor_pngi
-    ):
-        from apps.accounts.models import Role, UserRole
-        role_carga = Role.objects.get(pk=6)
-        UserRole.objects.get_or_create(
-            user=gestor_pngi,
-            role=role_carga,
-            aplicacao=role_carga.aplicacao,
-        )
-        resp = client_gestor.post(
-            SWITCH_APP_URL, {"app_context": "CARGA_ORG_LOT"}, format="json"
-        )
-        assert resp.status_code == 200
-        assert AccountsSession.objects.filter(
-            user=gestor_pngi,
-            app_context="CARGA_ORG_LOT",
-            revoked=False,
-        ).exists()
-
-    def test_switch_app_revoga_session_anterior(
-        self, client_gestor, gestor_pngi
-    ):
-        from apps.accounts.models import Role, UserRole
-        role_carga = Role.objects.get(pk=6)
-        UserRole.objects.get_or_create(
-            user=gestor_pngi,
-            role=role_carga,
-            aplicacao=role_carga.aplicacao,
-        )
-        client_gestor.post(
-            SWITCH_APP_URL, {"app_context": "CARGA_ORG_LOT"}, format="json"
-        )
-        assert not AccountsSession.objects.filter(
-            user=gestor_pngi,
-            app_context="ACOES_PNGI",
-            revoked=False,
-        ).exists()
-
-    def test_switch_app_sem_acesso_retorna_403(self, client_gestor, gestor_pngi):
-         # Garante que gestor NÃO tem role em CARGA_ORG_LOT
-        from apps.accounts.models import UserRole, Aplicacao
-        app_carga = Aplicacao.objects.get(codigointerno="CARGA_ORG_LOT")
-        UserRole.objects.filter(user=gestor_pngi, aplicacao=app_carga).delete()
-        
-        resp = client_gestor.post(
-            SWITCH_APP_URL, {"app_context": "CARGA_ORG_LOT"}, format="json"
-        )
-        assert resp.status_code == 403
-
-    def test_switch_app_invalida_retorna_403(self, client_gestor):
-        resp = client_gestor.post(
-            SWITCH_APP_URL, {"app_context": "NAO_EXISTE"}, format="json"
-        )
-        assert resp.status_code == 403
-
-    def test_switch_app_sem_autenticacao_retorna_401_ou_403(self, client_anonimo):
-        resp = client_anonimo.post(
-            SWITCH_APP_URL, {"app_context": "ACOES_PNGI"}, format="json"
-        )
         assert resp.status_code in (401, 403)
 
 
