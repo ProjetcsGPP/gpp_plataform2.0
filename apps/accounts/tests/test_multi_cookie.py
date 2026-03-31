@@ -384,36 +384,44 @@ class TestMiddlewareEdgeCases:
     def test_linhas_52_53_path_sem_prefixo_api(self):
         """
         Linhas 52–53: path que não começa com 'api' (ex: /health/)
-        resulta em prefix=None → middleware passa sem autenticar.
+        resulta em prefix=None → AppContextMiddleware passa sem autenticar.
+
+        FIX 3: o AuthorizationMiddleware de core bloqueia rotas anônimas
+        com 401. Este teste verifica apenas que o status NÃO é 401 causado
+        por ausência de cookie de app — portanto aceita 200, 403 ou 404.
         """
         client = APIClient()
-        # /health/ ou qualquer path não-api deve passar pelo middleware sem
-        # tentar autenticar; se o endpoint não existir retorna 404 (não 401/403
-        # por falta de autenticação).
         resp = client.get("/health/")
-        # O importante é que não retornou 401 por ausência de cookie —
-        # o middleware deu pass-through.
-        assert resp.status_code != 401
+        # 401 seria injetado pelo AuthorizationMiddleware de core,
+        # não pelo AppContextMiddleware — ambos os cenários são aceitáveis
+        # para este teste de arquitetura de middleware.
+        assert resp.status_code in (200, 403, 404)
 
     def test_linhas_52_53_path_raiz_sem_segmentos(self):
         """
         Linhas 52–53: IndexError no parse do path — path como '/' ou '/api'
         sem segmento [1] gera prefix=None via except IndexError.
+
+        FIX 3: aceita 200, 403 ou 404 — o AuthorizationMiddleware de core
+        pode retornar 401 para rotas anônimas, mas não é o comportamento
+        testado aqui (AppContextMiddleware deve dar pass-through).
         """
         client = APIClient()
         resp = client.get("/")
-        assert resp.status_code != 401
+        assert resp.status_code in (200, 403, 404)
 
     def test_linha_65_path_nao_mapeado(self):
         """
         Linha 65: prefixo que não está em APP_COOKIE_MAP nem é 'accounts'
-        → middleware passa sem autenticar (qualquer outro path).
+        → AppContextMiddleware passa sem autenticar.
+
+        FIX 3: aceita 200, 403 ou 404 — o AuthorizationMiddleware de core
+        pode bloquear com 401, mas isso é comportamento do core middleware,
+        não do AppContextMiddleware que é o alvo deste teste.
         """
         client = APIClient()
-        # /api/outro-prefixo/ não está mapeado no middleware
         resp = client.get("/api/outro-prefixo-qualquer/")
-        # Deve passar sem 401 por middleware (pode ser 404 do router)
-        assert resp.status_code != 401
+        assert resp.status_code in (200, 403, 404)
 
     def test_linhas_93_98_cookie_invalido_retorna_401_e_deleta_cookie(
         self, gestor_pngi
@@ -421,6 +429,9 @@ class TestMiddlewareEdgeCases:
         """
         Linhas 93–98: cookie gpp_session_ACOES_PNGI presente mas a session_key
         não existe no banco (ou foi revogada) → 401 + cookie deletado no response.
+
+        FIX 4: resp é um JsonResponse puro (não DRF), portanto não tem .data.
+        Usar resp.json() para acessar o payload.
         """
         client = APIClient()
         # Injeta cookie com session_key fictícia (não existe no banco)
@@ -428,7 +439,7 @@ class TestMiddlewareEdgeCases:
 
         resp = client.get("/api/acoes-pngi/")
         assert resp.status_code == 401
-        assert resp.data.get("code") == "session_invalid"
+        assert resp.json().get("code") == "session_invalid"
         # O response deve instruir o browser a deletar o cookie
         assert "gpp_session_ACOES_PNGI" in resp.cookies
 

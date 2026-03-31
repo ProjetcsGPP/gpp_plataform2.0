@@ -88,6 +88,9 @@ class TestUserCreateViewEdgeCases:
         """
         views.py 360–367: simular DatabaseError no serializer.save() →
         500 com detail='Erro interno ao criar usuário. Tente novamente.'
+
+        FIX 1: a view retorna {"success": False, "errors": {"detail": ...}},
+        portanto detail está em resp.data["errors"]["detail"], não em resp.data["detail"].
         """
         from django.db import DatabaseError
 
@@ -99,7 +102,8 @@ class TestUserCreateViewEdgeCases:
                 USERS_URL, _payload_usuario("dberr"), format="json"
             )
         assert resp.status_code == 500
-        assert "Erro interno ao criar usuário" in str(resp.data.get("detail", ""))
+        detail = resp.data.get("errors", {}).get("detail", "")
+        assert "Erro interno ao criar usuário" in str(detail)
 
 
 # --- UserCreateWithRoleView —  edge cases de coverage -----------------------
@@ -152,6 +156,9 @@ class TestUserCreateWithRoleEdgeCases:
         """
         views.py 423–430: DatabaseError no serializer.save() →
         500 com detail='Erro interno ao criar usuário com role. Tente novamente.'
+
+        FIX 1: a view retorna {"success": False, "errors": {"detail": ...}},
+        portanto detail está em resp.data["errors"]["detail"], não em resp.data["detail"].
         """
         from django.db import DatabaseError
 
@@ -163,9 +170,8 @@ class TestUserCreateWithRoleEdgeCases:
                 CREATE_ROLE_URL, self._payload_com_role("dberr_cr"), format="json"
             )
         assert resp.status_code == 500
-        assert "Erro interno ao criar usuário com role" in str(
-            resp.data.get("detail", "")
-        )
+        detail = resp.data.get("errors", {}).get("detail", "")
+        assert "Erro interno ao criar usuário com role" in str(detail)
 
 
 # --- UserCreateWithRoleView --------------------------------------------------
@@ -467,7 +473,7 @@ class TestUserProfilePatch:
             format="json",
         )
         assert resp.status_code == 200
-        
+
     def test_nao_autenticado_retorna_401_ou_403(
         self, client_anonimo, gestor_pngi
     ):

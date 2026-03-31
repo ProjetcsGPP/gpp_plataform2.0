@@ -63,10 +63,15 @@ class TestCanChangeStatusCoverage:
         assert result is True
 
     def test_superuser_pode_mudar_status(
-        self, superuser
+        self, db_superuser
     ):
-        profile = _get_profile(superuser)
-        policy = UserProfilePolicy(actor=superuser, profile=profile)
+        """
+        FIX 2: a fixture `superuser` do conftest de policies é um MagicMock
+        (sem DB), impossível chamar UserProfile.objects.get(user=mock).
+        Usar db_superuser (fixture com User + UserProfile reais no banco).
+        """
+        profile = _get_profile(db_superuser)
+        policy = UserProfilePolicy(actor=db_superuser, profile=profile)
         result = policy.can_change_status()
         assert result is True
 
