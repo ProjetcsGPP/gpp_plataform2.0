@@ -28,6 +28,10 @@ FIX-THROTTLE-2: throttle_scope removido de LoginView e SwitchAppView — o rate 
                 de login é controlado globalmente via DEFAULT_THROTTLE_CLASSES no
                 settings. O conftest raiz zera as classes em tempo de teste, garantindo
                 que nenhum login seja bloqueado por 429 durante a suite completa.
+SWITCH-APP: SwitchAppView implementada — POST /api/accounts/switch-app/
+            Troca o contexto de aplicação de um usuário já autenticado:
+            revoga a sessão anterior, cria nova sessão para a app destino,
+            emite cookie gpp_session_{APP} e remove o cookie anterior.
 """
 import logging
 from datetime import timedelta
@@ -180,7 +184,8 @@ class LoginView(APIView):
         )
 
         return response
-    
+
+
 class ResolveUserView(APIView):
     """
     POST /api/accounts/auth/resolve-user/
@@ -255,7 +260,6 @@ class ResolveUserView(APIView):
         return Response({"username": user.username})
 
 
-
 class LogoutView(APIView):
     """
     POST /api/accounts/logout/
@@ -284,7 +288,8 @@ class LogoutView(APIView):
         logout(request)
         return Response({"detail": "Logout realizado"})
 
-class LogoutAppView(APIView): 
+
+class LogoutAppView(APIView):
     authentication_classes = []
     permission_classes = []
 
@@ -293,19 +298,167 @@ class LogoutAppView(APIView):
 
         cookie_name = f"gpp_session_{app_context}"
         session_key = request.COOKIES.get(cookie_name)
-        
+
         if session_key:
             AccountsSession.objects.filter(
                 session_key=session_key,
                 session_cookie_name=cookie_name,
             ).update(revoked=True, revoked_at=dj_timezone.now())
-            
+
             response = Response(f"Logout de {app_context} realizado com sucesso")
             response.delete_cookie(cookie_name)
         else:
             response = Response("Nenhuma sessão ativa para esta app")
-            
+
         return response
+
+
+# ─── Switch App View ──────────────────────────────────────────────────────────
+
+class SwitchAppView(APIView):
+    """
+    POST /api/accounts/switch-app/
+    Troca o contexto de aplicação de um usuário já autenticado.
+
+    Payload: { "app_context": "CARGA_ORG_LOT" }
+
+    Fluxo:
+    1. Valida o campo app_context.
+    2. Busca Aplicacao ativa (não bloqueada) — 403 se não existir.
+    3. Verifica se o usuário tem role na app destino
+       (PORTAL_ADMIN e superuser têm acesso irrestrito) — 403 se não.
+    4. Revoga a sessão anterior (cookie atual, se existir no banco).
+    5. Cria nova sessão Django para a app destino.
+    6. Persiste AccountsSession com app_context e cookie_name corretos.
+    7. Retorna Set-Cookie gpp_session_{APP_DESTINO} e deleta cookie anterior.
+
+    Rate limit: controlado via DEFAULT_THROTTLE_CLASSES no settings.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        app_context = request.data.get("app_context")
+
+        if not app_context:
+            return Response(
+                {"detail": "app_context não informado.", "code": "invalid_request"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 1. Valida que a app destino existe e está ativa
+        app = Aplicacao.objects.filter(
+            codigointerno=app_context,
+            isappbloqueada=False,
+        ).first()
+
+        if not app:
+            security_logger.warning(
+                "SWITCH_APP_DENIED user_id=%s app_context=%s reason=invalid_app",
+                request.user.id, app_context,
+            )
+            return Response(
+                {"detail": "Aplicação inválida ou bloqueada.", "code": "invalid_app"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # 2. Verifica acesso do usuário à app destino
+        user = request.user
+        is_privileged = (
+            user.is_superuser
+            or UserRole.objects.filter(
+                user=user,
+                role__codigoperfil="PORTAL_ADMIN",
+            ).exists()
+        )
+
+        if not is_privileged:
+            if app_context == "PORTAL":
+                # Portal exige PORTAL_ADMIN explicitamente
+                security_logger.warning(
+                    "SWITCH_APP_DENIED user_id=%s app_context=%s reason=not_portal_admin",
+                    user.id, app_context,
+                )
+                return Response(
+                    {"detail": "Acesso ao Portal restrito a administradores.", "code": "not_portal_admin"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            has_role = UserRole.objects.filter(user=user, aplicacao=app).exists()
+            if not has_role:
+                security_logger.warning(
+                    "SWITCH_APP_DENIED user_id=%s app_context=%s reason=no_role",
+                    user.id, app_context,
+                )
+                return Response(
+                    {"detail": "Usuário sem acesso à aplicação informada.", "code": "no_role"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        # 3. Revoga a sessão anterior do contexto atual (cookie que veio na request)
+        previous_app_context = request.session.get("app_context")
+        old_cookie_name = None
+        if previous_app_context:
+            old_cookie_name = f"gpp_session_{previous_app_context}"
+            old_session_key = request.COOKIES.get(old_cookie_name)
+            if old_session_key:
+                AccountsSession.objects.filter(
+                    user=user,
+                    session_key=old_session_key,
+                    revoked=False,
+                ).update(revoked=True, revoked_at=dj_timezone.now())
+
+        # Também revoga qualquer sessão ativa do mesmo usuário para o app_context anterior
+        # (garante limpeza mesmo se o cookie não estava presente)
+        if previous_app_context and previous_app_context != app_context:
+            AccountsSession.objects.filter(
+                user=user,
+                app_context=previous_app_context,
+                revoked=False,
+            ).update(revoked=True, revoked_at=dj_timezone.now())
+
+        # 4. Cria nova sessão para a app destino
+        request.session.flush()
+        request.session["app_context"] = app_context
+        rotate_token(request)
+
+        new_cookie_name = f"gpp_session_{app_context}"
+        new_session_key = request.session.session_key
+
+        AccountsSession.objects.update_or_create(
+            user=user,
+            session_key=new_session_key,
+            defaults={
+                "app_context": app_context,
+                "session_cookie_name": new_cookie_name,
+                "expires_at": dj_timezone.now() + timedelta(seconds=settings.SESSION_COOKIE_AGE),
+                "ip_address": get_client_ip(request),
+                "user_agent": request.META.get("HTTP_USER_AGENT", ""),
+                "revoked": False,
+            },
+        )
+
+        security_logger.info(
+            "SWITCH_APP_SUCCESS user_id=%s from=%s to=%s cookie=%s",
+            user.id, previous_app_context, app_context, new_cookie_name,
+        )
+
+        response = Response({"detail": f"Contexto alterado para {app_context}."})
+
+        # Emite o novo cookie
+        response.set_cookie(
+            key=new_cookie_name,
+            value=new_session_key,
+            max_age=settings.SESSION_COOKIE_AGE,
+            httponly=True,
+            samesite="Lax",
+            secure=getattr(settings, "SESSION_COOKIE_SECURE", False),
+        )
+
+        # Remove o cookie anterior se diferente
+        if old_cookie_name and old_cookie_name != new_cookie_name:
+            response.delete_cookie(old_cookie_name)
+
+        return response
+
 
 # ─── Me View ──────────────────────────────────────────────────────────────────
 
