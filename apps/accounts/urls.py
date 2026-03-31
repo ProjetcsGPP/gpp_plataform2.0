@@ -41,7 +41,7 @@ urlpatterns = [
     path("logout/",                     LogoutView.as_view(),            name="logout"),
     #path("switch-app/",                SwitchAppView.as_view(),         name="switch-app"),
     
-    path("<str:app_slug>/auth/logout/", LogoutAppView.as_view(), name="logout_app"),  # NOVO por app
+    path("logout/<str:app_slug>/", LogoutAppView.as_view(), name="logout_app"),
     
     path("me/",                         MeView.as_view(),                name="me"),
     path("users/",                      UserCreateView.as_view(),        name="user-create"),

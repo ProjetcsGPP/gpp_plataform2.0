@@ -285,14 +285,13 @@ class LogoutView(APIView):
         return Response({"detail": "Logout realizado"})
 
 
-
 class LogoutAppView(APIView):
-    permission_classes = [IsAuthenticated]
-    
+    permission_classes = []  # ← MUDANÇA 1: middleware já valida
+
     def post(self, request):
-        # Detectar app pela URL: /api/acoes-pngi/auth/logout/
+        # Detectar app pela URL: /api/accounts/acoes-pngi/auth/logout/
         path_parts = request.path.split("/api/")[1].split("/")
-        app_context = path_parts[0].upper()
+        app_context = path_parts[1].upper()  # ← MUDANÇA 2: [1] por causa de accounts/acoes-pngi/
         cookie_name = f"gpp_session_{app_context}"
         session_key = request.COOKIES.get(cookie_name)
         
@@ -308,6 +307,7 @@ class LogoutAppView(APIView):
             response = Response("Nenhuma sessão ativa para esta app")
             
         return response
+
 
 # ─── Me View ──────────────────────────────────────────────────────────────────
 
