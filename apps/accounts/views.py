@@ -68,8 +68,8 @@ security_logger = logging.getLogger("gpp.security")
 
 
 # ─── Auth Views (Sessão) ──────────────────────────────────────────────────────
-
 class LoginView(APIView):
+
     """
     POST /api/accounts/login/
     Realiza autenticação via sessão (cookie HttpOnly).
@@ -82,19 +82,18 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        username    = request.data.get("username")
-        password    = request.data.get("password")
+        username = request.data.get("username")
+        password = request.data.get("password")
         app_context = request.data.get("app_context")
 
-        if not username or not password or not app_context:
+        # Validações originais mantidas
+        if not all([username, password, app_context]):
             return Response(
-                {"detail": "Credenciais ou app_context não informados.",
-                 "code": "invalid_request"},
+                {"detail": "Credenciais ou app_context não informados.", "code": "invalid_request"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         user = authenticate(request, username=username, password=password)
-
         if not user:
             return Response(
                 {"detail": "Credenciais inválidas.", "code": "invalid_credentials"},
@@ -103,23 +102,26 @@ class LoginView(APIView):
 
         app = Aplicacao.objects.filter(
             codigointerno=app_context,
-            isappbloqueada=False
+            isappbloqueada=False  # Lógica original mantida
         ).first()
 
         if not app:
             return Response(
-                {"detail": "Aplicação inválida ou bloqueada.",
-                 "code": "invalid_app"},
+                {"detail": "Aplicação inválida ou bloqueada.", "code": "invalid_app"},
                 status=status.HTTP_403_FORBIDDEN
             )
 
+        # Lógica original de roles mantida
         if app_context == "PORTAL":
             has_access = user.is_superuser or UserRole.objects.filter(
                 user=user,
                 role__codigoperfil="PORTAL_ADMIN"
             ).exists()
-            deny_reason = "not_portal_admin"
-            deny_detail = "Acesso ao Portal restrito a administradores."
+            if not has_access:
+                return Response(
+                    {"detail": "Acesso ao Portal restrito a administradores.", "code": "not_portal_admin"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         else:
             has_access = UserRole.objects.filter(
                 user=user,
@@ -128,41 +130,57 @@ class LoginView(APIView):
             deny_reason = "no_role"
             deny_detail = "Usuário sem acesso à aplicação informada."
 
-        if not has_access:
-            security_logger.warning(
-                "LOGIN_DENIED user_id=%s app_context=%s reason=%s",
-                user.id, app_context, deny_reason
-            )
-            return Response(
-                {"detail": deny_detail, "code": "forbidden"},
-                status=status.HTTP_403_FORBIDDEN
-            )
+            if not has_access:
+                security_logger.warning(
+                    "LOGIN_DENIED user_id=%s app_context=%s reason=%s",
+                    user.id, app_context, deny_reason
+                )
+            
+                return Response(
+                    {"detail": deny_detail, "code": "no_role"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
 
+        # Django login original
         login(request, user)
         request.session.cycle_key()
-        rotate_token(request)
         request.session["app_context"] = app_context
+        rotate_token(request)
 
-        session_obj = AccountsSession.objects.create(
+        # 🔥 NOVO: COOKIE ESPECÍFICO POR APP
+        cookie_name = f"gpp_session_{app_context}"
+        session_key = request.session.session_key
+
+        # AccountsSession com campo novo (update_or_create para reuso)
+        AccountsSession.objects.update_or_create(
             user=user,
-            session_key=request.session.session_key,
-            app_context=app_context,
-            expires_at=dj_timezone.now() + timedelta(
-                seconds=settings.SESSION_COOKIE_AGE
-            ),
-            ip_address=get_client_ip(request),
-            user_agent=request.META.get("HTTP_USER_AGENT", ""),
-            revoked=False
+            session_key=session_key,
+            defaults={
+                "app_context": app_context,
+                "session_cookie_name": cookie_name,  # NOVO CAMPO
+                "expires_at": dj_timezone.now() + timedelta(seconds=settings.SESSION_COOKIE_AGE),
+                "ip_address": get_client_ip(request),
+                "user_agent": request.META.get("HTTP_USER_AGENT", ""),
+                "revoked": False,
+            }
         )
 
-        security_logger.info(
-            "LOGIN_SUCCESS user_id=%s username=%s app_context=%s session_key=%s",
-            user.id, user.username, app_context, session_obj.session_key
+        security_logger.info("LOGIN_SUCCESS user_id=%s app=%s cookie=%s", user.id, app_context, cookie_name)
+
+        response = Response({"detail": "Login realizado com sucesso"})
+
+        # 🔥 MANUAL COOKIE (independe de SESSION_COOKIE_NAME)
+        response.set_cookie(
+            key=cookie_name,  # gpp_session_ACOES_PNGI
+            value=session_key,
+            max_age=settings.SESSION_COOKIE_AGE,
+            httponly=True,
+            samesite="Lax",
+            secure=getattr(settings, "SESSION_COOKIE_SECURE", False),
         )
 
-        return Response({"detail": "Login realizado com sucesso"})
-
-
+        return response
+    
 class ResolveUserView(APIView):
     """
     POST /api/accounts/auth/resolve-user/
@@ -267,96 +285,29 @@ class LogoutView(APIView):
         return Response({"detail": "Logout realizado"})
 
 
-class SwitchAppView(APIView):
-    """
-    POST /api/accounts/switch-app/
-    Troca o contexto de aplicação mantendo a mesma sessão autenticada.
 
-    Rate limit: controlado via DEFAULT_THROTTLE_CLASSES no settings.
-    Em testes, o conftest raiz zera as classes — sem throttle_scope fixo aqui.
-    """
+class LogoutAppView(APIView):
     permission_classes = [IsAuthenticated]
-
+    
     def post(self, request):
-        new_app = request.data.get("app_context")
-
-        if not new_app:
-            return Response(
-                {"detail": "app_context não informado.", "code": "invalid_request"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        user = request.user
-
-        app = Aplicacao.objects.filter(
-            codigointerno=new_app,
-            isappbloqueada=False
-        ).first()
-
-        if not app:
-            security_logger.warning(
-                "SWITCH_APP_DENIED user_id=%s to_app=%s reason=invalid_app",
-                user.id, new_app
-            )
-            return Response(
-                {"detail": "Aplicação inválida ou bloqueada.", "code": "invalid_app"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        if new_app == "PORTAL":
-            has_access = user.is_superuser or UserRole.objects.filter(
-                user=user,
-                role__codigoperfil="PORTAL_ADMIN"
-            ).exists()
+        # Detectar app pela URL: /api/acoes-pngi/auth/logout/
+        path_parts = request.path.split("/api/")[1].split("/")
+        app_context = path_parts[0].upper()
+        cookie_name = f"gpp_session_{app_context}"
+        session_key = request.COOKIES.get(cookie_name)
+        
+        if session_key:
+            AccountsSession.objects.filter(
+                session_key=session_key,
+                session_cookie_name=cookie_name,
+            ).update(revoked=True, revoked_at=dj_timezone.now())
+            
+            response = Response(f"Logout de {app_context} realizado com sucesso")
+            response.delete_cookie(cookie_name)
         else:
-            has_access = UserRole.objects.filter(
-                user=user,
-                aplicacao=app
-            ).exists()
-
-        if not has_access:
-            security_logger.warning(
-                "SWITCH_APP_DENIED user_id=%s to_app=%s reason=no_access",
-                user.id, new_app
-            )
-            return Response(
-                {"detail": "Usuário sem acesso à aplicação.", "code": "forbidden"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        old_app = request.session.get("app_context")
-        session_key = request.session.session_key
-
-        AccountsSession.objects.filter(
-            session_key=session_key,
-            revoked=False
-        ).update(
-            revoked=True,
-            revoked_at=dj_timezone.now()
-        )
-
-        request.session["app_context"] = new_app
-        request.session.save()
-
-        AccountsSession.objects.create(
-            user=user,
-            session_key=session_key,
-            app_context=new_app,
-            expires_at=dj_timezone.now() + timedelta(
-                seconds=settings.SESSION_COOKIE_AGE
-            ),
-            ip_address=get_client_ip(request),
-            user_agent=request.META.get("HTTP_USER_AGENT", ""),
-            revoked=False
-        )
-
-        security_logger.info(
-            "SWITCH_APP user_id=%s from_app=%s to_app=%s session_key=%s",
-            user.id, old_app, new_app, session_key
-        )
-
-        return Response({"detail": "Contexto alterado com sucesso"})
-
+            response = Response("Nenhuma sessão ativa para esta app")
+            
+        return response
 
 # ─── Me View ──────────────────────────────────────────────────────────────────
 

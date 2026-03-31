@@ -156,7 +156,8 @@ CORS_ALLOW_CREDENTIALS = True  # obrigatório para cookie de sessão
 
 # ─── Session ─────────────────────────────────────────────────────────────────────
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
-SESSION_COOKIE_NAME = "gpp_session"
+# constante removida para criar cookies por aplicação.
+# SESSION_COOKIE_NAME = "gpp_session"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_AGE = 3600          # 1 hora

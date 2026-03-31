@@ -8,12 +8,13 @@ from .views import (
     LogoutView,
     MeView,
     RoleViewSet,
-    SwitchAppView,
     UserCreateView,
     UserCreateWithRoleView,
     UserProfileViewSet,
     UserRoleViewSet,
     ResolveUserView,
+    LogoutAppView,
+    #SwitchAppView,
 )
 
 app_name = "accounts"
@@ -36,10 +37,13 @@ urlpatterns = [
 
     # Endpoints autenticados
     path("", include(router.urls)),
-    path("login/",                  LoginView.as_view(),             name="login"),
-    path("logout/",                 LogoutView.as_view(),            name="logout"),
-    path("switch-app/",             SwitchAppView.as_view(),         name="switch-app"),
-    path("me/",                     MeView.as_view(),                name="me"),
-    path("users/",                  UserCreateView.as_view(),        name="user-create"),
-    path("users/create-with-role/", UserCreateWithRoleView.as_view(),name="user-create-with-role"),
+    path("login/",                      LoginView.as_view(),             name="login"),
+    path("logout/",                     LogoutView.as_view(),            name="logout"),
+    #path("switch-app/",                SwitchAppView.as_view(),         name="switch-app"),
+    
+    path("<str:app_slug>/auth/logout/", LogoutAppView.as_view(), name="logout_app"),  # NOVO por app
+    
+    path("me/",                         MeView.as_view(),                name="me"),
+    path("users/",                      UserCreateView.as_view(),        name="user-create"),
+    path("users/create-with-role/",     UserCreateWithRoleView.as_view(),name="user-create-with-role"),
 ]

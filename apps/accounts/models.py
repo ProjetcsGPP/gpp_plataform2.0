@@ -360,6 +360,12 @@ class AccountsSession(models.Model):
     ip_address = models.GenericIPAddressField(null=True, blank=True)
 
     user_agent = models.TextField(blank=True, default="")
+    
+    session_cookie_name =  models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        default='\\')
 
     class Meta:
         db_table = "accounts_session"
@@ -369,6 +375,7 @@ class AccountsSession(models.Model):
         indexes = [
             models.Index(fields=["session_key", "revoked"]),
             models.Index(fields=["user", "revoked"]),
+            models.Index(fields=["session_cookie_name"]),
         ]
 
     def revoke(self):
