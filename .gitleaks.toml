@@ -1,0 +1,22 @@
+title = "Gitleaks config for GPP Platform"
+
+[allowlist]
+description = "Ignore common false positives in Django project"
+
+# 🔴 IGNORAR ARQUIVOS NÃO CRÍTICOS
+paths = [
+  '''.env.example''',
+  '''README.md''',
+  '''requirements.txt''',
+  '''requirements-dev.txt''',
+  '''.*tests/.*''',
+]
+
+# 🔴 IGNORAR PADRÕES FALSOS
+regexes = [
+  '''django-insecure-.*''',
+  '''sua-secret-key-aqui''',
+  '''test.*password''',
+  '''fake.*token''',
+  '''example.*key''',
+]
