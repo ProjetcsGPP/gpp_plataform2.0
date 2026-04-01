@@ -3,7 +3,7 @@ name: Security + Quality Pipeline
 on:
   pull_request:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
 
@@ -25,7 +25,7 @@ jobs:
       - uses: github/codeql-action/analyze@v3
 
 
-  # 🔑 Secrets (CRÍTICO)
+  # 🔑 Secrets
   gitleaks:
     runs-on: ubuntu-latest
 
@@ -34,7 +34,7 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
 
 
-  # 📦 Dependências
+  # 📦 Dependências (vulnerabilidades)
   trivy:
     runs-on: ubuntu-latest
 
@@ -48,17 +48,100 @@ jobs:
           ignore-unfixed: true
 
 
-  # 🧪 TESTES CRÍTICOS (separados)
-  test-auth:
-    name: Auth & Middleware Tests
+  # 🧪 TEMPLATE BASE PARA TESTES COM POSTGRES
+  test-base:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_DB: gpp_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      SECRET_KEY: "test-secret-key"
+      DEBUG: "False"
+      ALLOWED_HOSTS: "*"
+
+      # DB (IMPORTANTE)
+      DB_NAME: gpp_test
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: localhost
+      DB_PORT: 5432
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Wait for Postgres
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          until pg_isready -h localhost -U postgres; do
+            echo "Waiting for postgres..."
+            sleep 2
+          done
+
+      - name: Create schemas
+        run: |
+          psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS acoes_pngi;"
+          psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS carga_org_lot;"
+        env:
+          PGPASSWORD: postgres
+
+  # 🧪 TESTES AUTH
+  test-auth:
+    needs: [test-base]
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_DB: gpp_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      SECRET_KEY: "test-secret-key"
+      DEBUG: "False"
+      ALLOWED_HOSTS: "*"
+      DB_NAME: gpp_test
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: localhost
+      DB_PORT: 5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
 
       - run: pip install -r requirements.txt
       - run: pip install -r requirements-dev.txt
@@ -67,16 +150,38 @@ jobs:
         run: pytest apps/accounts/tests/test_multi_cookie.py -v
 
 
+  # 🧪 TESTES RBAC
   test-policies:
-    name: RBAC Policy Tests
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_DB: gpp_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      SECRET_KEY: "test-secret-key"
+      DEBUG: "False"
+      ALLOWED_HOSTS: "*"
+      DB_NAME: gpp_test
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: localhost
+      DB_PORT: 5432
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
+          cache: "pip"
 
       - run: pip install -r requirements.txt
       - run: pip install -r requirements-dev.txt
@@ -85,16 +190,38 @@ jobs:
         run: pytest apps/accounts/tests/policies/ -v
 
 
-  # 🧪 FULL TEST SUITE + COVERAGE
+  # 🧪 FULL TEST SUITE
   tests:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_DB: gpp_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      SECRET_KEY: "test-secret-key"
+      DEBUG: "False"
+      ALLOWED_HOSTS: "*"
+      DB_NAME: gpp_test
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: localhost
+      DB_PORT: 5432
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
+          cache: "pip"
 
       - run: pip install -r requirements.txt
       - run: pip install -r requirements-dev.txt
