@@ -11,6 +11,8 @@ env:
   SECRET_KEY: "test-secret-key"
   DEBUG: "False"
   ALLOWED_HOSTS: "*"
+
+  # DB
   DB_NAME: gpp_test
   DB_USER: postgres
   DB_PASSWORD: postgres
@@ -19,7 +21,7 @@ env:
 
 jobs:
 
-  # 🔐 CodeQL
+  # 🔐 CodeQL (já preparado p/ futuro)
   codeql:
     runs-on: ubuntu-latest
     permissions:
@@ -60,8 +62,8 @@ jobs:
           ignore-unfixed: true
 
 
-  # 🔁 TEMPLATE DE TESTE (REUTILIZADO)
-  test-template:
+  # 🧪 TESTES AUTH
+  test-auth:
     runs-on: ubuntu-latest
 
     services:
@@ -87,7 +89,7 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
@@ -97,43 +99,40 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
           until pg_isready -h localhost -U postgres; do
-            echo "Waiting for postgres..."
             sleep 2
           done
 
-      - name: Create schemas
+      - name: Prepare DB
         run: |
           psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS acoes_pngi;"
           psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS carga_org_lot;"
         env:
           PGPASSWORD: postgres
 
+      - name: Run migrations
+        run: python manage.py migrate
 
-  # 🧪 AUTH
-  test-auth:
-    needs: test-template
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-
-      - run: pip install -r requirements.txt
-      - run: pip install -r requirements-dev.txt
-
-      - run: pytest apps/accounts/tests/test_multi_cookie.py -v
+      - name: Run multi-cookie tests
+        run: pytest apps/accounts/tests/test_multi_cookie.py -v
 
 
-  # 🧪 POLICIES (ALTA COBERTURA)
+  # 🧪 TESTES RBAC (coverage isolado)
   test-policies:
-    needs: test-template
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_DB: gpp_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -142,29 +141,85 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pip install -r requirements-dev.txt
 
-      - run: pytest apps/accounts/tests/policies/ \
-             --cov=apps/accounts/policies \
-             --cov-report=term-missing \
-             --cov-fail-under=90
+      - name: Wait for Postgres
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          until pg_isready -h localhost -U postgres; do
+            sleep 2
+          done
+
+      - name: Prepare DB
+        run: |
+          psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS acoes_pngi;"
+          psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS carga_org_lot;"
+        env:
+          PGPASSWORD: postgres
+
+      - name: Run migrations
+        run: python manage.py migrate
+
+      - name: Run policy tests
+        run: |
+          pytest apps/accounts/tests/policies/ \
+            --cov=apps/accounts/policies \
+            --cov-report=term-missing \
+            --cov-fail-under=90
 
 
-  # 🧪 FULL SUITE
+  # 🧪 FULL TEST SUITE (CORRIGIDO)
   tests:
-    needs: test-template
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_DB: gpp_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
 
-      - run: pip install -r requirements.txt
-      - run: pip install -r requirements-dev.txt
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
-      - run: pytest \
-             --cov=apps \
-             --cov=common \
-             --cov-report=term-missing \
-             --cov-fail-under=40
+      - name: Wait for Postgres
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          until pg_isready -h localhost -U postgres; do
+            sleep 2
+          done
+
+      - name: Prepare DB
+        run: |
+          psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS acoes_pngi;"
+          psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS carga_org_lot;"
+        env:
+          PGPASSWORD: postgres
+
+      - name: Run migrations
+        run: python manage.py migrate
+
+      # 🔍 DEBUG (pode remover depois)
+      - name: Debug test collection
+        run: pytest --collect-only
+
+      - name: Run full test suite
+        run: |
+          pytest \
+            --cov=apps \
+            --cov=common \
+            --cov-report=term-missing \
+            --cov-fail-under=80
