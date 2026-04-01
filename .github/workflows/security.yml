@@ -1,70 +1,56 @@
-name: Security + Quality Pipeline
+name: 🚀 Security + Quality Pipeline (Pro)
 
 on:
   pull_request:
   push:
     branches: ["main"]
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  DJANGO_SETTINGS_MODULE: config.settings.test
-  SECRET_KEY: "test-secret-key"
-  DEBUG: "False"
-  ALLOWED_HOSTS: "*"
-
-  # DB
-  DB_NAME: gpp_test
-  DB_USER: postgres
-  DB_PASSWORD: postgres
-  DB_HOST: localhost
-  DB_PORT: 5432
-
 jobs:
 
-  # 🔐 CodeQL (já preparado p/ futuro)
-  codeql:
+  # 🔐 Segurança roda em paralelo
+  security:
+    name: Security Scan
     runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      contents: read
+    strategy:
+      matrix:
+        tool: [codeql, gitleaks, trivy]
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: github/codeql-action/init@v4
+      - name: Run CodeQL
+        if: matrix.tool == 'codeql'
+        uses: github/codeql-action/init@v3
         with:
           languages: python
 
-      - uses: github/codeql-action/autobuild@v4
-      - uses: github/codeql-action/analyze@v4
+      - if: matrix.tool == 'codeql'
+        uses: github/codeql-action/autobuild@v3
 
+      - if: matrix.tool == 'codeql'
+        uses: github/codeql-action/analyze@v3
 
-  # 🔑 Secrets
-  gitleaks:
-    runs-on: ubuntu-latest
+      - name: Run Gitleaks
+        if: matrix.tool == 'gitleaks'
+        uses: gitleaks/gitleaks-action@v2
 
-    steps:
-      - uses: actions/checkout@v4
-      - uses: gitleaks/gitleaks-action@v2
-
-
-  # 📦 Vulnerabilidades
-  trivy:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: aquasecurity/trivy-action@master
+      - name: Run Trivy
+        if: matrix.tool == 'trivy'
+        uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-
-  # 🧪 TESTES AUTH
-  test-auth:
+  # 🧪 TESTES EM PARALELO (matrix por tipo)
+  tests:
+    name: Tests (${{ matrix.suite }})
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix:
+        suite: [auth, policies, full]
 
     services:
       postgres:
@@ -81,13 +67,29 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      SECRET_KEY: "test-secret-key"
+      DB_NAME: gpp_test
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: localhost
+      DB_PORT: 5432
+
     steps:
       - uses: actions/checkout@v4
 
+      # ⚡ Cache agressivo
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
+
+      - name: Cache venv extra (opcional turbo)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
 
       - name: Install deps
         run: |
@@ -102,118 +104,25 @@ jobs:
             sleep 2
           done
 
-      - name: Prepare DB
+      # 🎯 Execução por tipo
+      - name: Run AUTH tests
+        if: matrix.suite == 'auth'
         run: |
-          psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS acoes_pngi;"
-          psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS carga_org_lot;"
-        env:
-          PGPASSWORD: postgres
+          pytest apps/accounts/tests/test_multi_cookie.py \
+            --cov=apps/accounts/middleware \
+            --cov-report=term-missing \
+            --cov-fail-under=85
 
-      - name: Run migrations
-        run: python manage.py migrate
-
-      - name: Run multi-cookie tests
-        run: pytest apps/accounts/tests/test_multi_cookie.py -v --cov=apps/accounts --cov-report=term-missing
-
-
-  # 🧪 TESTES RBAC (coverage isolado)
-  test-policies:
-    runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:14
-        env:
-          POSTGRES_DB: gpp_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-
-      - run: pip install -r requirements.txt
-      - run: pip install -r requirements-dev.txt
-
-      - name: Wait for Postgres
+      - name: Run POLICY tests
+        if: matrix.suite == 'policies'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-          until pg_isready -h localhost -U postgres; do
-            sleep 2
-          done
+          pytest apps/accounts/tests/policies/ \
+            --cov=apps/accounts/policies \
+            --cov-report=term-missing \
+            --cov-fail-under=90
 
-      - name: Prepare DB
-        run: |
-          psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS acoes_pngi;"
-          psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS carga_org_lot;"
-        env:
-          PGPASSWORD: postgres
-
-      - name: Run migrations
-        run: python manage.py migrate
-
-      - name: Run policy tests
-        run: |
-          pytest apps/accounts/tests/policies/ --cov=apps/accounts/policies --cov-report=term-missing
-
-
-  # 🧪 FULL TEST SUITE (CORRIGIDO)
-  tests:
-    runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:14
-        env:
-          POSTGRES_DB: gpp_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-
-      - name: Install deps
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-
-      - name: Wait for Postgres
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-          until pg_isready -h localhost -U postgres; do
-            sleep 2
-          done
-
-      - name: Prepare DB
-        run: |
-          psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS acoes_pngi;"
-          psql -h localhost -U postgres -d gpp_test -c "CREATE SCHEMA IF NOT EXISTS carga_org_lot;"
-        env:
-          PGPASSWORD: postgres
-
-      - name: Run migrations
-        run: python manage.py migrate
-
-      # 🔍 DEBUG (pode remover depois)
-      - name: Debug test collection
-        run: pytest --collect-only
-
-      - name: Run full test suite
+      - name: Run FULL suite
+        if: matrix.suite == 'full'
         run: |
           pytest \
             --cov=apps \
