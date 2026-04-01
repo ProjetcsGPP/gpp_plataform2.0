@@ -61,3 +61,4 @@ keys/*.pem
 # Coverage Pages
 # =========================
 htmlcov/
+.coverage
