@@ -1,14 +1,16 @@
 # GPP Plataform 2.0 — Snapshot de Arquitetura
 
-**Atualizado**: 2026-03-25
-**Branch**: `feature/acoes-pngi-policies`
-**Suite de testes**: 346 passed, 1 skipped ✅
+**Atualizado**: 2026-04-01  
+**Branch**: `main`  
+**Suite de testes**: 346 passed, 1 skipped ✅  
+**Pipeline CI/CD**: [![Security + Quality Pipeline](https://github.com/ProjetcsGPP/gpp_plataform2.0/actions/workflows/security.yml/badge.svg)](https://github.com/ProjetcsGPP/gpp_plataform2.0/actions/workflows/security.yml)
 
 > **Fonte de verdade da arquitetura atual.**
 > Documentação detalhada por tópico:
 > - [`IAM_AUTENTICACAO.md`](./IAM_AUTENTICACAO.md) — Autenticação por sessão, middleware, roles RBAC, ABAC, `AccountsSession`
 > - [`ACOES_PNGI.md`](./ACOES_PNGI.md) — App `acoes_pngi`: models, serializers, ViewSets, URLs, matriz de roles, testes
 > - [`COMMON_INFRA.md`](./COMMON_INFRA.md) — `common/`, database router, settings, permissions, paginação
+> - [`SECURITY_PIPELINE.md`](./SECURITY_PIPELINE.md) — Pipeline de segurança (CodeQL, Gitleaks, Trivy) e gates de qualidade
 
 ---
 
@@ -16,6 +18,9 @@
 
 ```
 gpp_plataform2.0/
+├── .github/
+│   └── workflows/
+│       └── security.yml   # Pipeline de segurança e qualidade (CI/CD)
 ├── apps/
 │   ├── accounts/          # IAM central — autenticação, usuários, roles, ABAC
 │   ├── acoes_pngi/        # Domínio: Ações do Programa PNGI
@@ -55,6 +60,8 @@ gpp_plataform2.0/
 | Testes         | `pytest-django` + `APIClient` DRF                 |
 | URLs nested    | `rest_framework_nested`                           |
 | Dev tools      | `django-debug-toolbar`, `pytest-cov`              |
+| CI/CD          | GitHub Actions (`security.yml`)                   |
+| Segurança CI   | CodeQL (SAST) · Gitleaks (secrets) · Trivy (CVEs) |
 
 ---
 
@@ -135,6 +142,27 @@ Detalhes em [`COMMON_INFRA.md`](./COMMON_INFRA.md).
 
 ---
 
+## Pipeline de CI/CD
+
+O projeto utiliza o workflow [`security.yml`](../.github/workflows/security.yml) que executa
+**automaticamente em todo push para `main` e em todo Pull Request**.
+
+### Jobs e Gates de Qualidade
+
+| Job | Ferramentas | Gate |
+|---|---|---|
+| `security (codeql)` | GitHub CodeQL — SAST Python | Alertas visíveis na aba Security (não bloqueia por `continue-on-error`) |
+| `security (gitleaks)` | Gitleaks — detecção de segredos | ❌ Bloqueia o pipeline se encontrar credencial exposta |
+| `security (trivy)` | Trivy — CVEs em dependências (CRITICAL/HIGH) | ❌ Bloqueia se houver CVE com correção disponível |
+| `tests (auth)` | pytest — middleware de sessão multi-cookie | ❌ Bloqueia em falha de teste |
+| `tests (policies)` | pytest — matriz de roles RBAC/ABAC | ❌ Bloqueia em falha de teste |
+| `tests (full)` | pytest + coverage — suite completa | ❌ Bloqueia se cobertura < 80% |
+
+> Para detalhes completos, configuração local e interpretação de falhas,
+> ver [`SECURITY_PIPELINE.md`](./SECURITY_PIPELINE.md).
+
+---
+
 ## Padrão de Testes
 
 - `pytest-django` com `@pytest.mark.django_db(transaction=True)` — **sempre** `transaction=True`
@@ -143,13 +171,14 @@ Detalhes em [`COMMON_INFRA.md`](./COMMON_INFRA.md).
 - Fixtures em `conftest.py` local de cada app + `conftest.py` raiz para fixtures globais
 - Testes de policy separados em `tests/policies/` por role
 - Referência de qualidade: `apps/accounts/tests/` — suite mais completa do projeto
+- **Gate de cobertura no CI**: suite `full` exige ≥ 80% de cobertura em `apps/` e `common/`
 
 ---
 
 ## Backlog Priorizado
 
 | # | Escopo                                                              | Arquivo(s)               | Status           |
-|---|---------------------------------------------------------------------|--------------------------|                  |
+|---|---------------------------------------------------------------------|--------------------------|------------------|
 | 1 | Campo `orgao` em `carga_org_lot.TokenEnvioCarga`                    | `models.py` + migrations | 🟡 identificado |
 | 2 | Campo `telefone` em `accounts.UserProfile`                          | `accounts/models.py`     | 🟡 identificado |
 | 3 | Testes nested resources `acoes_pngi` (prazos, destaques, anotações) | `tests/`                 | 🟡 identificado |
