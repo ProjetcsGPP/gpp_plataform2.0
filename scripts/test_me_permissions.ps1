@@ -8,15 +8,15 @@ $BASE_URL  = "http://localhost:8000"   # ajuste se necessário
 
 # CASO 1 — PORTAL
 $USERNAME1 = "alexandre.mohamad"
-$PASSWORD1 = "Awm2@11712"
+$SecurePassword1 = ConvertTo-SecureString "Awm2@11712" -AsPlainText -Force
 
 # CASO 2 — ACOES_PNGI
 $USERNAME2 = "alexandre.mohamad"
-$PASSWORD2 = "Awm2@11712"
+$SecurePassword2 = ConvertTo-SecureString "Awm2@11712" -AsPlainText -Force
 
 # CASO 3 — CARGA_ORG_LOT
 $USERNAME3 = "alexandre.mohamad"
-$PASSWORD3 = "Awm2@11712"
+$SecurePassword3 = ConvertTo-SecureString "Awm2@11712" -AsPlainText -Force
 
 # ============================================================
 # NÃO ALTERE ABAIXO DESTA LINHA
@@ -42,13 +42,10 @@ function Show-ErrorResponse {
     Write-Host "`n========================================" -ForegroundColor Magenta
     Write-Host " $Label" -ForegroundColor Magenta
     Write-Host "========================================" -ForegroundColor Magenta
-    # PS7: a resposta de erro fica em $Exception.Response (HttpResponseMessage)
     $errResp = $Exception.Response
     if ($errResp) {
         $statusCode = [int]$errResp.StatusCode
-        # Lê o body do erro — PS7 usa Content como string direto na exception
         $bodyText = $Exception.Message
-        # Tenta extrair via ResponseBody se disponível (Invoke-WebRequest -ErrorVariable)
         Write-Host "Status : $statusCode" -ForegroundColor Yellow
         Write-Host "Body   : $bodyText" -ForegroundColor White
     } else {
@@ -56,15 +53,25 @@ function Show-ErrorResponse {
     }
 }
 
-function Run-TestCase {
-    param($CaseLabel, $AppContext, $Username, $Password)
+function Invoke-TestCase {
+    param(
+        [string]$CaseLabel,
+        [string]$AppContext,
+        [string]$Username,
+        [SecureString]$SecurePassword
+    )
+
+    # Converte SecureString para plain text apenas para montar o JSON
+    $bstr     = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePassword)
+    $plainPwd = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
 
     Write-Host "`n>>> INICIANDO $CaseLabel — $AppContext" -ForegroundColor Green
 
     # ── LOGIN ──────────────────────────────────────────────
     $loginBody = @{
         username    = $Username
-        password    = $Password
+        password    = $plainPwd
         app_context = $AppContext
     } | ConvertTo-Json
 
@@ -87,11 +94,9 @@ function Run-TestCase {
     $cookieName = "gpp_session_$AppContext"
     $cookieValue = $null
 
-    # PS7: cookies ficam em $loginResp.Headers["Set-Cookie"] como array de strings
     $setCookieHeaders = $loginResp.Headers["Set-Cookie"]
     if ($setCookieHeaders) {
         foreach ($entry in $setCookieHeaders) {
-            # Cada entry pode ser "gpp_session_PORTAL=abc123; Path=/; HttpOnly"
             $parts = $entry -split ";"
             $nameValue = $parts[0].Trim()
             if ($nameValue -match "^$cookieName=") {
@@ -121,8 +126,6 @@ function Run-TestCase {
         Show-Response "$CaseLabel — GET /me/permissions/ ($AppContext)" $permResp.StatusCode $permResp.Content
 
     } catch {
-        # Captura body do erro 4xx via -ErrorVariable não funciona bem no PS7
-        # Usa o truque de ler ErrorDetails se disponível
         $errDetails = $_.ErrorDetails.Message
         $statusCode  = $_.Exception.Response.StatusCode.value__
         Write-Host "`n========================================" -ForegroundColor Magenta
@@ -143,9 +146,9 @@ function Run-TestCase {
 }
 
 # ─── CASOS AUTENTICADOS ───────────────────────────────────────────────────────
-Run-TestCase -CaseLabel "CASO 1" -AppContext "PORTAL"       -Username $USERNAME1 -Password $PASSWORD1
-Run-TestCase -CaseLabel "CASO 2" -AppContext "ACOES_PNGI"   -Username $USERNAME2 -Password $PASSWORD2
-Run-TestCase -CaseLabel "CASO 3" -AppContext "CARGA_ORG_LOT" -Username $USERNAME3 -Password $PASSWORD3
+Invoke-TestCase -CaseLabel "CASO 1" -AppContext "PORTAL"        -Username $USERNAME1 -SecurePassword $SecurePassword1
+Invoke-TestCase -CaseLabel "CASO 2" -AppContext "ACOES_PNGI"    -Username $USERNAME2 -SecurePassword $SecurePassword2
+Invoke-TestCase -CaseLabel "CASO 3" -AppContext "CARGA_ORG_LOT" -Username $USERNAME3 -SecurePassword $SecurePassword3
 
 # ─── CASO 4 — Sem autenticacao (esperado 401) ─────────────────────────────────
 Write-Host "`n>>> INICIANDO CASO 4 — Sem autenticacao" -ForegroundColor Green
