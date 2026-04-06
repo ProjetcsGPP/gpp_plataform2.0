@@ -445,26 +445,46 @@ class MeSerializer(serializers.Serializer):
         return profile.status_usuario_id if profile else None
 
 class MePermissionSerializer(serializers.Serializer):
-    id = serializers.IntegerField(source="user.id")
-    is_portal_admin = serializers.SerializerMethodField()
-    status_usuario_id = serializers.SerializerMethodField()
+    """
+    Serializer para GET /api/accounts/me/permissions/?app=<codigo>
+    Retorna a role do usuário na app e os codenames de permissão concedidos.
 
-    roles = UserRoleSerializer(source="user_roles", many=True)
+    Formato:
+    {
+        "role": "admin",
+        "granted": ["programas.view", "usuarios.manage"]
+    }
 
-    def get_is_portal_admin(self, obj):
-        return UserRole.objects.filter(
-            user=obj["user"],
-            role__codigoperfil="PORTAL_ADMIN",
-        ).exists()
+    Espera receber o dict:
+    {
+        "role": <instância Role>,
+        "user": <instância User>,
+    }
+    """
+    role = serializers.SerializerMethodField()
+    granted = serializers.SerializerMethodField()
 
-    def get_name(self, obj):
-        profile = obj.get("profile")
-        return profile.name if profile else None
+    def get_role(self, obj):
+        # Retorna o codigoperfil da role (ex: "PORTAL_ADMIN", "GESTOR", "OPERADOR")
+        return obj["role"].codigoperfil
 
-    def get_orgao(self, obj):
-        profile = obj.get("profile")
-        return profile.orgao if profile else None
+    def get_granted(self, obj):
+        user = obj["user"]
+        role = obj["role"]
+        group = role.group  # Group Django vinculado à role
 
-    def get_status_usuario_id(self, obj):
-        profile = obj.get("profile")
-        return profile.status_usuario_id if profile else None
+        if group is None:
+            # Se a role não tem grupo, retorna as permissões diretas do usuário
+            return list(
+                user.user_permissions
+                .values_list("codename", flat=True)
+                .order_by("codename")
+            )
+
+        # Retorna apenas as permissões do grupo da role (não todas do usuário)
+        # Formato: "app_label.codename" → ex: "programas.view_programa"
+        return list(
+            group.permissions
+            .values_list("codename", flat=True)
+            .order_by("codename")
+        )

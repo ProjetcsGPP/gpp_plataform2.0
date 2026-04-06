@@ -60,6 +60,7 @@ from .serializers import (
     UserProfileSerializer,
     UserRoleSerializer,
     MeSerializer,
+    MePermissionSerializer,
 )
 from .services.permission_sync import (
     sync_user_permissions_from_group,
@@ -324,35 +325,66 @@ class MeView(APIView):
 
         return Response(data)
     
-
 class MePermissionView(APIView):
     """
-    GET /api/accounts/me/permissions/?app=PORTAL
-    Retorna dados do usuário autenticado: role indicada + acessos da role.
-    json {
-        "role": "admin",
+    GET /api/accounts/me/permissions/
+
+    Retorna a role do usuário autenticado na aplicação da sessão atual
+    e as permissões concedidas por essa role.
+
+    Resposta:
+    {
+        "role": "GESTOR",
         "granted": ["programas.view", "usuarios.manage"]
     }
+
+    Erros:
+    - 400 se a sessão não tiver app_context gravado
+    - 404 se a aplicação não existir/estiver bloqueada ou o usuário não tiver role nela
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = request.user
-        role = request.role
+        app_codigo = request.session.get("app_context", "").strip().upper()
 
-        user_roles = (
+        if not app_codigo:
+            return Response(
+                {"detail": "Contexto de app não encontrado na sessão.", "code": "no_app_context"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        app = Aplicacao.objects.filter(
+            codigointerno=app_codigo,
+            isappbloqueada=False,
+        ).first()
+
+        if not app:
+            return Response(
+                {"detail": "Aplicação não encontrada ou bloqueada.", "code": "app_not_found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        user_role = (
             UserRole.objects
-            .filter(user=user)
-            .filter(role=role)
-            .select_related("role", "aplicacao")
+            .select_related("role__group")
+            .filter(user=request.user, aplicacao=app)
+            .first()
         )
 
-        data = MeSerializer({
-            "user": user,
-            "user_roles": user_roles,
+        if not user_role:
+            return Response(
+                {"detail": "Usuário sem role na aplicação informada.", "code": "no_role"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        data = MePermissionSerializer({
+            "user": request.user,
+            "role": user_role.role,
         }).data
 
         return Response(data)
+
+
     
 
 
