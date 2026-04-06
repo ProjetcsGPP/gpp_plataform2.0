@@ -31,6 +31,10 @@ FIX-THROTTLE-2: throttle_scope removido de LoginView — o rate limit de login �
 MULTI-COOKIE: cada app possui sessão independente (gpp_session_{APP}).
               SwitchAppView removida — obsoleta neste modelo; o frontend
               simplesmente faz um segundo login na app destino.
+FIX-ME-PERMISSIONS: MePermissionView agora lê request.app_context (definido pelo
+              AppContextMiddleware) em vez de request.session.get('app_context').
+              O middleware não usa o sistema de sessão Django padrão — ele resolve
+              a sessão via AccountsSession e grava o contexto diretamente na request.
 """
 import logging
 from datetime import timedelta
@@ -324,6 +328,7 @@ class MeView(APIView):
         }).data
 
         return Response(data)
+
     
 class MePermissionView(APIView):
     """
@@ -341,11 +346,25 @@ class MePermissionView(APIView):
     Erros:
     - 400 se a sessão não tiver app_context gravado
     - 404 se a aplicação não existir/estiver bloqueada ou o usuário não tiver role nela
+
+    NOTA TÉCNICA:
+    O AppContextMiddleware resolve a sessão via cookie gpp_session_{APP} e
+    AccountsSession, gravando o resultado em request.app_context (atributo da
+    request). Ele NÃO popula request.session (sessão Django padrão) nesse fluxo,
+    portanto é obrigatório ler request.app_context — e não request.session.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        app_codigo = request.session.get("app_context", "").strip().upper()
+        # Lê o app_context gravado pelo AppContextMiddleware na request,
+        # com fallback para request.session para compatibilidade com
+        # requests feitas via sessão Django padrão (ex: admin, testes diretos).
+        app_codigo = (
+            getattr(request, "app_context", None)
+            or request.session.get("app_context", "")
+        )
+        if isinstance(app_codigo, str):
+            app_codigo = app_codigo.strip().upper()
 
         if not app_codigo:
             return Response(
