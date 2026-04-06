@@ -123,10 +123,15 @@ class LoginView(APIView):
                 role__codigoperfil="PORTAL_ADMIN"
             ).exists()
             if not has_access:
-                return Response(
-                    {"detail": "Acesso ao Portal restrito a administradores.", "code": "not_portal_admin"},
-                    status=status.HTTP_403_FORBIDDEN
-                )
+                has_access_user = UserRole.objects.filter(
+                    user=user,
+                    role__codigoperfil="PORTAL_USER"
+                ).exists()
+                if not has_access_user:
+                    return Response(
+                        {"detail": "Usuário sem acesso ao Portal.", "code": "no_role"},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
         else:
             has_access = UserRole.objects.filter(
                 user=user,

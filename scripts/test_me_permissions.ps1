@@ -7,16 +7,20 @@
 $BASE_URL  = "http://localhost:8000"   # ajuste se necessário
 
 # CASO 1 — PORTAL
-$USERNAME1 = "alexandre.mohamad"
-$SecurePassword1 = ConvertTo-SecureString "Awm2@11712" -AsPlainText -Force
+$USERNAME1 = "luciano.umbelino"
+$SecurePassword1 = ConvertTo-SecureString "Awm2@1171" -AsPlainText -Force
 
-# CASO 2 — ACOES_PNGI
+# CASO 2 — PORTAL
 $USERNAME2 = "alexandre.mohamad"
 $SecurePassword2 = ConvertTo-SecureString "Awm2@11712" -AsPlainText -Force
 
-# CASO 3 — CARGA_ORG_LOT
-$USERNAME3 = "alexandre.mohamad"
+# CASO 3 — ACOES_PNGI
+$USERNAME2 = "alexandre.mohamad"
 $SecurePassword3 = ConvertTo-SecureString "Awm2@11712" -AsPlainText -Force
+
+# CASO 4 — CARGA_ORG_LOT
+$USERNAME3 = "alexandre.mohamad"
+$SecurePassword4 = ConvertTo-SecureString "Awm2@11712" -AsPlainText -Force
 
 # ============================================================
 # NÃO ALTERE ABAIXO DESTA LINHA
@@ -146,39 +150,40 @@ function Invoke-TestCase {
 }
 
 # ─── CASOS AUTENTICADOS ───────────────────────────────────────────────────────
-Invoke-TestCase -CaseLabel "CASO 1" -AppContext "PORTAL"        -Username $USERNAME1 -SecurePassword $SecurePassword1
-Invoke-TestCase -CaseLabel "CASO 2" -AppContext "ACOES_PNGI"    -Username $USERNAME2 -SecurePassword $SecurePassword2
-Invoke-TestCase -CaseLabel "CASO 3" -AppContext "CARGA_ORG_LOT" -Username $USERNAME3 -SecurePassword $SecurePassword3
+Invoke-TestCase -CaseLabel "CASO 1 PORTAL USER" -AppContext "PORTAL"        -Username $USERNAME1 -SecurePassword $SecurePassword1
+Invoke-TestCase -CaseLabel "CASO 2 PORTAL ADMIN" -AppContext "PORTAL"        -Username $USERNAME2 -SecurePassword $SecurePassword2
+Invoke-TestCase -CaseLabel "CASO 3 ACOES_PNGI" -AppContext "ACOES_PNGI"    -Username $USERNAME3 -SecurePassword $SecurePassword3
+Invoke-TestCase -CaseLabel "CASO 4 CARGA_ORG_LOT" -AppContext "CARGA_ORG_LOT" -Username $USERNAME4 -SecurePassword $SecurePassword4
 
 # ─── CASO 4 — Sem autenticacao (esperado 401) ─────────────────────────────────
-Write-Host "`n>>> INICIANDO CASO 4 — Sem autenticacao" -ForegroundColor Green
+Write-Host "`n>>> INICIANDO CASO 5 — Sem autenticacao" -ForegroundColor Green
 try {
     $r = Invoke-WebRequest -Uri "$BASE_URL/api/accounts/me/permissions/" -Method GET -ErrorAction Stop
-    Show-Response "CASO 4 — Sem autenticacao" $r.StatusCode $r.Content
+    Show-Response "CASO 5 — Sem autenticacao" $r.StatusCode $r.Content
 } catch {
     $statusCode  = $_.Exception.Response.StatusCode.value__
     $errDetails  = $_.ErrorDetails.Message
     Write-Host "`n========================================" -ForegroundColor Magenta
-    Write-Host " CASO 4 — Sem autenticacao (esperado 401)" -ForegroundColor Magenta
+    Write-Host " CASO 5 — Sem autenticacao (esperado 401)" -ForegroundColor Magenta
     Write-Host "========================================" -ForegroundColor Magenta
     Write-Host "Status : $statusCode" -ForegroundColor Yellow
     Write-Host "Body   : $errDetails" -ForegroundColor White
 }
 
 # ─── CASO 5 — Cookie forjado (esperado 401) ───────────────────────────────────
-Write-Host "`n>>> INICIANDO CASO 5 — Cookie forjado" -ForegroundColor Green
+Write-Host "`n>>> INICIANDO CASO 6 — Cookie forjado" -ForegroundColor Green
 try {
     $r = Invoke-WebRequest `
         -Uri     "$BASE_URL/api/accounts/me/permissions/" `
         -Method  GET `
         -Headers @{ Cookie = "gpp_session_PORTAL=sessao_invalida_forjada_12345" } `
         -ErrorAction Stop
-    Show-Response "CASO 5 — Cookie forjado" $r.StatusCode $r.Content
+    Show-Response "CASO 6 — Cookie forjado" $r.StatusCode $r.Content
 } catch {
     $statusCode  = $_.Exception.Response.StatusCode.value__
     $errDetails  = $_.ErrorDetails.Message
     Write-Host "`n========================================" -ForegroundColor Magenta
-    Write-Host " CASO 5 — Cookie forjado (esperado 401)" -ForegroundColor Magenta
+    Write-Host " CASO 6 — Cookie forjado (esperado 401)" -ForegroundColor Magenta
     Write-Host "========================================" -ForegroundColor Magenta
     Write-Host "Status : $statusCode" -ForegroundColor Yellow
     Write-Host "Body   : $errDetails" -ForegroundColor White
