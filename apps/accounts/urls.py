@@ -8,6 +8,7 @@ from .views import (
     LogoutView,
     LogoutAppView,
     MeView,
+    MePermissionView,
     RoleViewSet,
     UserCreateView,
     UserCreateWithRoleView,
@@ -40,6 +41,7 @@ urlpatterns = [
     path("logout/<str:app_slug>/", LogoutAppView.as_view(), name="logout_app"),
 
     path("me/", MeView.as_view(), name="me"),
+    path("me/permissions/", MePermissionView.as_view(), name="me-permissions"),
     path("users/", UserCreateView.as_view(), name="user-create"),
     path("users/create-with-role/", UserCreateWithRoleView.as_view(), name="user-create-with-role"),
 ]

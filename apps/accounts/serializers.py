@@ -443,3 +443,28 @@ class MeSerializer(serializers.Serializer):
     def get_status_usuario_id(self, obj):
         profile = obj.get("profile")
         return profile.status_usuario_id if profile else None
+
+class MePermissionSerializer(serializers.Serializer):
+    id = serializers.IntegerField(source="user.id")
+    is_portal_admin = serializers.SerializerMethodField()
+    status_usuario_id = serializers.SerializerMethodField()
+
+    roles = UserRoleSerializer(source="user_roles", many=True)
+
+    def get_is_portal_admin(self, obj):
+        return UserRole.objects.filter(
+            user=obj["user"],
+            role__codigoperfil="PORTAL_ADMIN",
+        ).exists()
+
+    def get_name(self, obj):
+        profile = obj.get("profile")
+        return profile.name if profile else None
+
+    def get_orgao(self, obj):
+        profile = obj.get("profile")
+        return profile.orgao if profile else None
+
+    def get_status_usuario_id(self, obj):
+        profile = obj.get("profile")
+        return profile.status_usuario_id if profile else None

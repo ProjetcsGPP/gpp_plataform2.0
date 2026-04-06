@@ -304,6 +304,7 @@ class MeView(APIView):
 
     def get(self, request):
         user = request.user
+        
         try:
             profile = user.profile
         except UserProfile.DoesNotExist:
@@ -322,6 +323,37 @@ class MeView(APIView):
         }).data
 
         return Response(data)
+    
+
+class MePermissionView(APIView):
+    """
+    GET /api/accounts/me/permissions/?app=PORTAL
+    Retorna dados do usuário autenticado: role indicada + acessos da role.
+    json {
+        "role": "admin",
+        "granted": ["programas.view", "usuarios.manage"]
+    }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        role = request.role
+
+        user_roles = (
+            UserRole.objects
+            .filter(user=user)
+            .filter(role=role)
+            .select_related("role", "aplicacao")
+        )
+
+        data = MeSerializer({
+            "user": user,
+            "user_roles": user_roles,
+        }).data
+
+        return Response(data)
+    
 
 
 # ─── User Create View (GAP-01) ─────────────────────────────────────────────────
