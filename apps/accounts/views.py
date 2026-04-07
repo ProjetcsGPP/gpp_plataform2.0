@@ -39,6 +39,12 @@ FASE-4-PERM: UserRoleViewSet.create() e destroy() agora usam sync_user_permissio
              — orquestrador idempotente com substituição completa (corrige D-04).
 FASE-5-PERM (Issue #18): UserPermissionOverrideViewSet adicionado — garante que toda
              mutação em UserPermissionOverride aciona sync_user_permissions(user).
+FIX(Issue #22): LoginView substitui update_or_create por revoke+create.
+             cycle_key() rotaciona o session_key antes do update_or_create, portanto
+             o lookup nunca encontrava registro existente e sempre criava um novo,
+             acumulando sessões antigas com app_context=None no banco.
+             A correção revoga sessões ativas do mesmo usuário/app antes de criar
+             a nova, garantindo exatamente uma AccountsSession ativa por (user, app).
 """
 import logging
 from datetime import timedelta
@@ -77,7 +83,7 @@ from .utils import get_client_ip
 security_logger = logging.getLogger("gpp.security")
 
 
-# ─── Auth Views (Sessão) ──────────────────────────────────────────────────────
+# ─── Auth Views (Sessão) ──────────────────────────────────────────────────
 class LoginView(APIView):
     """
     POST /api/accounts/login/
@@ -158,17 +164,32 @@ class LoginView(APIView):
         cookie_name = f"gpp_session_{app_context}"
         session_key = request.session.session_key
 
-        AccountsSession.objects.update_or_create(
+        # FIX(Issue #22): cycle_key() já rotacionou o session_key antes deste ponto,
+        # portanto update_or_create com (user, session_key) nunca encontraria um
+        # registro existente — sempre criaria um novo, acumulando sessões antigas
+        # com app_context=None que poluem o resultado do middleware.
+        #
+        # Correção: revogar TODAS as sessões ativas do mesmo (user, cookie_name)
+        # antes de criar a nova, garantindo exatamente uma AccountsSession ativa
+        # por (usuário, aplicação) a qualquer momento.
+        AccountsSession.objects.filter(
+            user=user,
+            session_cookie_name=cookie_name,
+            revoked=False,
+        ).update(
+            revoked=True,
+            revoked_at=dj_timezone.now(),
+        )
+
+        AccountsSession.objects.create(
             user=user,
             session_key=session_key,
-            defaults={
-                "app_context": app_context,
-                "session_cookie_name": cookie_name,
-                "expires_at": dj_timezone.now() + timedelta(seconds=settings.SESSION_COOKIE_AGE),
-                "ip_address": get_client_ip(request),
-                "user_agent": request.META.get("HTTP_USER_AGENT", ""),
-                "revoked": False,
-            }
+            app_context=app_context,
+            session_cookie_name=cookie_name,
+            expires_at=dj_timezone.now() + timedelta(seconds=settings.SESSION_COOKIE_AGE),
+            ip_address=get_client_ip(request),
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            revoked=False,
         )
 
         security_logger.info("LOGIN_SUCCESS user_id=%s app=%s cookie=%s", user.id, app_context, cookie_name)
@@ -305,7 +326,7 @@ class LogoutAppView(APIView):
         return response
 
 
-# ─── Me View ────────────────────────────────────────────────────────────────────
+# ─── Me View ────────────────────────────────────────────────────────────────────────────────────
 class MeView(APIView):
     """
     GET /api/accounts/me/
@@ -407,7 +428,7 @@ class MePermissionView(APIView):
         return Response(data)
 
 
-# ─── User Create View (GAP-01) ─────────────────────────────────────────────────────
+# ─── User Create View (GAP-01) ───────────────────────────────────────────────────────
 
 class UserCreateView(APIView):
     """
@@ -461,7 +482,7 @@ class UserCreateView(APIView):
         )
 
 
-# ─── User Create With Role View (FASE 6) ──────────────────────────────────────────
+# ─── User Create With Role View (FASE 6) ──────────────────────────────────────────────
 
 class UserCreateWithRoleView(APIView):
     """
@@ -524,7 +545,7 @@ class UserCreateWithRoleView(APIView):
         return Response(result, status=status.HTTP_201_CREATED)
 
 
-# ─── Aplicacao Publica ViewSet (ARCH-01) ─────────────────────────────────────────────
+# ─── Aplicacao Publica ViewSet (ARCH-01) ────────────────────────────────────────────────
 class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/auth/aplicacoes/
@@ -554,7 +575,7 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
         ).order_by("nomeaplicacao")
 
 
-# ─── Aplicacao ViewSet (GAP-02 / ARCH-01) ───────────────────────────────────────────
+# ─── Aplicacao ViewSet (GAP-02 / ARCH-01) ───────────────────────────────────────────────
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/aplicacoes/
@@ -592,7 +613,7 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
         ).order_by("nomeaplicacao")
 
 
-# ─── CRUD ViewSets ───────────────────────────────────────────────────────────────────
+# ─── CRUD ViewSets ────────────────────────────────────────────────────────────────────────
 
 class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """
