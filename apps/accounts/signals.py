@@ -7,6 +7,12 @@ Responsabilidades:
      - UserRole é criado/deletado
      - auth_group_permissions muda (m2m_changed)
      - Aplicacao é criada/alterada (invalida ApplicationRegistry)
+
+FASE-4-PERM (corrige D-05):
+  invalidate_on_group_permission_change agora re-sincroniza auth_user_user_permissions
+  para todos os usuários afetados pela mudança, além de invalidar o cache.
+  Antes desta correção, a invalidação de cache não garantia que os dados em
+  auth_user_user_permissions fossem consistentes com as novas permissões do grupo.
 """
 import logging
 
@@ -77,17 +83,27 @@ def invalidate_on_userrole_change(sender, instance, **kwargs):
 @receiver(m2m_changed, sender=Group.permissions.through)
 def invalidate_on_group_permission_change(sender, instance, action, **kwargs):
     """
-    Quando auth_group_permissions muda, invalida cache de todos os
-    usuários que têm roles ligadas a esse grupo.
+    Quando auth_group_permissions muda, invalida cache E re-sincroniza
+    auth_user_user_permissions para todos os usuários que têm roles ligadas
+    a esse grupo.
+
     Cobre: post_add, post_remove, post_clear.
+
+    FASE-4-PERM (corrige D-05):
+        Além de invalidar o cache, chama sync_users_permissions() para garantir
+        que auth_user_user_permissions reflita imediatamente as novas permissões
+        do grupo. Sem este re-sync, usuários com cache expirado receberiam as
+        permissões novas, mas usuários com dados em auth_user_user_permissions
+        desatualizados continuariam com o conjunto antigo.
     """
     if action not in ("post_add", "post_remove", "post_clear"):
         return
 
     from apps.accounts.models import Role, UserRole
+    from apps.accounts.services.permission_sync import sync_users_permissions
 
     roles = Role.objects.filter(group=instance)
-    affected_user_ids = (
+    affected_user_ids = list(
         UserRole.objects
         .filter(role__in=roles)
         .values_list("user_id", flat=True)
@@ -98,9 +114,17 @@ def invalidate_on_group_permission_change(sender, instance, action, **kwargs):
         _bump_user_version(user_id)
 
     security_logger.warning(
-        "GROUP_PERM_CHANGED group=%s affected_users=%s",
-        instance.name, list(affected_user_ids),
+        "GROUP_PERM_CHANGED group=%s affected_users=%s action=%s",
+        instance.name, affected_user_ids, action,
     )
+
+    # D-05: re-sincroniza auth_user_user_permissions para os usuários afetados
+    if affected_user_ids:
+        sync_users_permissions(affected_user_ids)
+        security_logger.info(
+            "GROUP_PERM_RESYNC_TRIGGERED group=%s users=%s",
+            instance.name, affected_user_ids,
+        )
 
 
 # ─── Invalidação do ApplicationRegistry ────────────────────────────────────

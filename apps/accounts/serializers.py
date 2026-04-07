@@ -13,6 +13,10 @@ POLICY-EXPANSION: AplicacaoSerializer expõe os três flags; UserCreateWithRoleS
 FASE-0: GPPTokenObtainPairSerializer removido — JWT eliminado do fluxo de autenticação.
 ARCH-01: AplicacaoPublicaSerializer — endpoint público expõe apenas codigointerno +
          nomeaplicacao, sem vazar flags internos nem idaplicacao (PK interna).
+FASE-4-PERM: UserCreateWithRoleSerializer.create() usa sync_user_permissions() —
+             orquestrador idempotente com substituição completa (corrige D-04).
+FASE-4-PERM: MePermissionSerializer.get_granted() lê de user.user_permissions
+             filtrado pelos codenames do grupo da role (corrige D-02).
 """
 import logging
 
@@ -23,7 +27,7 @@ from django.db import transaction
 from django.utils import timezone as dj_timezone
 from rest_framework import serializers
 
-from .services.permission_sync import sync_user_permissions_from_group
+from .services.permission_sync import sync_user_permissions
 
 from .models import (
     Aplicacao,
@@ -280,6 +284,8 @@ class UserRoleSerializer(serializers.ModelSerializer):
 class UserCreateWithRoleSerializer(serializers.Serializer):
     """
     FASE 6 — Criação atômica de auth.User + UserProfile + UserRole + sync de permissões.
+    FASE 4 — usa sync_user_permissions() (orquestrador idempotente) em vez de
+             sync_user_permissions_from_group() (incremental).
     """
 
     username   = serializers.CharField(max_length=150)
@@ -381,21 +387,18 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
                 role=role,
             )
 
-            permissions_added = sync_user_permissions_from_group(
-                user=user,
-                group=role.group,
-            )
+            # Fase 4: sync completo via orquestrador idempotente
+            sync_user_permissions(user=user)
 
         return {
-            "user_id":           user.id,
-            "username":          user.username,
-            "email":             user.email,
-            "name":              profile.name,
-            "orgao":             profile.orgao,
-            "aplicacao":         aplicacao.codigointerno,
-            "role":              role.codigoperfil,
-            "permissions_added": permissions_added,
-            "datacriacao":       profile.datacriacao,
+            "user_id":     user.id,
+            "username":    user.username,
+            "email":       user.email,
+            "name":        profile.name,
+            "orgao":       profile.orgao,
+            "aplicacao":   aplicacao.codigointerno,
+            "role":        role.codigoperfil,
+            "datacriacao": profile.datacriacao,
         }
 
 
@@ -444,6 +447,7 @@ class MeSerializer(serializers.Serializer):
         profile = obj.get("profile")
         return profile.status_usuario_id if profile else None
 
+
 class MePermissionSerializer(serializers.Serializer):
     """
     Serializer para GET /api/accounts/me/permissions/?app=<codigo>
@@ -451,8 +455,8 @@ class MePermissionSerializer(serializers.Serializer):
 
     Formato:
     {
-        "role": "admin",
-        "granted": ["programas.view", "usuarios.manage"]
+        "role": "GESTOR",
+        "granted": ["view_programa", "add_programa"]
     }
 
     Espera receber o dict:
@@ -460,31 +464,43 @@ class MePermissionSerializer(serializers.Serializer):
         "role": <instância Role>,
         "user": <instância User>,
     }
+
+    FASE-4-PERM (corrige D-02):
+        A leitura agora é feita diretamente de ``user.user_permissions``
+        (``auth_user_user_permissions``), filtrada pelos codenames do grupo
+        da role para manter o escopo por aplicação.
+        Isso garante que as permissões retornadas sejam consistentes com
+        o que ``AuthorizationService.can()`` e ``HasRolePermission`` enxergam.
     """
     role = serializers.SerializerMethodField()
     granted = serializers.SerializerMethodField()
 
     def get_role(self, obj):
-        # Retorna o codigoperfil da role (ex: "PORTAL_ADMIN", "GESTOR", "OPERADOR")
         return obj["role"].codigoperfil
 
     def get_granted(self, obj):
         user = obj["user"]
         role = obj["role"]
-        group = role.group  # Group Django vinculado à role
+        group = role.group
 
         if group is None:
-            # Se a role não tem grupo, retorna as permissões diretas do usuário
+            # Role sem grupo: retorna todas as permissões diretas do usuário
             return list(
                 user.user_permissions
                 .values_list("codename", flat=True)
                 .order_by("codename")
             )
 
-        # Retorna apenas as permissões do grupo da role (não todas do usuário)
-        # Formato: "app_label.codename" → ex: "programas.view_programa"
+        # Obtém os codenames que o grupo define para esta role
+        group_codenames = set(
+            group.permissions.values_list("codename", flat=True)
+        )
+
+        # Retorna apenas as permissões do usuário que pertencem ao escopo
+        # desta role — leitura exclusiva de auth_user_user_permissions (D-02)
         return list(
-            group.permissions
+            user.user_permissions
+            .filter(codename__in=group_codenames)
             .values_list("codename", flat=True)
             .order_by("codename")
         )

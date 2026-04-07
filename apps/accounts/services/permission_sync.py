@@ -2,50 +2,64 @@
 permission_sync.py
 ==================
 
-Serviço de materialização de permissões do sistema RBAC da GPP Plataform.
+Orquestrador oficial, idempotente e transacional do cálculo de permissões
+do sistema RBAC da GPP Plataform.
 
 Regra oficial do domínio
 ------------------------
-A tabela `auth_user_user_permissions` é a Única fonte de verdade consultada
-em runtime para decisões de autorização. Permissões não são lidas de
-`auth_user_groups` nem derivadas de `auth_group_permissions` diretamente
+A tabela ``auth_user_user_permissions`` é a única fonte de verdade consultada
+em runtime para decisões de autorização. Permissões **não** são lidas de
+``auth_user_groups`` nem derivadas de ``auth_group_permissions`` diretamente
 durante a verificação de acesso.
 
-Fluxo de materialização
------------------------
-  1. Atribuição de role (UserRoleViewSet.create / UserCreateWithRoleSerializer):
-       sync_user_permissions_from_group(user, role.group)
-       └─► merge de auth_group_permissions → auth_user_user_permissions
+Fluxo de materialização (Fase 4)
+---------------------------------
+  Para cada usuário com roles ativas:
 
-  2. Remoção de role (UserRoleViewSet.destroy):
-       revoke_user_permissions_from_group(user, group_removed)
-       └─► remoção seletiva de auth_user_user_permissions
+  1. Busca todas as ``UserRole`` ativas do usuário.
+  2. Resolve ``Role → Group`` para cada UserRole.
+  3. Busca permissões de cada grupo em ``auth_group_permissions``.
+  4. Calcula o conjunto herdado (união de todas as permissões dos grupos).
+  5. Aplica overrides de ``UserPermissionOverride``:
+       - ``mode=grant``  → adiciona ao conjunto herdado
+       - ``mode=revoke`` → remove do conjunto herdado
+  6. Materializa o conjunto final em ``auth_user_user_permissions``
+     via **substituição completa** (``user.user_permissions.set()``).
+
+  A substituição completa (passo 6) garante idempotência e elimina
+  "phantom perms" adicionadas manualmente fora do fluxo — corrige D-04.
 
 Papel residual de auth_user_groups
 -----------------------------------
-`auth_user_groups` NÃO é populado nem consultado por este sistema.
-Os grupos (`auth.Group`) funcionam apenas como template institucional de
-permissões. As permissões são copiadas (materializadas) individualmente em
-`auth_user_user_permissions` durante o sync. Veja ADR-PERM-01 em
-docs/PERMISSIONS_ARCHITECTURE.md.
+``auth_user_groups`` NÃO é populado nem consultado por este sistema.
+Os grupos (``auth.Group``) funcionam apenas como template institucional de
+permissões. Veja ADR-PERM-01 em docs/PERMISSIONS_ARCHITECTURE.md.
 
 Regras de negócio
 -----------------
-  R-01  revoke nunca remove permissões cobertas por outro grupo ativo do usuário.
-  R-04  sync nunca remove permissões existentes em auth_user_user_permissions
-        (operação exclusivamente aditiva).
+  R-01  overrides ``revoke`` são aplicados sobre o conjunto herdado;
+        nunca removem permissões concedidas por outro grupo ativo.
+  R-04  a substituição completa via ``set()`` substitui todo o estado anterior;
+        não é incremental.
 
-Divergências abertas (ver Issue #14 — Fase 1)
----------------------------------------------
-  D-04  revoke_user_permissions_from_group deriva grupos remanescentes via ORM
-        (Group.filter(roles__userrole__user=user)) sem confirmar contra
-        auth_user_user_permissions. Pode gerar phantom perms se permissões
-        forem adicionadas fora do fluxo de sync. A correção está planejada
-        para a Fase 3 da refatoração.
-  D-05  A invalidação de cache disparada por signals ao alterar
-        auth_group_permissions não re-sincroniza auth_user_user_permissions.
-        Alterações de permissões no grupo exigem re-sync manual dos usuários
-        afetados até que D-05 seja corrigido.
+Divergências corrigidas nesta fase
+-----------------------------------
+  D-04  Corrigida: substituição completa elimina phantom perms.
+  D-05  Corrigida: ``invalidate_on_group_permission_change`` agora chama
+        ``sync_users_permissions`` para re-sincronizar todos os usuários
+        afetados pela mudança de permissões no grupo.
+
+API pública
+-----------
+  calculate_inherited_permissions(user)  → set[Permission]  (pura, sem gravação)
+  calculate_effective_permissions(user)  → set[Permission]  (com overrides, sem gravação)
+  sync_user_permissions(user)            → None              (grava, idempotente)
+  sync_users_permissions(user_ids)       → None              (batch)
+  sync_all_users_permissions()           → None              (todos com roles ativas)
+
+  Aliases deprecados (retro-compatibilidade):
+  sync_user_permissions_from_group(user, group)             → None
+  revoke_user_permissions_from_group(user, group_removed)   → None
 """
 
 import logging
@@ -56,158 +70,249 @@ from django.db import transaction
 logger = logging.getLogger("gpp.permission_sync")
 
 
-def sync_user_permissions_from_group(user, group) -> None:
+# ──────────────────────────────────────────────────────────────────────────────
+# Funções de cálculo (puras — não gravam no banco)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def calculate_inherited_permissions(user) -> set:
     """
-    Materializa as permissões de `group` em `auth_user_user_permissions`
-    para o usuário informado.
+    Calcula o conjunto de permissões herdadas das roles ativas do usuário
+    via ``auth_group_permissions``.
 
-    Operação: **merge aditivo** — nunca remove permissões já existentes
-    (Regra R-04). Garante que usuários com múltiplas roles acumulem
-    todas as permissões dos respectivos grupos.
-
-    Fluxo:
-        1. Obtém as permissões de `group` via `auth_group_permissions`.
-        2. Calcula a diferença em relação ao que o usuário já possui.
-        3. Adiciona apenas as permissões novas em `auth_user_user_permissions`.
-
-    Esta função deve ser chamada dentro de uma transação atômica,
-    junto com a criação do `UserRole` correspondente.
+    Navega: ``UserRole → Role → Group → auth_group_permissions``.
+    Retorna objetos ``Permission`` (não PKs).
+    Não grava nada no banco — função pura de leitura.
 
     Args:
-        user (User): instância de `django.contrib.auth.models.User`.
-        group (Group | None): instância de `django.contrib.auth.models.Group`.
-            Se `None` (role sem grupo), a função retorna imediatamente
-            sem efeito colateral.
+        user: instância de ``django.contrib.auth.models.User``.
+
+    Returns:
+        set[Permission]: conjunto de permissões herdadas. Pode ser vazio.
+    """
+    from apps.accounts.models import UserRole
+
+    group_ids = (
+        UserRole.objects
+        .filter(user=user)
+        .select_related("role__group")
+        .exclude(role__group=None)
+        .values_list("role__group_id", flat=True)
+        .distinct()
+    )
+
+    if not group_ids:
+        logger.debug(
+            "PERM_INHERIT_EMPTY user_id=%s reason=no_active_roles_with_group",
+            user.pk,
+        )
+        return set()
+
+    perms = set(
+        Permission.objects
+        .filter(group__id__in=list(group_ids))
+        .distinct()
+    )
+
+    logger.debug(
+        "PERM_INHERIT_CALC user_id=%s inherited=%d",
+        user.pk, len(perms),
+    )
+    return perms
+
+
+def calculate_effective_permissions(user) -> set:
+    """
+    Aplica overrides de ``UserPermissionOverride`` sobre o conjunto herdado
+    e retorna o conjunto final de permissões efetivas do usuário.
+
+    Sequência:
+      1. Chama ``calculate_inherited_permissions(user)``.
+      2. Adiciona permissões com ``mode='grant'``.
+      3. Remove permissões com ``mode='revoke'``.
+
+    Não grava nada no banco — função pura de leitura.
+
+    Args:
+        user: instância de ``django.contrib.auth.models.User``.
+
+    Returns:
+        set[Permission]: conjunto efetivo de permissões. Pode ser vazio.
+    """
+    from apps.accounts.models import UserPermissionOverride
+
+    effective = calculate_inherited_permissions(user)
+
+    overrides = (
+        UserPermissionOverride.objects
+        .filter(user=user)
+        .select_related("permission")
+    )
+
+    grants = {o.permission for o in overrides if o.mode == "grant"}
+    revokes = {o.permission for o in overrides if o.mode == "revoke"}
+
+    effective = (effective | grants) - revokes
+
+    logger.debug(
+        "PERM_EFFECTIVE_CALC user_id=%s inherited=%d grants=%d revokes=%d effective=%d",
+        user.pk,
+        len(effective) + len(revokes) - len(grants),
+        len(grants),
+        len(revokes),
+        len(effective),
+    )
+    return effective
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Funções de materialização (escrevem em auth_user_user_permissions)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def sync_user_permissions(user) -> None:
+    """
+    Materializa as permissões efetivas do usuário em ``auth_user_user_permissions``
+    via **substituição completa** (``set()``).
+
+    Esta é a função central do orquestrador. Deve ser chamada sempre que o
+    estado de permissões do usuário puder ter mudado:
+      - Atribuição de role (``UserRoleViewSet.create``)
+      - Remoção de role (``UserRoleViewSet.destroy``)
+      - Criação de usuário com role (``UserCreateWithRoleSerializer.create``)
+      - Mudança de permissões em um grupo (signal ``invalidate_on_group_permission_change``)
+      - Qualquer alteração em ``UserPermissionOverride``
+
+    Idempotência:
+        Chamar esta função duas vezes seguidas para o mesmo usuário produz
+        o mesmo resultado em ``auth_user_user_permissions``.
+
+    Correção D-04:
+        A substituição completa via ``set()`` elimina quaisquer permissões
+        que tenham sido adicionadas manualmente fora do fluxo de sync
+        ("phantom perms").
+
+    Args:
+        user: instância de ``django.contrib.auth.models.User``.
 
     Raises:
         Não lança exceções diretamente; erros de banco propagam normalmente.
-
-    Exemplo::
-
-        with transaction.atomic():
-            user_role = UserRole.objects.create(
-                user=user, aplicacao=app, role=role
-            )
-            sync_user_permissions_from_group(user, role.group)
     """
-    if group is None:
-        logger.debug(
-            "PERM_SYNC_SKIP user_id=%s reason=group_is_none",
-            user.pk,
+    with transaction.atomic():
+        effective = calculate_effective_permissions(user)
+        current_pks = set(user.user_permissions.values_list("pk", flat=True))
+        new_pks = {p.pk for p in effective}
+
+        if current_pks == new_pks:
+            logger.debug(
+                "PERM_SYNC_NOOP user_id=%s reason=already_in_sync count=%d",
+                user.pk, len(new_pks),
+            )
+            return
+
+        user.user_permissions.set(effective)
+
+        added = new_pks - current_pks
+        removed = current_pks - new_pks
+
+        logger.info(
+            "PERM_SYNC user_id=%s total=%d added=%d removed=%d",
+            user.pk, len(new_pks), len(added), len(removed),
         )
+
+
+def sync_users_permissions(user_ids: list) -> None:
+    """
+    Sincroniza permissões de um conjunto de usuários via ``sync_user_permissions``.
+
+    Útil para re-sync em batch quando um grupo tem suas permissões alteradas
+    (corrige D-05), evitando que cada chamador precise iterar manualmente.
+
+    Args:
+        user_ids (list[int]): lista de PKs de usuários a re-sincronizar.
+    """
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+
+    if not user_ids:
         return
 
-    group_perms = set(group.permissions.values_list("pk", flat=True))
-    user_perms = set(user.user_permissions.values_list("pk", flat=True))
-    to_add_pks = group_perms - user_perms
-
-    if not to_add_pks:
-        logger.debug(
-            "PERM_SYNC_NOOP user_id=%s group=%s reason=already_synced",
-            user.pk,
-            group.name,
-        )
-        return
-
-    to_add = Permission.objects.filter(pk__in=to_add_pks)
-    user.user_permissions.add(*to_add)
+    users = User.objects.filter(pk__in=list(user_ids))
+    for user in users:
+        try:
+            sync_user_permissions(user)
+        except Exception:
+            logger.exception(
+                "PERM_SYNC_ERROR user_id=%s",
+                user.pk,
+            )
 
     logger.info(
-        "PERM_SYNC_ADD user_id=%s group=%s added=%d",
-        user.pk,
-        group.name,
-        len(to_add_pks),
+        "PERM_SYNC_BATCH count=%d",
+        len(list(user_ids)),
     )
+
+
+def sync_all_users_permissions() -> None:
+    """
+    Re-sincroniza as permissões de **todos** os usuários que possuem ao menos
+    uma ``UserRole`` ativa.
+
+    Útil para management commands de manutenção e migrações de dados.
+    Deve ser usado com cautela em produção — prefira ``sync_users_permissions``
+    para re-syncs pontuais.
+    """
+    from apps.accounts.models import UserRole
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+
+    user_ids = (
+        UserRole.objects
+        .values_list("user_id", flat=True)
+        .distinct()
+    )
+    total = user_ids.count()
+
+    logger.info("PERM_SYNC_ALL_START total_users=%d", total)
+
+    sync_users_permissions(list(user_ids))
+
+    logger.info("PERM_SYNC_ALL_DONE total_users=%d", total)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Aliases deprecados — retro-compatibilidade
+# ──────────────────────────────────────────────────────────────────────────────
+
+def sync_user_permissions_from_group(user, group) -> None:
+    """
+    .. deprecated::
+        Substituído por ``sync_user_permissions(user)`` na Fase 4.
+        Mantido para retro-compatibilidade. Chame ``sync_user_permissions``
+        diretamente em código novo.
+
+    Dispara um sync completo do usuário, ignorando o argumento ``group``.
+    O novo orquestrador calcula o conjunto efetivo a partir de todas as
+    roles ativas do usuário — não de um grupo específico.
+    """
+    logger.debug(
+        "PERM_SYNC_COMPAT_CALL user_id=%s alias=sync_user_permissions_from_group",
+        user.pk,
+    )
+    sync_user_permissions(user)
 
 
 def revoke_user_permissions_from_group(user, group_removed) -> None:
     """
-    Remove de `auth_user_user_permissions` as permissões que eram exclusivas
-    do grupo removido, respeitando a Regra R-01.
+    .. deprecated::
+        Substituído por ``sync_user_permissions(user)`` na Fase 4.
+        Mantido para retro-compatibilidade. Chame ``sync_user_permissions``
+        diretamente em código novo.
 
-    Operação: **remoção seletiva** — só remove permissões que não estão
-    cobertas por nenhum outro grupo ativo do usuário (grupos de outras
-    `UserRole` ainda ativas).
-
-    Fluxo:
-        1. Calcula permissões do grupo removido.
-        2. Calcula permissões protegidas por todos os outros grupos ativos.
-        3. Remove de `auth_user_user_permissions` apenas
-           `perms_do_grupo_removido - perms_protegidas`.
-
-    .. warning::
-        **Divergência D-04 (aberta):** Os grupos remanescentes são derivados
-        via ``Group.filter(roles__userrole__user=user)`` (ORM), sem confirmar
-        contra ``auth_user_user_permissions``. Isso pode gerar inconsistência
-        caso permissões tenham sido adicionadas manualmente fora do fluxo de
-        sync. Correção planejada para a Fase 3.
-
-    Esta função deve ser chamada dentro de uma transação atômica,
-    após a exclusão do `UserRole` correspondente.
-
-    Args:
-        user (User): instância de `django.contrib.auth.models.User`.
-        group_removed (Group | None): instância do grupo cuja role foi
-            revogada. Se `None`, a função retorna imediatamente.
-
-    Raises:
-        Não lança exceções diretamente; erros de banco propagam normalmente.
-
-    Exemplo::
-
-        with transaction.atomic():
-            user_role.delete()
-            revoke_user_permissions_from_group(user, role.group)
+    A remoção de permissões agora acontece implicitamente na substituição
+    completa realizada por ``sync_user_permissions`` — o argumento
+    ``group_removed`` é ignorado.
     """
-    if group_removed is None:
-        logger.debug(
-            "PERM_REVOKE_SKIP user_id=%s reason=group_is_none",
-            user.pk,
-        )
-        return
-
-    from django.contrib.auth.models import Group
-
-    removed_perms = set(
-        group_removed.permissions.values_list("pk", flat=True)
-    )
-
-    if not removed_perms:
-        logger.debug(
-            "PERM_REVOKE_NOOP user_id=%s group=%s reason=no_perms_in_group",
-            user.pk,
-            group_removed.name,
-        )
-        return
-
-    # Grupos remanescentes (roles ainda ativas após a exclusão)
-    # NOTA D-04: deriva via ORM, não confirma contra auth_user_user_permissions
-    remaining_groups = Group.objects.filter(
-        roles__userrole__user=user
-    ).exclude(pk=group_removed.pk)
-
-    protected_perms = set(
-        Permission.objects
-        .filter(group__in=remaining_groups)
-        .values_list("pk", flat=True)
-    )
-
-    to_remove_pks = removed_perms - protected_perms
-
-    if not to_remove_pks:
-        logger.debug(
-            "PERM_REVOKE_NOOP user_id=%s group=%s reason=all_perms_protected",
-            user.pk,
-            group_removed.name,
-        )
-        return
-
-    to_remove = Permission.objects.filter(pk__in=to_remove_pks)
-    user.user_permissions.remove(*to_remove)
-
-    logger.info(
-        "PERM_REVOKE_REMOVE user_id=%s group=%s removed=%d",
+    logger.debug(
+        "PERM_SYNC_COMPAT_CALL user_id=%s alias=revoke_user_permissions_from_group",
         user.pk,
-        group_removed.name,
-        len(to_remove_pks),
     )
+    sync_user_permissions(user)

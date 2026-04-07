@@ -35,6 +35,8 @@ FIX-ME-PERMISSIONS: MePermissionView agora lê request.app_context (definido pel
               AppContextMiddleware) em vez de request.session.get('app_context').
               O middleware não usa o sistema de sessão Django padrão — ele resolve
               a sessão via AccountsSession e grava o contexto diretamente na request.
+FASE-4-PERM: UserRoleViewSet.create() e destroy() agora usam sync_user_permissions()
+             — orquestrador idempotente com substituição completa (corrige D-04).
 """
 import logging
 from datetime import timedelta
@@ -66,10 +68,7 @@ from .serializers import (
     MeSerializer,
     MePermissionSerializer,
 )
-from .services.permission_sync import (
-    sync_user_permissions_from_group,
-    revoke_user_permissions_from_group,
-)
+from .services.permission_sync import sync_user_permissions
 from .utils import get_client_ip
 
 security_logger = logging.getLogger("gpp.security")
@@ -314,7 +313,7 @@ class MeView(APIView):
 
     def get(self, request):
         user = request.user
-        
+
         try:
             profile = user.profile
         except UserProfile.DoesNotExist:
@@ -334,7 +333,7 @@ class MeView(APIView):
 
         return Response(data)
 
-    
+
 class MePermissionView(APIView):
     """
     GET /api/accounts/me/permissions/
@@ -361,9 +360,6 @@ class MePermissionView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Lê o app_context gravado pelo AppContextMiddleware na request,
-        # com fallback para request.session para compatibilidade com
-        # requests feitas via sessão Django padrão (ex: admin, testes diretos).
         app_codigo = (
             getattr(request, "app_context", None)
             or request.session.get("app_context", "")
@@ -407,9 +403,6 @@ class MePermissionView(APIView):
         }).data
 
         return Response(data)
-
-
-    
 
 
 # ─── User Create View (GAP-01) ─────────────────────────────────────────────────
@@ -520,12 +513,11 @@ class UserCreateWithRoleView(APIView):
             ) from exc
 
         security_logger.info(
-            "USER_CREATED_WITH_ROLE admin_id=%s new_user_id=%s role=%s app=%s perms_added=%s",
+            "USER_CREATED_WITH_ROLE admin_id=%s new_user_id=%s role=%s app=%s",
             request.user.id,
             result["user_id"],
             result["role"],
             result["aplicacao"],
-            result["permissions_added"],
         )
         return Response(result, status=status.HTTP_201_CREATED)
 
@@ -703,15 +695,12 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
                 "user", "role__group"
             ).get(pk=userrole_id)
 
-            added = sync_user_permissions_from_group(
-                user=userrole.user,
-                group=userrole.role.group,
-            )
+            sync_user_permissions(user=userrole.user)
+
             security_logger.info(
-                "USERROLE_PERM_SYNC user_id=%s role=%s permissions_added=%s",
+                "USERROLE_PERM_SYNC user_id=%s role=%s",
                 userrole.user_id,
                 userrole.role.codigoperfil,
-                added,
             )
 
         return response
@@ -728,14 +717,16 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             user = instance.user
-            group = instance.role.group
 
             response = super().destroy(request, *args, **kwargs)
 
-            removed = revoke_user_permissions_from_group(user=user, group_removed=group)
+            # Re-sync completo após remoção da role — o orquestrador recalcula
+            # o conjunto efetivo com as roles remanescentes (corrige D-04).
+            sync_user_permissions(user=user)
+
             security_logger.info(
-                "USERROLE_PERM_REVOKE user_id=%s group=%s permissions_removed=%s",
-                user.pk, group.name if group else "None", removed,
+                "USERROLE_PERM_REVOKE_SYNC user_id=%s",
+                user.pk,
             )
 
         return response
