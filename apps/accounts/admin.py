@@ -8,6 +8,7 @@ from .models import (
     Role,
     StatusUsuario,
     TipoUsuario,
+    UserPermissionOverride,
     UserProfile,
     UserRole,
     AccountsSession,
@@ -176,3 +177,48 @@ class AccountsSessionAdmin(admin.ModelAdmin):
             revoked_at=timezone.now(),
         )
         self.message_user(request, f"{updated} sessão(ões) revogada(s) com sucesso.")
+
+
+# =====================
+# PERMISSION OVERRIDES (Fase 3)
+# =====================
+
+@admin.register(UserPermissionOverride)
+class UserPermissionOverrideAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "permission",
+        "mode",
+        "source",
+        "created_by",
+        "created_at",
+        "updated_at",
+    )
+    list_filter = ("mode",)
+    search_fields = (
+        "user__username",
+        "user__email",
+        "permission__codename",
+        "permission__content_type__app_label",
+        "source",
+    )
+    ordering = ("user__username", "permission__codename", "mode")
+    readonly_fields = ("created_at", "updated_at", "created_by", "updated_by")
+    fieldsets = (
+        ("Override", {
+            "fields": ("user", "permission", "mode"),
+        }),
+        ("Contexto", {
+            "fields": ("source", "reason"),
+        }),
+        ("Auditoria", {
+            "classes": ("collapse",),
+            "fields": ("created_by", "updated_by", "created_at", "updated_at"),
+        }),
+    )
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+        obj.updated_by = request.user
+        super().save_model(request, obj, form, change)

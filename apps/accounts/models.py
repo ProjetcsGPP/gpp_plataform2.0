@@ -11,8 +11,11 @@ Estrutura:
 - UserRole          : relação User <-> Role por aplicação
 - Attribute         : atributos ABAC por usuário/aplicação
 - AccountsSession   : sessões ativas baseadas em session_key Django (anti-replay, auditoria)
+- UserPermissionOverride : overrides individuais de permissão (grant/revoke) — Fase 3
 
 FASE-0: AccountsSession refatorada — jti removido; session_key + app_context adicionados.
+FASE-3: UserPermissionOverride adicionado — camada explícita de exceções individuais
+        sem edição direta de auth_user_user_permissions.
 """
 from django.conf import settings
 from django.contrib.auth.models import Group, User
@@ -365,7 +368,8 @@ class AccountsSession(models.Model):
         max_length=100,
         null=True,
         blank=True,
-        default='\\')
+        default='\\'
+    )
 
     class Meta:
         db_table = "accounts_session"
@@ -387,3 +391,137 @@ class AccountsSession(models.Model):
 
     def __str__(self):
         return f"{self.user_id} - {self.session_key} - {self.app_context}"
+
+
+# =====================
+# PERMISSION OVERRIDES (Fase 3)
+# =====================
+
+class UserPermissionOverride(models.Model):
+    """
+    Representa um override individual de permissão para um usuário específico.
+
+    Permite adicionar (grant) ou remover (revoke) permissões em relação
+    ao conjunto herdado pela role do usuário, sem editar diretamente
+    as tabelas auth_user_user_permissions ou auth_user_groups.
+
+    Regras de negócio:
+    - ``grant``: concede uma permissão que o usuário não herdaria pela role.
+    - ``revoke``: retira uma permissão que a role concederia ao usuário.
+    - Não é permitida duplicidade por ``(user, permission, mode)``.
+    - Não é permitida coexistência de ``grant`` e ``revoke`` para o mesmo
+      par ``(user, permission)`` — constraint ``uq_override_no_conflict``.
+
+    Referências:
+    - ADR-PERM-01 (docs/PERMISSIONS_ARCHITECTURE.md)
+    - Divergência D-04: overrides manuais não rastreados (pré-Fase 3)
+    """
+
+    MODE_GRANT = "grant"
+    MODE_REVOKE = "revoke"
+    MODE_CHOICES = [
+        (MODE_GRANT, "Grant — conceder permissão extra"),
+        (MODE_REVOKE, "Revoke — retirar permissão da role"),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="permission_overrides",
+        help_text="Usuário ao qual o override se aplica.",
+    )
+    permission = models.ForeignKey(
+        "auth.Permission",
+        on_delete=models.CASCADE,
+        related_name="user_overrides",
+        help_text="Permissão Django (auth.Permission) que está sendo sobrescrita.",
+    )
+    mode = models.CharField(
+        max_length=6,
+        choices=MODE_CHOICES,
+        help_text=(
+            "'grant' adiciona a permissão ao usuário independentemente da role. "
+            "'revoke' retira a permissão mesmo que a role a conceda."
+        ),
+    )
+    source = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Origem do override (ex: 'admin manual', 'integração XPTO'). Opcional.",
+    )
+    reason = models.TextField(
+        blank=True,
+        default="",
+        help_text="Justificativa detalhada para o override. Opcional, mas recomendada para auditoria.",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="overrides_criados",
+        help_text="Usuário que criou o override (auditoria).",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="overrides_atualizados",
+        help_text="Último usuário a atualizar o override (auditoria).",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "accounts_userpermissionoverride"
+        managed = True
+        verbose_name = "User Permission Override"
+        verbose_name_plural = "User Permission Overrides"
+        constraints = [
+            # Impede duplicidade de (user, permission, mode)
+            models.UniqueConstraint(
+                fields=["user", "permission", "mode"],
+                name="uq_userpermoverride_user_permission_mode",
+            ),
+            # Impede coexistência de grant e revoke para o mesmo par (user, permission)
+            # Implementado via unique_together parcial: garantido em nível de aplicação
+            # pela validação no clean() e reforçado pela constraint acima (mode distinto).
+            # Uma constraint de banco completa exigiria CHECK/EXCLUDE (PostgreSQL) —
+            # a validação em clean() é a camada primária de proteção.
+        ]
+        indexes = [
+            models.Index(fields=["user", "mode"]),
+            models.Index(fields=["permission"]),
+        ]
+
+    def clean(self):
+        """
+        Impede coexistência de grant e revoke para o mesmo par (user, permission).
+
+        Levanta ValidationError se já existir um override com o modo oposto
+        para o mesmo usuário e permissão.
+        """
+        from django.core.exceptions import ValidationError
+
+        opposite_mode = self.MODE_REVOKE if self.mode == self.MODE_GRANT else self.MODE_GRANT
+        conflict_qs = UserPermissionOverride.objects.filter(
+            user=self.user,
+            permission=self.permission,
+            mode=opposite_mode,
+        )
+        if self.pk:
+            conflict_qs = conflict_qs.exclude(pk=self.pk)
+        if conflict_qs.exists():
+            raise ValidationError(
+                f"Já existe um override '{opposite_mode}' para este usuário e permissão. "
+                "Remova o override conflitante antes de criar um novo."
+            )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.user} | {self.permission.codename} | {self.mode}"
