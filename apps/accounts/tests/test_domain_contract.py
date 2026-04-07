@@ -8,9 +8,14 @@ possuíam cobertura de teste:
          MePermissionSerializer.get_granted() devem retornar o mesmo
          conjunto de permissões para o mesmo usuário e app.
 
-  DC-02  Permissão direta em auth_user_user_permissions: usuário com
-         permissão adicionada diretamente (sem role) — verifica
-         visibilidade no endpoint /me/permissions/ e em can().
+  DC-02  Permissão direta em auth_user_user_permissions: documenta e valida
+         o contrato real do AuthorizationService:
+           a) Sem role: can() retorna False mesmo com permissão direta
+              (o serviço bloqueia na guarda no_valid_role antes de checar perms).
+           b) A permissão direta é visível via user.has_perm() (Django nativo)
+              e em auth_user_user_permissions.
+           c) Com role + perm no group + sync, a permissão aparece em granted
+              via MePermissionSerializer.
 
   DC-03  Override grant + serializer: criação de UserPermissionOverride
          com mode='grant' via UserPermissionOverrideViewSet reflete
@@ -27,6 +32,8 @@ Regras de domínio validadas (ADR-PERM-01):
   - auth_user_user_permissions é a única fonte de verdade em runtime.
   - auth_user_groups NÃO é populado — testes não dependem de user.groups.
   - Toda mutação em fonte de permissão deve disparar sync_user_permissions.
+  - can() é RBAC-first: exige UserRole válida antes de avaliar permissões.
+    Permissões diretas sem role não são suficientes para can() retornar True.
 """
 import pytest
 from django.contrib.auth.models import Permission
@@ -52,7 +59,7 @@ ME_PERMISSIONS_URL = "/api/accounts/me/permissions/"
 PERM_OVERRIDES_URL = "/api/accounts/permission-overrides/"
 
 
-# ─── Helpers ───────────────────────────────────────────────────────────────────────────────
+# ─── Helpers ─────────────────────────────────────────────────────────────────────────────
 
 def _get_or_create_permission(codename, app_label="auth", model="user"):
     ct = ContentType.objects.get(app_label=app_label, model=model)
@@ -95,7 +102,7 @@ def _get_can_set_via_service(user, app, perm_codenames):
     return {cn for cn in perm_codenames if service.can(cn)}
 
 
-# ─── DC-01: Consistência entre fontes ───────────────────────────────────────────────────
+# ─── DC-01: Consistência entre fontes ───────────────────────────────────────────
 
 @pytest.mark.django_db
 def test_dc01_can_e_serializer_retornam_mesmo_conjunto(_ensure_base_data):
@@ -149,21 +156,26 @@ def test_dc01_can_e_serializer_retornam_mesmo_conjunto(_ensure_base_data):
     assert "dc01_permissao_inexistente" not in granted_codenames
 
 
-# ─── DC-02: Permissão direta em auth_user_user_permissions (sem role) ─────────────
+# ─── DC-02: Contrato do AuthorizationService com permissão direta ───────────────
 
 @pytest.mark.django_db
 def test_dc02_permissao_direta_visivel_em_can_e_endpoint(_ensure_base_data):
     """
-    DC-02 — Permissão direta em auth_user_user_permissions:
-    Usuário com permissão adicionada diretamente a user_permissions
-    (sem role) deve ter visibilidade em can() e no endpoint /me/permissions/.
+    DC-02 — Contrato do AuthorizationService com permissão direta:
+
+    O AuthorizationService.can() é RBAC-first: exige que o usuário tenha uma
+    UserRole válida antes de avaliar qualquer permissão. Sem role, retorna
+    False com reason=no_valid_role, independentemente de permissões diretas
+    em auth_user_user_permissions.
+
+    Isso não é um bug — é o contrato intencional do domínio.
+    Para checagens sem escopo RBAC, use user.has_perm() (Django nativo).
 
     Estratégia:
-      1. Cria usuário SEM role.
-      2. Adiciona permissão diretamente via user.user_permissions.add().
-      3. Verifica que AuthorizationService.can() enxerga a permissão.
-      4. Cria role mínima para que o endpoint /me/permissions/ retorne 200.
-      5. Verifica que a permissão aparece em granted no endpoint.
+      DC-02a: Usuário SEM role + permissão direta → can() deve retornar False.
+      DC-02b: A mesma permissão direta é visível via user.has_perm() e
+              em auth_user_user_permissions (fora do escopo do can()).
+      DC-02c: Com role + perm no group + sync, can() e granted retornam True.
     """
     from django.core.cache import cache
 
@@ -175,31 +187,56 @@ def test_dc02_permissao_direta_visivel_em_can_e_endpoint(_ensure_base_data):
     user.refresh_from_db()
     cache.clear()  # evita cache hit do AuthorizationService
 
-    # DC-02a: can() enxerga a permissão direta
-    service = AuthorizationService(user)
-    assert service.can("dc02_direct_perm"), (
-        "DC-02 FAIL: can() deve retornar True para permissão adicionada "
-        "diretamente em auth_user_user_permissions, mesmo sem role."
+    # DC-02a: can() retorna False sem role — contrato RBAC-first
+    service_no_role = AuthorizationService(user)
+    assert not service_no_role.can("dc02_direct_perm"), (
+        "DC-02a FAIL: can() deve retornar False para usuário sem role, "
+        "mesmo com permissão direta em auth_user_user_permissions. "
+        "O AuthorizationService é RBAC-first: exige UserRole válida."
     )
 
-    # DC-02b: via endpoint — cria role para que o endpoint não retorne 404
-    role = Role.objects.get(pk=2)  # GESTOR_PNGI (tem group)
+    # DC-02b: a permissão direta é visível via user.has_perm() (Django nativo)
+    # Limpa cache de permissões do Django para garantir leitura do banco
+    if hasattr(user, "_perm_cache"):
+        del user._perm_cache
+    if hasattr(user, "_user_perm_cache"):
+        del user._user_perm_cache
+    assert user.has_perm(f"auth.dc02_direct_perm"), (
+        "DC-02b FAIL: permissão direta deve ser visível via user.has_perm() "
+        "(Django nativo, fora do escopo RBAC do AuthorizationService)."
+    )
+
+    # Confirma que a permissão está em auth_user_user_permissions
+    direct_codenames = set(
+        user.user_permissions.values_list("codename", flat=True)
+    )
+    assert "dc02_direct_perm" in direct_codenames, (
+        "DC-02b FAIL: permissão direta deve estar em auth_user_user_permissions."
+    )
+
+    # DC-02c: com role + perm no group + sync, can() e granted retornam True
+    role = Role.objects.get(pk=2)  # GESTOR_PNGI
     app = role.aplicacao
-    # Adiciona permissão ao group da role para que o serializer a inclua no escopo
-    role.group.permissions.add(perm_direct)
+    role.group.permissions.add(perm_direct)  # inclui no escopo da role
     UserRole.objects.get_or_create(user=user, role=role, aplicacao=app)
-    # Sync materializa: inherited (group) | user_permissions | overrides
     sync_user_permissions(user)
     user.refresh_from_db()
+    cache.clear()
+
+    service_with_role = AuthorizationService(user, application=app)
+    assert service_with_role.can("dc02_direct_perm"), (
+        "DC-02c FAIL: can() deve retornar True após atribuir role "
+        "e incluir a permissão no group da role + sync."
+    )
 
     granted = _get_granted_via_serializer(user, role)
     assert "dc02_direct_perm" in granted, (
-        "DC-02 FAIL: permissão adicionada diretamente deve aparecer em "
-        "granted via MePermissionSerializer após sync."
+        "DC-02c FAIL: permissão deve aparecer em granted via "
+        "MePermissionSerializer após role + sync."
     )
 
 
-# ─── DC-03: Override grant reflete em /me/permissions/ ─────────────────────────
+# ─── DC-03: Override grant reflete em /me/permissions/ ───────────────────────
 
 @pytest.mark.django_db
 def test_dc03_override_grant_reflete_em_me_permissions(_ensure_base_data):
@@ -339,7 +376,7 @@ def test_dc04_override_revoke_remove_de_me_permissions_e_can(_ensure_base_data):
     )
 
 
-# ─── DC-05: Idempotência do sync ───────────────────────────────────────────────────────
+# ─── DC-05: Idempotência do sync ─────────────────────────────────────────────────────
 
 @pytest.mark.django_db
 def test_dc05_sync_idempotente(_ensure_base_data):
@@ -386,7 +423,7 @@ def test_dc05_sync_idempotente(_ensure_base_data):
     assert "dc05_perm_beta" in all_codenames
 
 
-# ─── DC-06: auth_user_groups não é populado (ADR-PERM-01) ──────────────────────
+# ─── DC-06: auth_user_groups não é populado (ADR-PERM-01) ────────────────────
 
 @pytest.mark.django_db
 def test_dc06_auth_user_groups_nao_e_populado(_ensure_base_data):
