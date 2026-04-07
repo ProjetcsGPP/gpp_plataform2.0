@@ -275,10 +275,18 @@ def _make_user(username, password=DEFAULT_PASSWORD,
 
 def _assign_role(user, role_pk):
     """
-    Atribui uma Role ao usuario via UserRole (idempotente).
-    O lookup e por (user, aplicacao) que e a constraint de unicidade.
+    Atribui uma Role ao usuario via UserRole (idempotente) e dispara
+    sync_user_permissions para materializar auth_user_user_permissions.
+
+    ADR-PERM-01: auth_user_groups NÃO é populado neste sistema.
+    Os grupos (auth.Group) funcionam apenas como template institucional de
+    permissões. A materialização ocorre via sync_user_permissions que
+    grava em auth_user_user_permissions — não via user.groups.add().
+
     Seguro com --reuse-db: atualiza a role se o registro ja existia com outra.
     """
+    from apps.accounts.services.permission_sync import sync_user_permissions
+
     role = Role.objects.get(pk=role_pk)
     user_role, created = UserRole.objects.get_or_create(
         user=user,
@@ -288,8 +296,10 @@ def _assign_role(user, role_pk):
     if not created and user_role.role_id != role.pk:
         user_role.role = role
         user_role.save(update_fields=["role"])
-    if role.group:
-        user.groups.add(role.group)
+
+    # Materializa auth_user_user_permissions via orquestrador idempotente.
+    # NÃO adiciona o usuário ao Group (ADR-PERM-01).
+    sync_user_permissions(user)
     return role
 
 
