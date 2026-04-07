@@ -508,35 +508,53 @@ class TestAPIPermissions:
         """
         Criar override grant reflete imediatamente no endpoint /me/permissions/.
 
-        CORREÇÃO (Falha 3): _login_client deve ser chamado APÓS criar o override
-        e sincronizar. Dessa forma a sessão é criada com o estado final correto.
-        Usa force_authenticate para isolar o teste do mecanismo de sessão e
-        garantir que o endpoint seja avaliado com o usuário correto.
+        CORREÇÃO (Falha 3): O middleware de app_context resolve o contexto a partir
+        do cookie de sessão. force_authenticate ignora o middleware de sessão,
+        resultando em 401 porque o app_context não consegue ser resolvido.
+
+        Estratégia correta:
+          1. Atribui role e faz login ANTES — obtém client_before com sessão válida.
+          2. Verifica que a perm extra ainda NÃO está no endpoint (estado inicial).
+          3. Cria o override e sincroniza.
+          4. Faz um NOVO login com _login_client — obtém client_after com estado atualizado.
+          5. Verifica que a perm extra AGORA aparece no endpoint (estado final).
+
+        Dois logins distintos garantem que o cookie de sessão do client_after
+        é emitido após o sync, refletindo o estado correto de permissões.
         """
         user = _make_user("api_grant_ovr")
-        _assign_role(user, role_pk=2)
         perm = _get_or_create_permission("api_grant_ovr_perm")
 
+        # Remove a perm do template da role para garantir que ela não vem por herança
         role = Role.objects.get(pk=2)
         role.group.permissions.remove(perm)
+
+        # Atribui role e sincroniza — usuário não tem a perm ainda
+        _assign_role(user, role_pk=2)
         sync_user_permissions(user)
         assert not _user_has_perm_in_db(user, "api_grant_ovr_perm")
 
-        # Verifica estado ANTES do override usando force_authenticate
-        client_before = APIClient()
-        client_before.force_authenticate(user=user)
+        # Estado ANTES: login com sessão válida, perm ausente
+        client_before = _login_client("api_grant_ovr", "ACOES_PNGI")
         resp_before = client_before.get(ME_PERMS_URL)
-        assert "api_grant_ovr_perm" not in _get_granted_perms(resp_before)
+        assert resp_before.status_code == 200, (
+            f"Esperava 200 antes do override, recebeu {resp_before.status_code}."
+        )
+        assert "api_grant_ovr_perm" not in _get_granted_perms(resp_before), (
+            "A permissão extra não deveria estar presente antes do override."
+        )
 
-        # Cria override e sincroniza
+        # Cria override grant e sincroniza
         UserPermissionOverride.objects.create(user=user, permission=perm, mode="grant")
         sync_user_permissions(user)
         assert _user_has_perm_in_db(user, "api_grant_ovr_perm")
 
-        # Verifica estado APÓS o override usando force_authenticate
-        client_after = APIClient()
-        client_after.force_authenticate(user=user)
+        # Estado APÓS: novo login para obter sessão com estado atualizado
+        client_after = _login_client("api_grant_ovr", "ACOES_PNGI")
         resp_after = client_after.get(ME_PERMS_URL)
+        assert resp_after.status_code == 200, (
+            f"Esperava 200 após o override, recebeu {resp_after.status_code}."
+        )
         assert "api_grant_ovr_perm" in _get_granted_perms(resp_after), (
             "Override grant não refletiu no endpoint."
         )
