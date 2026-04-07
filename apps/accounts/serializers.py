@@ -20,6 +20,10 @@ FASE-4-PERM: MePermissionSerializer.get_granted() lê de user.user_permissions
 FIX-PERMISSIONS-ADDED: UserCreateWithRoleSerializer.create() agora inclui
              permissions_added no dict de retorno — count calculado via
              calculate_effective_permissions() antes do sync.
+FASE-7 (Issue #20): UserPermissionOverrideSerializer criado — resolve ImportError
+             crítico que quebrava o URL routing completo do Django e derrubava
+             ~135 testes. Expõe campos completos do model UserPermissionOverride
+             com validação de conflito grant/revoke no nível DRF (400).
 """
 import logging
 
@@ -39,6 +43,7 @@ from .models import (
     Role,
     StatusUsuario,
     TipoUsuario,
+    UserPermissionOverride,
     UserProfile,
     UserRole,
 )
@@ -412,6 +417,82 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
             "datacriacao":        profile.datacriacao,
             "permissions_added":  permissions_added,
         }
+
+
+# ─── UserPermissionOverride ───────────────────────────────────────────────────────────
+
+class UserPermissionOverrideSerializer(serializers.ModelSerializer):
+    """
+    FASE-7 (Issue #20) — Serializer para UserPermissionOverride.
+
+    Resolve o ImportError crítico que impedia o carregamento de views.py
+    e quebrava o URL routing completo do Django (~135 testes afetados).
+
+    Campos expostos:
+      - id              : PK do override (read_only via ModelSerializer)
+      - user            : FK para auth.User (PK inteira)
+      - permission      : FK para auth.Permission (PK inteira)
+      - mode            : 'grant' | 'revoke'
+      - source          : origem do override (ex: 'admin manual') — opcional
+      - reason          : justificativa para auditoria — opcional
+      - created_at      : timestamp de criação (read_only)
+      - updated_at      : timestamp da última atualização (read_only)
+      - created_by      : usuário que criou (read_only — preenchido pela view via AuditableMixin)
+      - updated_by      : último usuário que atualizou (read_only — idem)
+
+    Validação:
+      validate() impede coexistência de override 'grant' e 'revoke' para o
+      mesmo par (user, permission), espelhando o clean() do model em nível DRF
+      para garantir resposta 400 em vez de exceção não tratada.
+
+    Referências: ADR-PERM-01, divergência D-04, Issue #18, Issue #20.
+    """
+
+    class Meta:
+        model = UserPermissionOverride
+        fields = [
+            "id",
+            "user",
+            "permission",
+            "mode",
+            "source",
+            "reason",
+            "created_at",
+            "updated_at",
+            "created_by",
+            "updated_by",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at", "created_by", "updated_by"]
+
+    def validate(self, data):
+        user = data.get("user") or (self.instance.user if self.instance else None)
+        permission = data.get("permission") or (self.instance.permission if self.instance else None)
+        mode = data.get("mode") or (self.instance.mode if self.instance else None)
+
+        if user and permission and mode:
+            opposite_mode = (
+                UserPermissionOverride.MODE_REVOKE
+                if mode == UserPermissionOverride.MODE_GRANT
+                else UserPermissionOverride.MODE_GRANT
+            )
+            conflict_qs = UserPermissionOverride.objects.filter(
+                user=user,
+                permission=permission,
+                mode=opposite_mode,
+            )
+            if self.instance:
+                conflict_qs = conflict_qs.exclude(pk=self.instance.pk)
+            if conflict_qs.exists():
+                raise serializers.ValidationError(
+                    {
+                        "mode": (
+                            f"Já existe um override '{opposite_mode}' para este usuário e permissão. "
+                            "Remova o override conflitante antes de criar um novo."
+                        )
+                    }
+                )
+
+        return data
 
 
 # ─── Me Serializer ────────────────────────────────────────────────────────────────────
