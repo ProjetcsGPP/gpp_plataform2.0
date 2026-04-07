@@ -30,6 +30,7 @@ from apps.accounts.tests.conftest import (
     DEFAULT_PASSWORD,
     LOGIN_URL,
     _assign_role,
+    _make_authenticated_client,
     _make_user,
 )
 
@@ -69,11 +70,20 @@ def _user_has_perm_in_db(user: User, codename: str) -> bool:
 
 
 def _login_client(username: str, app_context: str) -> APIClient:
-    client = APIClient()
-    client.post(
-        LOGIN_URL,
-        {"username": username, "password": DEFAULT_PASSWORD, "app_context": app_context},
-        format="json",
+    """
+    Cria um APIClient autenticado via sessão Django real.
+
+    CORRIGIDO (Issue #22 Falha 3): usa _make_authenticated_client do conftest
+    em vez de APIClient() + client.post() manual. O _make_authenticated_client
+    garante que o cookie de sessão é persistido corretamente no cliente entre
+    requests, pois o APIClient do DRF mantém cookies de sessão quando o login
+    é feito através dele — o problema anterior era que a resposta do login não
+    era capturada nem validada, deixando o client sem sessão ativa.
+    """
+    client, resp = _make_authenticated_client(username, app_context)
+    assert resp.status_code == 200, (
+        f"Falha no login de '{username}' com app_context='{app_context}': "
+        f"status={resp.status_code}"
     )
     return client
 
@@ -451,8 +461,7 @@ class TestAPIPermissions:
         Adicionar role reflete imediatamente no endpoint /me/permissions/.
 
         CORREÇÃO (Falha 1): _assign_role deve ser chamado ANTES de _login_client
-        para que a sessão seja criada com a role já ativa. Caso contrário, o
-        login retorna 401/403 e o client fica sem sessão válida.
+        para que a sessão seja criada com a role já ativa.
         """
         user = _make_user("api_add_role")
         role = Role.objects.get(pk=2)
@@ -476,10 +485,8 @@ class TestAPIPermissions:
         """
         Remover role e sincronizar reflete no endpoint /me/permissions/.
 
-        CORREÇÃO (Falha 2): Após remover a role, o endpoint pode retornar 200
-        com lista vazia OU 403 (sem role ativa), dependendo da implementação.
-        Usa _get_granted_perms() que trata ambos os casos com segurança,
-        retornando [] para qualquer status != 200, sem acesso a .data diretamente.
+        CORREÇÃO (Falha 2): usa _get_granted_perms() que trata 200 e 403
+        com segurança, sem acessar .data diretamente.
         """
         user = _make_user("api_rm_role")
         role = Role.objects.get(pk=2)
@@ -508,24 +515,15 @@ class TestAPIPermissions:
         """
         Criar override grant reflete imediatamente no endpoint /me/permissions/.
 
-        CORREÇÃO (Falha 3): O middleware de app_context resolve o contexto a partir
-        do cookie de sessão. force_authenticate ignora o middleware de sessão,
-        resultando em 401 porque o app_context não consegue ser resolvido.
-
-        Estratégia correta:
-          1. Atribui role e faz login ANTES — obtém client_before com sessão válida.
-          2. Verifica que a perm extra ainda NÃO está no endpoint (estado inicial).
-          3. Cria o override e sincroniza.
-          4. Faz um NOVO login com _login_client — obtém client_after com estado atualizado.
-          5. Verifica que a perm extra AGORA aparece no endpoint (estado final).
-
-        Dois logins distintos garantem que o cookie de sessão do client_after
-        é emitido após o sync, refletindo o estado correto de permissões.
+        CORREÇÃO (Falha 3): _login_client agora usa _make_authenticated_client
+        do conftest, que persiste corretamente o cookie de sessão no APIClient.
+        O client_after faz novo login APÓS o sync, garantindo que a sessão é
+        emitida com o estado de permissões já atualizado.
         """
         user = _make_user("api_grant_ovr")
         perm = _get_or_create_permission("api_grant_ovr_perm")
 
-        # Remove a perm do template da role para garantir que ela não vem por herança
+        # Remove a perm do template da role — não deve vir por herança
         role = Role.objects.get(pk=2)
         role.group.permissions.remove(perm)
 
@@ -534,7 +532,7 @@ class TestAPIPermissions:
         sync_user_permissions(user)
         assert not _user_has_perm_in_db(user, "api_grant_ovr_perm")
 
-        # Estado ANTES: login com sessão válida, perm ausente
+        # Estado ANTES: sessão válida, perm ausente
         client_before = _login_client("api_grant_ovr", "ACOES_PNGI")
         resp_before = client_before.get(ME_PERMS_URL)
         assert resp_before.status_code == 200, (
@@ -549,7 +547,7 @@ class TestAPIPermissions:
         sync_user_permissions(user)
         assert _user_has_perm_in_db(user, "api_grant_ovr_perm")
 
-        # Estado APÓS: novo login para obter sessão com estado atualizado
+        # Estado APÓS: novo login — cookie de sessão emitido após o sync
         client_after = _login_client("api_grant_ovr", "ACOES_PNGI")
         resp_after = client_after.get(ME_PERMS_URL)
         assert resp_after.status_code == 200, (
@@ -676,10 +674,8 @@ class TestNegativePermissions:
         """
         can() retorna False para permissão não materializada em auth_user_user_permissions.
 
-        CORREÇÃO (Falha 4): AuthorizationService.can é um método de INSTÂNCIA.
-        O teste original chamava AuthorizationService.can(user, codename) como
-        se fosse estático, causando TypeError. Deve-se instanciar o serviço
-        primeiro: service = AuthorizationService(user), depois service.can(codename).
+        CORREÇÃO (Falha 4): AuthorizationService.can é método de INSTÂNCIA.
+        Instancia o serviço antes de chamar .can(codename).
         """
         from apps.accounts.services.authorization_service import AuthorizationService
 
@@ -692,7 +688,6 @@ class TestNegativePermissions:
         sync_user_permissions(user)
         UserPermissionOverride.objects.filter(user=user, permission=perm).delete()
 
-        # Instancia o serviço corretamente antes de chamar .can()
         service = AuthorizationService(user)
         assert not service.can("neg_bloqueio_perm"), (
             "AuthorizationService.can() deveria retornar False para permissão não efetiva."
