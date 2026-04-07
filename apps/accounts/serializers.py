@@ -24,6 +24,11 @@ FASE-7 (Issue #20): UserPermissionOverrideSerializer criado — resolve ImportEr
              crítico que quebrava o URL routing completo do Django e derrubava
              ~135 testes. Expõe campos completos do model UserPermissionOverride
              com validação de conflito grant/revoke no nível DRF (400).
+FIX (Issue #21): UserPermissionOverrideSerializer.create/update sobrescritos para
+             descartar created_by_name e updated_by_name injetados pelo AuditableMixin
+             (campos inexistentes no model) e mapear created_by_id/updated_by_id
+             para as FKs created_by/updated_by do model. Corrige TypeError em
+             DC-03, DC-04 e TC-06.
 """
 import logging
 
@@ -445,7 +450,13 @@ class UserPermissionOverrideSerializer(serializers.ModelSerializer):
       mesmo par (user, permission), espelhando o clean() do model em nível DRF
       para garantir resposta 400 em vez de exceção não tratada.
 
-    Referências: ADR-PERM-01, divergência D-04, Issue #18, Issue #20.
+    FIX (Issue #21):
+      create() e update() sobrescritos para descartar created_by_name e
+      updated_by_name injetados pelo AuditableMixin (campos inexistentes no
+      model UserPermissionOverride) e mapear created_by_id/updated_by_id
+      para as FKs created_by/updated_by do model.
+
+    Referências: ADR-PERM-01, divergência D-04, Issue #18, Issue #20, Issue #21.
     """
 
     class Meta:
@@ -493,6 +504,48 @@ class UserPermissionOverrideSerializer(serializers.ModelSerializer):
                 )
 
         return data
+
+    def _extract_audit_fields(self, kwargs):
+        """
+        Extrai e normaliza os campos de auditoria injetados pelo AuditableMixin.
+
+        O AuditableMixin passa created_by_id/updated_by_id (int) e
+        created_by_name/updated_by_name (str). O model UserPermissionOverride
+        possui apenas FKs created_by/updated_by (sem campos _name), portanto:
+          - created_by_name e updated_by_name são descartados
+          - created_by_id é convertido para created_by (instância User ou None)
+          - updated_by_id é convertido para updated_by (instância User ou None)
+        """
+        # Descarta campos de texto inexistentes no model
+        kwargs.pop("created_by_name", None)
+        kwargs.pop("updated_by_name", None)
+
+        # Converte _id para FK se fornecidos como kwargs separados
+        created_by_id = kwargs.pop("created_by_id", None)
+        updated_by_id = kwargs.pop("updated_by_id", None)
+
+        if created_by_id is not None:
+            kwargs["created_by"] = User.objects.filter(pk=created_by_id).first()
+        if updated_by_id is not None:
+            kwargs["updated_by"] = User.objects.filter(pk=updated_by_id).first()
+
+        return kwargs
+
+    def create(self, validated_data):
+        """
+        Cria UserPermissionOverride descartando campos _name do AuditableMixin
+        e mapeando _id para as FKs do model.
+        """
+        validated_data = self._extract_audit_fields(validated_data)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        """
+        Atualiza UserPermissionOverride descartando campos _name do AuditableMixin
+        e mapeando _id para as FKs do model.
+        """
+        validated_data = self._extract_audit_fields(validated_data)
+        return super().update(instance, validated_data)
 
 
 # ─── Me Serializer ────────────────────────────────────────────────────────────────────
