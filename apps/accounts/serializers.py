@@ -17,6 +17,9 @@ FASE-4-PERM: UserCreateWithRoleSerializer.create() usa sync_user_permissions() �
              orquestrador idempotente com substituição completa (corrige D-04).
 FASE-4-PERM: MePermissionSerializer.get_granted() lê de user.user_permissions
              filtrado pelos codenames do grupo da role (corrige D-02).
+FIX-PERMISSIONS-ADDED: UserCreateWithRoleSerializer.create() agora inclui
+             permissions_added no dict de retorno — count calculado via
+             calculate_effective_permissions() antes do sync.
 """
 import logging
 
@@ -27,7 +30,7 @@ from django.db import transaction
 from django.utils import timezone as dj_timezone
 from rest_framework import serializers
 
-from .services.permission_sync import sync_user_permissions
+from .services.permission_sync import sync_user_permissions, calculate_effective_permissions
 
 from .models import (
     Aplicacao,
@@ -286,6 +289,9 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
     FASE 6 — Criação atômica de auth.User + UserProfile + UserRole + sync de permissões.
     FASE 4 — usa sync_user_permissions() (orquestrador idempotente) em vez de
              sync_user_permissions_from_group() (incremental).
+    FIX     — retorna permissions_added: int com o total de permissões materializadas
+              para o novo usuário. Calculado via calculate_effective_permissions()
+              antes do sync para evitar dupla chamada ao banco.
     """
 
     username   = serializers.CharField(max_length=150)
@@ -387,18 +393,24 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
                 role=role,
             )
 
+            # Calcula o conjunto efetivo ANTES do sync para expor o count
+            # na resposta sem precisar de uma segunda consulta após o set().
+            effective_perms = calculate_effective_permissions(user)
+            permissions_added = len(effective_perms)
+
             # Fase 4: sync completo via orquestrador idempotente
-            sync_user_permissions(user=user)
+            sync_user_permissions(user)
 
         return {
-            "user_id":     user.id,
-            "username":    user.username,
-            "email":       user.email,
-            "name":        profile.name,
-            "orgao":       profile.orgao,
-            "aplicacao":   aplicacao.codigointerno,
-            "role":        role.codigoperfil,
-            "datacriacao": profile.datacriacao,
+            "user_id":            user.id,
+            "username":           user.username,
+            "email":              user.email,
+            "name":               profile.name,
+            "orgao":              profile.orgao,
+            "aplicacao":          aplicacao.codigointerno,
+            "role":               role.codigoperfil,
+            "datacriacao":        profile.datacriacao,
+            "permissions_added":  permissions_added,
         }
 
 
