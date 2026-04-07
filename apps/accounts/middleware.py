@@ -3,6 +3,8 @@ GPP Plataform 2.0 — Accounts Middleware
 FASE-0: AppContextMiddleware
 FIX: multi-cookie — /api/accounts/ aceita qualquer gpp_session_*
 FIX: portal_admin/superuser com gpp_session_PORTAL acessa apps dedicadas
+FIX(Issue #22): _authenticate_any_cookie ordena por -created_at e filtra
+    app_context__isnull=False — evita retornar sessão antiga com app_context=None.
 """
 
 from django.contrib.auth.models import AnonymousUser
@@ -26,6 +28,8 @@ class AppContextMiddleware:
       2. Prefixo 'accounts' (endpoints de gerenciamento transversais):
          Aceita QUALQUER cookie gpp_session_* presente — itera e valida o
          primeiro AccountsSession ativo encontrado no banco.
+         ORDER BY -created_at garante que a sessão mais recente seja usada,
+         evitando que sessões antigas com app_context=None sejam retornadas.
 
       3. Path de logout por app (/api/accounts/logout/<slug>/):
          bypass total — não bloqueia logout.
@@ -112,14 +116,17 @@ class AppContextMiddleware:
         if all_gpp_cookies:
             # FIX: select_related não suporta reverse FK (userrole_set).
             # A verificação de portal_admin é feita abaixo com query separada.
+            # ORDER BY -created_at garante resultado determinístico.
             session = (
                 AccountsSession.objects
                 .filter(
                     session_key__in=list(all_gpp_cookies.values()),
                     session_cookie_name__in=list(all_gpp_cookies.keys()),
                     revoked=False,
+                    app_context__isnull=False,
                 )
                 .select_related("user")
+                .order_by("-created_at")
                 .first()
             )
             if session:
@@ -146,8 +153,11 @@ class AppContextMiddleware:
     def _authenticate_any_cookie(self, request):
         """
         Itera sobre TODOS os cookies gpp_session_* presentes.
-        Valida o primeiro AccountsSession ativo encontrado no banco.
+        Valida o AccountsSession mais recente e ativo encontrado no banco.
         Usado por /api/accounts/ (endpoints transversais de gerenciamento).
+
+        FIX(Issue #22): filtro app_context__isnull=False + ORDER BY -created_at
+        garantem que sessões antigas/sem contexto não poluam o resultado.
         """
         gpp_cookies = {
             name: value
@@ -166,8 +176,10 @@ class AppContextMiddleware:
                 session_key__in=list(gpp_cookies.values()),
                 session_cookie_name__in=list(gpp_cookies.keys()),
                 revoked=False,
+                app_context__isnull=False,   # FIX: exclui sessões sem contexto
             )
             .select_related("user")
+            .order_by("-created_at")          # FIX: determinístico — sessão mais recente
             .first()
         )
 
