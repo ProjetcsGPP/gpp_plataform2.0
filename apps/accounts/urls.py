@@ -12,6 +12,7 @@ from .views import (
     RoleViewSet,
     UserCreateView,
     UserCreateWithRoleView,
+    UserPermissionOverrideViewSet,
     UserProfileViewSet,
     UserRoleViewSet,
     ResolveUserView,
@@ -27,6 +28,7 @@ router.register(r"aplicacoes", AplicacaoViewSet, basename="aplicacao")
 router.register(r"profiles", UserProfileViewSet, basename="userprofile")
 router.register(r"roles", RoleViewSet, basename="role")
 router.register(r"user-roles", UserRoleViewSet, basename="userrole")
+router.register(r"permission-overrides", UserPermissionOverrideViewSet, basename="permission-override")
 
 auth_router = DefaultRouter()
 auth_router.register(r"aplicacoes", AplicacaoPublicaViewSet, basename="aplicacao-publica")
