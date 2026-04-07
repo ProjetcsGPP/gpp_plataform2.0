@@ -10,6 +10,13 @@ Responsabilidades:
   3. Re-sincronizar auth_user_user_permissions sempre que qualquer
      fonte do cálculo de permissões mudar.
 
+FASE-6-PERM (Issue #19):
+  sync_user_permissions e sync_users_permissions são agora importadas
+  explicitamente no topo do módulo. Isso é necessário para que
+  mocker.patch("apps.accounts.signals.sync_user_permissions") funcione
+  corretamente nos testes — o símbolo precisa existir no namespace do
+  módulo no momento em que o patch é aplicado.
+
 FASE-5-PERM (Issue #18):
   invalidate_on_userrole_change agora chama sync_user_permissions(user)
   após invalidar o cache — garante que auth_user_user_permissions reflita
@@ -32,6 +39,15 @@ from django.contrib.auth.models import Group
 from django.core.cache import cache
 from django.db.models.signals import m2m_changed, post_delete, post_save, pre_save
 from django.dispatch import receiver
+
+# Importação explícita no topo do módulo — obrigatória para que mocker.patch
+# funcione em test_permission_sync_triggers.py (Issue #19).
+# O mocker.patch exige que o símbolo exista em apps.accounts.signals no momento
+# em que o patch é aplicado; lazy imports dentro das funções não satisfazem isso.
+from apps.accounts.services.permission_sync import (  # noqa: E402
+    sync_user_permissions,
+    sync_users_permissions,
+)
 
 security_logger = logging.getLogger("gpp.security")
 
@@ -88,8 +104,11 @@ def invalidate_on_userrole_change(sender, instance, **kwargs):
         garantir que auth_user_user_permissions reflita imediatamente a
         mudança. Sem este re-sync, o signal apenas invalidava o cache mas
         deixava auth_user_user_permissions desatualizado.
+
+    FASE-6-PERM (Issue #19):
+        sync_user_permissions é referenciada via import de topo de módulo,
+        tornando-a patchável por mocker.patch no namespace de signals.
     """
-    from apps.accounts.services.permission_sync import sync_user_permissions
     from django.contrib.auth import get_user_model
 
     app_code = instance.aplicacao.codigointerno if instance.aplicacao else "all"
@@ -152,6 +171,10 @@ def sync_on_role_group_change(sender, instance, created, **kwargs):
     auth_user_user_permissions ficaria desatualizado até a próxima ação manual.
 
     FASE-5-PERM (Issue #18): novo signal.
+
+    FASE-6-PERM (Issue #19):
+        sync_users_permissions é referenciada via import de topo de módulo,
+        tornando-a patchável por mocker.patch no namespace de signals.
     """
     if created:
         return
@@ -163,7 +186,6 @@ def sync_on_role_group_change(sender, instance, created, **kwargs):
         return  # group não mudou
 
     from apps.accounts.models import UserRole
-    from apps.accounts.services.permission_sync import sync_users_permissions
 
     affected_user_ids = list(
         UserRole.objects
@@ -207,12 +229,15 @@ def invalidate_on_group_permission_change(sender, instance, action, **kwargs):
         do grupo. Sem este re-sync, usuários com cache expirado receberiam as
         permissões novas, mas usuários com dados em auth_user_user_permissions
         desatualizados continuariam com o conjunto antigo.
+
+    FASE-6-PERM (Issue #19):
+        sync_users_permissions é referenciada via import de topo de módulo,
+        tornando-a patchável por mocker.patch no namespace de signals.
     """
     if action not in ("post_add", "post_remove", "post_clear"):
         return
 
     from apps.accounts.models import Role, UserRole
-    from apps.accounts.services.permission_sync import sync_users_permissions
 
     roles = Role.objects.filter(group=instance)
     affected_user_ids = list(
