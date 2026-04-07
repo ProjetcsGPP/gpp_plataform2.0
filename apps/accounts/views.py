@@ -37,6 +37,8 @@ FIX-ME-PERMISSIONS: MePermissionView agora lê request.app_context (definido pel
               a sessão via AccountsSession e grava o contexto diretamente na request.
 FASE-4-PERM: UserRoleViewSet.create() e destroy() agora usam sync_user_permissions()
              — orquestrador idempotente com substituição completa (corrige D-04).
+FASE-5-PERM (Issue #18): UserPermissionOverrideViewSet adicionado — garante que toda
+             mutação em UserPermissionOverride aciona sync_user_permissions(user).
 """
 import logging
 from datetime import timedelta
@@ -56,13 +58,14 @@ from rest_framework.views import APIView
 from common.mixins import AuditableMixin, SecureQuerysetMixin
 from common.permissions import CanCreateUser, CanEditUser, HasRolePermission, IsPortalAdmin
 
-from .models import AccountsSession, Aplicacao, Role, UserProfile, UserRole
+from .models import AccountsSession, Aplicacao, Role, UserPermissionOverride, UserProfile, UserRole
 from .serializers import (
     AplicacaoPublicaSerializer,
     AplicacaoSerializer,
     RoleSerializer,
     UserCreateSerializer,
     UserCreateWithRoleSerializer,
+    UserPermissionOverrideSerializer,
     UserProfileSerializer,
     UserRoleSerializer,
     MeSerializer,
@@ -302,8 +305,7 @@ class LogoutAppView(APIView):
         return response
 
 
-# ─── Me View ──────────────────────────────────────────────────────────────────
-
+# ─── Me View ────────────────────────────────────────────────────────────────────
 class MeView(APIView):
     """
     GET /api/accounts/me/
@@ -405,7 +407,7 @@ class MePermissionView(APIView):
         return Response(data)
 
 
-# ─── User Create View (GAP-01) ─────────────────────────────────────────────────
+# ─── User Create View (GAP-01) ─────────────────────────────────────────────────────
 
 class UserCreateView(APIView):
     """
@@ -459,7 +461,7 @@ class UserCreateView(APIView):
         )
 
 
-# ─── User Create With Role View (FASE 6) ──────────────────────────────────────
+# ─── User Create With Role View (FASE 6) ──────────────────────────────────────────
 
 class UserCreateWithRoleView(APIView):
     """
@@ -522,8 +524,7 @@ class UserCreateWithRoleView(APIView):
         return Response(result, status=status.HTTP_201_CREATED)
 
 
-# ─── Aplicacao Publica ViewSet (ARCH-01) ───────────────────────────────────────
-
+# ─── Aplicacao Publica ViewSet (ARCH-01) ─────────────────────────────────────────────
 class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/auth/aplicacoes/
@@ -553,8 +554,7 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
         ).order_by("nomeaplicacao")
 
 
-# ─── Aplicacao ViewSet (GAP-02 / ARCH-01) ─────────────────────────────────────
-
+# ─── Aplicacao ViewSet (GAP-02 / ARCH-01) ───────────────────────────────────────────
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/aplicacoes/
@@ -592,7 +592,7 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
         ).order_by("nomeaplicacao")
 
 
-# ─── CRUD ViewSets ─────────────────────────────────────────────────────────────
+# ─── CRUD ViewSets ───────────────────────────────────────────────────────────────────
 
 class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """
@@ -727,6 +727,92 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
             security_logger.info(
                 "USERROLE_PERM_REVOKE_SYNC user_id=%s",
                 user.pk,
+            )
+
+        return response
+
+
+class UserPermissionOverrideViewSet(AuditableMixin, viewsets.ModelViewSet):
+    """
+    CRUD de UserPermissionOverride. Apenas PORTAL_ADMIN.
+
+    Toda mutação (create, update, partial_update, destroy) aciona
+    ``sync_user_permissions(user)`` para garantir que auth_user_user_permissions
+    reflita imediatamente o override criado/alterado/removido.
+
+    Endpoints:
+      GET    /api/accounts/permission-overrides/
+      POST   /api/accounts/permission-overrides/
+      GET    /api/accounts/permission-overrides/{id}/
+      PUT    /api/accounts/permission-overrides/{id}/
+      PATCH  /api/accounts/permission-overrides/{id}/
+      DELETE /api/accounts/permission-overrides/{id}/
+
+    FASE-5-PERM (Issue #18).
+    """
+    serializer_class = UserPermissionOverrideSerializer
+    permission_classes = [IsAuthenticated, IsPortalAdmin]
+
+    def get_queryset(self):
+        return UserPermissionOverride.objects.all().select_related(
+            "user", "permission"
+        ).order_by("user__username", "permission__codename")
+
+    def _sync_after_mutation(self, override):
+        """Chama sync_user_permissions e registra log após qualquer mutação."""
+        sync_user_permissions(user=override.user)
+        security_logger.info(
+            "OVERRIDE_PERM_SYNC user_id=%s permission=%s mode=%s",
+            override.user_id,
+            override.permission.codename,
+            override.mode,
+        )
+
+    def create(self, request, *args, **kwargs):
+        security_logger.info(
+            "OVERRIDE_CREATE admin_id=%s payload=%s",
+            request.user.id, request.data,
+        )
+        with transaction.atomic():
+            response = super().create(request, *args, **kwargs)
+            override = UserPermissionOverride.objects.select_related(
+                "user", "permission"
+            ).get(pk=response.data["id"])
+            self._sync_after_mutation(override)
+        return response
+
+    def update(self, request, *args, **kwargs):
+        security_logger.info(
+            "OVERRIDE_UPDATE admin_id=%s override_id=%s",
+            request.user.id, kwargs.get("pk"),
+        )
+        with transaction.atomic():
+            response = super().update(request, *args, **kwargs)
+            override = UserPermissionOverride.objects.select_related(
+                "user", "permission"
+            ).get(pk=response.data["id"])
+            self._sync_after_mutation(override)
+        return response
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        user = instance.user
+
+        security_logger.info(
+            "OVERRIDE_DELETE admin_id=%s override_id=%s user_id=%s permission=%s mode=%s",
+            request.user.id, instance.pk, user.pk,
+            instance.permission.codename, instance.mode,
+        )
+
+        with transaction.atomic():
+            response = super().destroy(request, *args, **kwargs)
+            sync_user_permissions(user=user)
+            security_logger.info(
+                "OVERRIDE_DELETE_PERM_SYNC user_id=%s", user.pk,
             )
 
         return response
