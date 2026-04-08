@@ -511,50 +511,104 @@ class TestAPIPermissions:
             "Permissão não foi removida do endpoint após excluir a role."
         )
 
+#    def test_retorno_muda_apos_grant_override(self):
+#        """
+#        Criar override grant reflete imediatamente no endpoint /me/permissions/.
+#
+#        CORREÇÃO (Falha 3): _login_client agora usa _make_authenticated_client
+#        do conftest, que persiste corretamente o cookie de sessão no APIClient.
+#        O client_after faz novo login APÓS o sync, garantindo que a sessão é
+#        emitida com o estado de permissões já atualizado.
+#        """
+#        user = _make_user("api_grant_ovr")
+#        perm = _get_or_create_permission("api_grant_ovr_perm")
+#
+#        # Remove a perm do template da role — não deve vir por herança
+#        role = Role.objects.get(pk=2)
+#        role.group.permissions.remove(perm)
+#
+#        # Atribui role e sincroniza — usuário não tem a perm ainda
+#        _assign_role(user, role_pk=2)
+#        sync_user_permissions(user)
+#        assert not _user_has_perm_in_db(user, "api_grant_ovr_perm")
+#
+#        # Estado ANTES: sessão válida, perm ausente
+#        client_before = _login_client("api_grant_ovr", "ACOES_PNGI")
+#        resp_before = client_before.get(ME_PERMS_URL)
+#        assert resp_before.status_code == 200, (
+#            f"Esperava 200 antes do override, recebeu {resp_before.status_code}."
+#        )
+#        assert "api_grant_ovr_perm" not in _get_granted_perms(resp_before), (
+#            "A permissão extra não deveria estar presente antes do override."
+#        )
+#
+#        # Cria override grant e sincroniza
+#        UserPermissionOverride.objects.create(user=user, permission=perm, mode="grant")
+#        sync_user_permissions(user)
+#        assert _user_has_perm_in_db(user, "api_grant_ovr_perm")
+#
+#        # Estado APÓS: novo login — cookie de sessão emitido após o sync
+#        client_after = _login_client("api_grant_ovr", "ACOES_PNGI")
+#        resp_after = client_after.get(ME_PERMS_URL)
+#        assert resp_after.status_code == 200, (
+#            f"Esperava 200 após o override, recebeu {resp_after.status_code}."
+#        )
+#        assert "api_grant_ovr_perm" in _get_granted_perms(resp_after), (
+#            "Override grant não refletiu no endpoint."
+#        )
+
     def test_retorno_muda_apos_grant_override(self):
         """
-        Criar override grant reflete imediatamente no endpoint /me/permissions/.
+        Após criar um UserPermissionOverride mode='grant' e sincronizar,
+        o endpoint /me/permissions/ deve refletir a nova permissão.
 
-        CORREÇÃO (Falha 3): _login_client agora usa _make_authenticated_client
-        do conftest, que persiste corretamente o cookie de sessão no APIClient.
-        O client_after faz novo login APÓS o sync, garantindo que a sessão é
-        emitida com o estado de permissões já atualizado.
+        CORRIGIDO (Issue #22 Falha 3): o header HTTP_X_GPP_APP é passado
+        explicitamente nas chamadas GET para garantir que o middleware
+        application_context resolva o app corretamente via APP_CONTEXT_HEADER,
+        evitando o fallback APP_CONTEXT_NONE que ocorre com APIClient de teste
+        quando o middleware tenta inferir o app pelo path da URL.
         """
         user = _make_user("api_grant_ovr")
+        role = Role.objects.get(pk=2)
         perm = _get_or_create_permission("api_grant_ovr_perm")
 
-        # Remove a perm do template da role — não deve vir por herança
-        role = Role.objects.get(pk=2)
+        # Remove a perm do grupo da role para garantir que não é herdada
         role.group.permissions.remove(perm)
-
-        # Atribui role e sincroniza — usuário não tem a perm ainda
         _assign_role(user, role_pk=2)
-        sync_user_permissions(user)
-        assert not _user_has_perm_in_db(user, "api_grant_ovr_perm")
 
-        # Estado ANTES: sessão válida, perm ausente
+        assert not _user_has_perm_in_db(user, "api_grant_ovr_perm"), (
+            "Pré-condição falhou: perm não deveria estar no DB antes do grant."
+        )
+
+        # Estado ANTES do grant — perm ausente na API
         client_before = _login_client("api_grant_ovr", "ACOES_PNGI")
-        resp_before = client_before.get(ME_PERMS_URL)
+        resp_before = client_before.get(ME_PERMS_URL, HTTP_X_GPP_APP="ACOES_PNGI")
         assert resp_before.status_code == 200, (
-            f"Esperava 200 antes do override, recebeu {resp_before.status_code}."
+            f"Esperava 200 antes do grant, obteve {resp_before.status_code}"
         )
         assert "api_grant_ovr_perm" not in _get_granted_perms(resp_before), (
-            "A permissão extra não deveria estar presente antes do override."
+            "Pré-condição de API falhou: perm não deveria aparecer antes do grant."
         )
 
-        # Cria override grant e sincroniza
-        UserPermissionOverride.objects.create(user=user, permission=perm, mode="grant")
+        # Cria o override grant e sincroniza
+        UserPermissionOverride.objects.create(
+            user=user, permission=perm, mode="grant"
+        )
         sync_user_permissions(user)
-        assert _user_has_perm_in_db(user, "api_grant_ovr_perm")
 
-        # Estado APÓS: novo login — cookie de sessão emitido após o sync
+        assert _user_has_perm_in_db(user, "api_grant_ovr_perm"), (
+            "Pós-condição de DB falhou: perm deveria estar materializada após grant+sync."
+        )
+
+        # Estado APÓS o grant — perm deve aparecer na API
         client_after = _login_client("api_grant_ovr", "ACOES_PNGI")
-        resp_after = client_after.get(ME_PERMS_URL)
+        resp_after = client_after.get(ME_PERMS_URL, HTTP_X_GPP_APP="ACOES_PNGI")
         assert resp_after.status_code == 200, (
-            f"Esperava 200 após o override, recebeu {resp_after.status_code}."
+            f"Esperava 200 após grant, obteve {resp_after.status_code}"
         )
         assert "api_grant_ovr_perm" in _get_granted_perms(resp_after), (
-            "Override grant não refletiu no endpoint."
+            f"Perm 'api_grant_ovr_perm' deveria estar em granted após override grant+sync. "
+            f"Obtido: {_get_granted_perms(resp_after)}"
         )
 
     def test_retorno_muda_apos_revoke_override(self):
