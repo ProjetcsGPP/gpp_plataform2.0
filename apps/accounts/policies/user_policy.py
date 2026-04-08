@@ -115,72 +115,14 @@ class UserPolicy:
 
         return result
 
-#    def can_create_user_in_application(self, aplicacao) -> bool:
-#
-#        app_code = getattr(aplicacao, "codigointerno", None) or str(aplicacao)
-#
-#        if self.user.is_superuser:
-#            security_logger.info(
-#                "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s reason=superuser",
-#                self.user.id,
-#            )
-#            return True
-#        
-#        if self._is_portal_admin():
-#            security_logger.info(
-#                "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s app=%s reason=portal_admin",
-#                self.user.id,
-#                app_code,
-#            )
-#            return True
-#
-#        if not self.can_create_user():
-#            security_logger.warning(
-#                "AUTHZ_CREATE_IN_APP_DENY user_id=%s app=%s reason=no_create_permission",
-#                self.user.id,
-#                app_code,
-#            )
-#            return False
-#
-#        from apps.accounts.models import UserRole
-#
-#        has_role = UserRole.objects.filter(
-#            user=self.user,
-#            aplicacao=aplicacao,
-#        ).exists()
-#
-#        if has_role:
-#            security_logger.info(
-#                "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s app=%s reason=has_role_in_app",
-#                self.user.id,
-#                app_code,
-#            )
-#        else:
-#            security_logger.warning(
-#                "AUTHZ_CREATE_IN_APP_DENY user_id=%s app=%s reason=no_role_in_app",
-#                self.user.id,
-#                app_code,
-#            )
-#
-#        return has_role
-
     def can_create_user_in_application(self, aplicacao) -> bool:
-        """
-        Autoriza criação de usuário na aplicação específica.
-        
-        Lógica corrigida:
-        - superuser e portal admin: sempre OK
-        - precisa can_create_user()
-        - precisa ter role na aplicação 
-        - role.group deve ter 'adduser' para criação
-        """
+
         app_code = getattr(aplicacao, "codigointerno", None) or str(aplicacao)
 
         if self.user.is_superuser:
             security_logger.info(
-                "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s app=%s reason=superuser",
+                "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s reason=superuser",
                 self.user.id,
-                app_code,
             )
             return True
         
@@ -202,48 +144,27 @@ class UserPolicy:
 
         from apps.accounts.models import UserRole
 
-        # Verifica se tem role na aplicação
-        has_role_in_app = UserRole.objects.filter(
+        has_role = UserRole.objects.filter(
             user=self.user,
             aplicacao=aplicacao,
         ).exists()
 
-        if not has_role_in_app:
+        if has_role:
+            security_logger.info(
+                "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s app=%s reason=has_role_in_app",
+                self.user.id,
+                app_code,
+            )
+        else:
             security_logger.warning(
                 "AUTHZ_CREATE_IN_APP_DENY user_id=%s app=%s reason=no_role_in_app",
                 self.user.id,
                 app_code,
             )
-            return False
 
-        # Verifica se a role tem permissão 'adduser' no group
-        roles = UserRole.objects.select_related("role__group").filter(
-            user=self.user,
-            aplicacao=aplicacao,
-        )
+        return has_role
 
-        for user_role in roles:
-            role = user_role.role
-            if role and role.group:
-                group_perms = set(
-                    role.group.permissions.values_list("codename", flat=True)
-                )
-                if "adduser" in group_perms:
-                    security_logger.info(
-                        "AUTHZ_CREATE_IN_APP_ALLOW user_id=%s app=%s reason=role_has_adduser",
-                        self.user.id,
-                        app_code,
-                    )
-                    return True
-
-        security_logger.warning(
-            "AUTHZ_CREATE_IN_APP_DENY user_id=%s app=%s reason=no_adduser_in_role_group",
-            self.user.id,
-            app_code,
-        )
-        return False
-
-
+  
     def can_edit_target_user(self, target_user) -> bool:
 
         if self.user.is_superuser:
