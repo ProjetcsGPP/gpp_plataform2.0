@@ -9,11 +9,19 @@ As factories mock originais são mantidas para compatibilidade com os
 testes unitários existentes (Prompts 1-6).
 As fixtures com DB são prefixadas com nomes do cenário cross-policy
 definido no Prompt 7.
+
+ADR-PERM-01 (auth_user_user_permissions como fonte de verdade):
+  A fixture db_gestor chama sync_user_permissions(user) — ou atribui
+  diretamente user_permissions — para que has_perm("auth.add_user") e
+  has_perm("auth.change_user") retornem True. Sem essa materialização,
+  can_create_user() e can_edit_user() retornam False mesmo com
+  ClassificacaoUsuario.pode_criar/editar_usuario=True.
 """
 from unittest.mock import MagicMock
 import pytest
 
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Permission, User
+from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 
 from apps.accounts.models import (
@@ -168,6 +176,36 @@ def _make_db_user(username, is_superuser=False):
     return user
 
 
+def _grant_user_permissions(user, codenames):
+    """
+    Materializa permissões diretamente em auth_user_user_permissions.
+
+    Equivalente a sync_user_permissions() para as permissões listadas.
+    Limpa o cache de permissões do Django para que has_perm() releia do banco.
+
+    ADR-PERM-01: auth_user_user_permissions é a única fonte de verdade.
+    """
+    user_ct = ContentType.objects.get_for_model(User)
+    for codename in codenames:
+        # Busca primeiro em auth (add_user / change_user estão no app "auth")
+        perm = Permission.objects.filter(codename=codename).first()
+        if perm is None:
+            perm = Permission.objects.create(
+                codename=codename,
+                name=f"Can {codename}",
+                content_type=user_ct,
+            )
+        user.user_permissions.add(perm)
+
+    # Limpa cache de permissões do Django para este usuário.
+    # O Django armazena permissões em _perm_cache / _user_perm_cache após o
+    # primeiro has_perm(). Se o objeto já foi consultado antes da concessão,
+    # o cache fica obsoleto e has_perm() continuaria retornando False.
+    for attr in ("_perm_cache", "_user_perm_cache"):
+        if hasattr(user, attr):
+            delattr(user, attr)
+
+
 # ── Fixtures cross-policy (com DB) ────────────────────────────────────────────
 # Todas marcadas com @pytest.mark.django_db no nível do fixture via
 # scope="function" padrão; os testes que as usam devem declarar
@@ -267,22 +305,36 @@ def db_portal_admin(db, db_role_admin):
 def db_gestor(db, db_app_ready, db_role_viewer):
     """
     Usuário gestor:
-      - ClassificacaoUsuario.pode_editar_usuario=True
+      - ClassificacaoUsuario.pode_editar_usuario=True  (legado — NÃO usado pela policy)
       - UserRole(role=VIEWER, aplicacao=db_app_ready)
+      - auth.add_user + auth.change_user em auth_user_user_permissions
+        (ADR-PERM-01: única fonte de verdade para can_create_user/can_edit_user)
+
+    A chamada a _grant_user_permissions() materializa as permissões diretamente
+    em auth_user_user_permissions, equivalente ao que sync_user_permissions() faz,
+    e limpa o cache de permissões do Django para garantir que has_perm() releia
+    do banco na próxima chamada.
     """
     _ensure_lookup_tables(db)
     user = _make_db_user("cross_gestor")
+
+    # Legado: mantém a classificação no profile para não quebrar outros testes
     classificacao_gestor = ClassificacaoUsuario.objects.get(pk=2)
     profile = user.profile
     profile.classificacao_usuario = classificacao_gestor
     profile.save()
+
     UserRole.objects.create(user=user, role=db_role_viewer, aplicacao=db_app_ready)
+
+    # ADR-PERM-01: materializa as permissões de criar/editar usuário
+    _grant_user_permissions(user, ["add_user", "change_user"])
+
     return user
 
 
 @pytest.fixture
 def db_regular_user(db, db_app_ready, db_role_viewer):
-    """Usuário comum com UserRole(VIEWER, db_app_ready)."""
+    """Usuário comum com UserRole(VIEWER, db_app_ready) — sem auth.add_user/change_user."""
     _ensure_lookup_tables(db)
     user = _make_db_user("cross_regular")
     UserRole.objects.create(user=user, role=db_role_viewer, aplicacao=db_app_ready)
