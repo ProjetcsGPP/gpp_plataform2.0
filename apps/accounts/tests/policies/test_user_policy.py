@@ -12,6 +12,12 @@ NOTA DE PATCH:
   UserRole é importado localmente (dentro dos métodos) em user_policy.py,
   por isso o patch correto é "apps.accounts.models.UserRole", não
   "apps.accounts.policies.user_policy.UserRole".
+
+ADR-PERM-01 (reescrita):
+  can_create_user() e can_edit_user() lêem user.has_perm(), NÃO
+  _get_classificacao(). Os testes de unidade (mock) patcham
+  patch.object(actor, "has_perm", return_value=...) para controlar
+  o resultado dessas funções.
 """
 
 import logging
@@ -97,53 +103,55 @@ class TestCanCreateUser:
             if "AUTHZ_USER_CREATE" in r.message and "portal_admin" in r.message
         )
 
-    def test_can_create_user_no_classificacao_returns_false(self, actor, caplog):
-        """classificacao is None → False + log WARNING reason=no_classificacao."""
+    def test_can_create_user_no_perm_returns_false(self, actor, caplog):
+        """has_perm()=False → False + log WARNING AUTHZ_DENY_USER_CREATE reason=no_perm."""
         policy = UserPolicy(actor)
         with caplog.at_level(logging.WARNING, logger="gpp.security"):
             with patch.object(policy, "_is_portal_admin", return_value=False):
-                with patch.object(policy, "_get_classificacao", return_value=None):
+                with patch.object(actor, "has_perm", return_value=False):
                     result = policy.can_create_user()
 
         assert result is False
-        assert any("no_classificacao" in r.message for r in caplog.records)
+        assert any("AUTHZ_DENY_USER_CREATE" in r.message for r in caplog.records)
+        assert any("no_perm" in r.message for r in caplog.records)
         assert any(
             r.levelname == "WARNING"
-            for r in caplog.records if "no_classificacao" in r.message
+            for r in caplog.records if "AUTHZ_DENY_USER_CREATE" in r.message
         )
 
-    def test_can_create_user_classificacao_pode_criar_true_returns_true(
-        self, actor, classificacao_com_permissao, caplog
+    def test_can_create_user_has_perm_true_returns_true(
+        self, actor, caplog
     ):
-        """classificacao.pode_criar_usuario=True → True + log INFO."""
+        """has_perm()=True → True + log INFO AUTHZ_USER_CREATE reason=has_perm."""
         policy = UserPolicy(actor)
         with caplog.at_level(logging.INFO, logger="gpp.security"):
             with patch.object(policy, "_is_portal_admin", return_value=False):
-                with patch.object(policy, "_get_classificacao", return_value=classificacao_com_permissao):
+                with patch.object(actor, "has_perm", return_value=True):
                     result = policy.can_create_user()
 
         assert result is True
         assert any("AUTHZ_USER_CREATE" in r.message for r in caplog.records)
+        assert any("has_perm" in r.message for r in caplog.records)
         assert any(
             r.levelname == "INFO"
             for r in caplog.records if "AUTHZ_USER_CREATE" in r.message
         )
 
-    def test_can_create_user_classificacao_pode_criar_false_returns_false(
-        self, actor, classificacao_sem_permissao, caplog
+    def test_can_create_user_has_perm_false_returns_false(
+        self, actor, caplog
     ):
-        """classificacao.pode_criar_usuario=False → False + log WARNING."""
+        """has_perm()=False (explícito) → False + log WARNING AUTHZ_DENY_USER_CREATE."""
         policy = UserPolicy(actor)
         with caplog.at_level(logging.WARNING, logger="gpp.security"):
             with patch.object(policy, "_is_portal_admin", return_value=False):
-                with patch.object(policy, "_get_classificacao", return_value=classificacao_sem_permissao):
+                with patch.object(actor, "has_perm", return_value=False):
                     result = policy.can_create_user()
 
         assert result is False
-        assert any("AUTHZ_USER_CREATE" in r.message for r in caplog.records)
+        assert any("AUTHZ_DENY_USER_CREATE" in r.message for r in caplog.records)
         assert any(
             r.levelname == "WARNING"
-            for r in caplog.records if "AUTHZ_USER_CREATE" in r.message
+            for r in caplog.records if "AUTHZ_DENY_USER_CREATE" in r.message
         )
 
 
@@ -172,53 +180,55 @@ class TestCanEditUser:
             if "AUTHZ_USER_EDIT" in r.message and "portal_admin" in r.message
         )
 
-    def test_can_edit_user_no_classificacao_returns_false(self, actor, caplog):
-        """classificacao is None → False + log WARNING reason=no_classificacao."""
+    def test_can_edit_user_no_perm_returns_false(self, actor, caplog):
+        """has_perm()=False → False + log WARNING AUTHZ_DENY_USER_EDIT reason=no_perm."""
         policy = UserPolicy(actor)
         with caplog.at_level(logging.WARNING, logger="gpp.security"):
             with patch.object(policy, "_is_portal_admin", return_value=False):
-                with patch.object(policy, "_get_classificacao", return_value=None):
+                with patch.object(actor, "has_perm", return_value=False):
                     result = policy.can_edit_user()
 
         assert result is False
-        assert any("no_classificacao" in r.message for r in caplog.records)
+        assert any("AUTHZ_DENY_USER_EDIT" in r.message for r in caplog.records)
+        assert any("no_perm" in r.message for r in caplog.records)
         assert any(
             r.levelname == "WARNING"
-            for r in caplog.records if "no_classificacao" in r.message
+            for r in caplog.records if "AUTHZ_DENY_USER_EDIT" in r.message
         )
 
-    def test_can_edit_user_classificacao_pode_editar_true_returns_true(
-        self, actor, classificacao_com_permissao, caplog
+    def test_can_edit_user_has_perm_true_returns_true(
+        self, actor, caplog
     ):
-        """classificacao.pode_editar_usuario=True → True + log INFO."""
+        """has_perm()=True → True + log INFO AUTHZ_USER_EDIT reason=has_perm."""
         policy = UserPolicy(actor)
         with caplog.at_level(logging.INFO, logger="gpp.security"):
             with patch.object(policy, "_is_portal_admin", return_value=False):
-                with patch.object(policy, "_get_classificacao", return_value=classificacao_com_permissao):
+                with patch.object(actor, "has_perm", return_value=True):
                     result = policy.can_edit_user()
 
         assert result is True
         assert any("AUTHZ_USER_EDIT" in r.message for r in caplog.records)
+        assert any("has_perm" in r.message for r in caplog.records)
         assert any(
             r.levelname == "INFO"
             for r in caplog.records if "AUTHZ_USER_EDIT" in r.message
         )
 
-    def test_can_edit_user_classificacao_pode_editar_false_returns_false(
-        self, actor, classificacao_sem_permissao, caplog
+    def test_can_edit_user_has_perm_false_returns_false(
+        self, actor, caplog
     ):
-        """classificacao.pode_editar_usuario=False → False + log WARNING."""
+        """has_perm()=False (explícito) → False + log WARNING AUTHZ_DENY_USER_EDIT."""
         policy = UserPolicy(actor)
         with caplog.at_level(logging.WARNING, logger="gpp.security"):
             with patch.object(policy, "_is_portal_admin", return_value=False):
-                with patch.object(policy, "_get_classificacao", return_value=classificacao_sem_permissao):
+                with patch.object(actor, "has_perm", return_value=False):
                     result = policy.can_edit_user()
 
         assert result is False
-        assert any("AUTHZ_USER_EDIT" in r.message for r in caplog.records)
+        assert any("AUTHZ_DENY_USER_EDIT" in r.message for r in caplog.records)
         assert any(
             r.levelname == "WARNING"
-            for r in caplog.records if "AUTHZ_USER_EDIT" in r.message
+            for r in caplog.records if "AUTHZ_DENY_USER_EDIT" in r.message
         )
 
 
@@ -247,7 +257,8 @@ class TestCanCreateUserInApplication:
         policy = UserPolicy(actor)
         with patch(_UR_PATH) as mock_ur:
             with patch.object(policy, "_is_portal_admin", return_value=False):
-                with patch.object(policy, "_get_classificacao", return_value=None):
+                # Patcha can_create_user diretamente — ADR-PERM-01: não depende de _get_classificacao
+                with patch.object(policy, "can_create_user", return_value=False):
                     with caplog.at_level(logging.WARNING, logger="gpp.security"):
                         result = policy.can_create_user_in_application(aplicacao)
 
@@ -255,35 +266,35 @@ class TestCanCreateUserInApplication:
         assert any("no_create_permission" in r.message for r in caplog.records)
         mock_ur.objects.filter.assert_not_called()
 
-    def test_has_role_in_app_returns_true(self, actor, classificacao_com_permissao, caplog):
+    def test_has_role_in_app_returns_true(self, actor, caplog):
         """can_create_user()=True + UserRole existe → True + log INFO reason=has_role_in_app."""
         aplicacao = make_aplicacao(codigointerno="APP_Z")
         policy = UserPolicy(actor)
         with patch(_UR_PATH) as mock_ur:
             mock_ur.objects.filter.return_value.exists.return_value = True
             with patch.object(policy, "_is_portal_admin", return_value=False):
-                with patch.object(policy, "_get_classificacao", return_value=classificacao_com_permissao):
+                with patch.object(actor, "has_perm", return_value=True):
                     with caplog.at_level(logging.INFO, logger="gpp.security"):
                         result = policy.can_create_user_in_application(aplicacao)
 
         assert result is True
         assert any("has_role_in_app" in r.message for r in caplog.records)
 
-    def test_no_role_in_app_returns_false(self, actor, classificacao_com_permissao, caplog):
+    def test_no_role_in_app_returns_false(self, actor, caplog):
         """can_create_user()=True + UserRole NÃO existe → False + log WARNING reason=no_role_in_app."""
         aplicacao = make_aplicacao(codigointerno="APP_W")
         policy = UserPolicy(actor)
         with patch(_UR_PATH) as mock_ur:
             mock_ur.objects.filter.return_value.exists.return_value = False
             with patch.object(policy, "_is_portal_admin", return_value=False):
-                with patch.object(policy, "_get_classificacao", return_value=classificacao_com_permissao):
+                with patch.object(actor, "has_perm", return_value=True):
                     with caplog.at_level(logging.WARNING, logger="gpp.security"):
                         result = policy.can_create_user_in_application(aplicacao)
 
         assert result is False
         assert any("no_role_in_app" in r.message for r in caplog.records)
 
-    def test_aplicacao_sem_codigointerno_usa_str_no_log(self, actor, classificacao_com_permissao, caplog):
+    def test_aplicacao_sem_codigointerno_usa_str_no_log(self, actor, caplog):
         """aplicacao sem atributo codigointerno → fallback str(aplicacao) usado no log."""
         # Usa classe simples sem codigointerno para evitar conflito com spec=[] do MagicMock
         aplicacao = _AplicacaoSemCodigo()
@@ -291,7 +302,7 @@ class TestCanCreateUserInApplication:
         with patch(_UR_PATH) as mock_ur:
             mock_ur.objects.filter.return_value.exists.return_value = True
             with patch.object(policy, "_is_portal_admin", return_value=False):
-                with patch.object(policy, "_get_classificacao", return_value=classificacao_com_permissao):
+                with patch.object(actor, "has_perm", return_value=True):
                     with caplog.at_level(logging.INFO, logger="gpp.security"):
                         result = policy.can_create_user_in_application(aplicacao)
 
@@ -319,8 +330,10 @@ class TestCanEditTargetUser:
     def test_no_edit_permission_returns_false_immediately(self, actor, target_user, caplog):
         """can_edit_user()=False → False imediato + log WARNING reason=no_edit_permission."""
         policy = UserPolicy(actor)
+        # Patcha can_edit_user diretamente para garantir o early-return sem acessar o ORM
+        # com target_user MagicMock (evita TypeError em _has_application_intersection).
         with patch.object(policy, "_is_portal_admin", return_value=False):
-            with patch.object(policy, "_get_classificacao", return_value=None):
+            with patch.object(policy, "can_edit_user", return_value=False):
                 with caplog.at_level(logging.WARNING, logger="gpp.security"):
                     result = policy.can_edit_target_user(target_user)
 
@@ -328,12 +341,12 @@ class TestCanEditTargetUser:
         assert any("no_edit_permission" in r.message for r in caplog.records)
 
     def test_with_intersection_returns_true(
-        self, actor, target_user, classificacao_com_permissao, caplog
+        self, actor, target_user, caplog
     ):
         """can_edit_user()=True + intersection → True + log INFO reason=app_intersection."""
         policy = UserPolicy(actor)
         with patch.object(policy, "_is_portal_admin", return_value=False):
-            with patch.object(policy, "_get_classificacao", return_value=classificacao_com_permissao):
+            with patch.object(actor, "has_perm", return_value=True):
                 with patch.object(policy, "_has_application_intersection", return_value=True):
                     with caplog.at_level(logging.INFO, logger="gpp.security"):
                         result = policy.can_edit_target_user(target_user)
@@ -342,12 +355,12 @@ class TestCanEditTargetUser:
         assert any("app_intersection" in r.message for r in caplog.records)
 
     def test_without_intersection_returns_false(
-        self, actor, target_user, classificacao_com_permissao, caplog
+        self, actor, target_user, caplog
     ):
         """can_edit_user()=True + sem intersection → False + log WARNING reason=no_app_intersection."""
         policy = UserPolicy(actor)
         with patch.object(policy, "_is_portal_admin", return_value=False):
-            with patch.object(policy, "_get_classificacao", return_value=classificacao_com_permissao):
+            with patch.object(actor, "has_perm", return_value=True):
                 with patch.object(policy, "_has_application_intersection", return_value=False):
                     with caplog.at_level(logging.WARNING, logger="gpp.security"):
                         result = policy.can_edit_target_user(target_user)
@@ -379,8 +392,10 @@ class TestCanManageTargetUser:
     def test_no_edit_permission_returns_false_immediately(self, actor, target_user, caplog):
         """can_edit_user()=False → False imediato + log WARNING reason=no_edit_permission."""
         policy = UserPolicy(actor)
+        # Patcha can_edit_user diretamente para garantir o early-return sem acessar o ORM
+        # com target_user MagicMock (evita TypeError em _has_application_intersection).
         with patch.object(policy, "_is_portal_admin", return_value=False):
-            with patch.object(policy, "_get_classificacao", return_value=None):
+            with patch.object(policy, "can_edit_user", return_value=False):
                 with caplog.at_level(logging.WARNING, logger="gpp.security"):
                     result = policy.can_manage_target_user(target_user)
 
@@ -388,12 +403,12 @@ class TestCanManageTargetUser:
         assert any("no_edit_permission" in r.message for r in caplog.records)
 
     def test_with_intersection_returns_true(
-        self, actor, target_user, classificacao_com_permissao, caplog
+        self, actor, target_user, caplog
     ):
         """can_edit_user()=True + intersection → True + log INFO reason=app_intersection."""
         policy = UserPolicy(actor)
         with patch.object(policy, "_is_portal_admin", return_value=False):
-            with patch.object(policy, "_get_classificacao", return_value=classificacao_com_permissao):
+            with patch.object(actor, "has_perm", return_value=True):
                 with patch.object(policy, "_has_application_intersection", return_value=True):
                     with caplog.at_level(logging.INFO, logger="gpp.security"):
                         result = policy.can_manage_target_user(target_user)
@@ -405,12 +420,12 @@ class TestCanManageTargetUser:
         )
 
     def test_without_intersection_returns_false(
-        self, actor, target_user, classificacao_com_permissao, caplog
+        self, actor, target_user, caplog
     ):
         """can_edit_user()=True + sem intersection → False + log WARNING reason=no_app_intersection."""
         policy = UserPolicy(actor)
         with patch.object(policy, "_is_portal_admin", return_value=False):
-            with patch.object(policy, "_get_classificacao", return_value=classificacao_com_permissao):
+            with patch.object(actor, "has_perm", return_value=True):
                 with patch.object(policy, "_has_application_intersection", return_value=False):
                     with caplog.at_level(logging.WARNING, logger="gpp.security"):
                         result = policy.can_manage_target_user(target_user)
@@ -438,7 +453,9 @@ class TestHelpers:
         policy = UserPolicy(actor)
         with patch(_UR_PATH) as mock_ur:
             mock_ur.objects.filter.return_value.exists.return_value = False
-            with patch.object(policy, "_get_classificacao", return_value=None):
+            # has_perm retorna False para que o caminho de has_perm seja exercido
+            # sem depender de _get_classificacao
+            with patch.object(actor, "has_perm", return_value=False):
                 policy.can_create_user()
                 policy.can_edit_user()
 
@@ -539,26 +556,34 @@ class TestCanCreateUserPortalAdminDB:
     def test_regular_user_without_classificacao_db_cannot_create(self, db):
         from django.contrib.auth.models import User
         user = User.objects.create_user(username="no_profile_user", password="Pass123!")
-        # Sem UserProfile → AttributeError → classificacao None → False
+        # Sem UserProfile → AttributeError → classificacao None
+        # Sem sync_user_permissions → sem auth.add_user → has_perm() = False
         policy = UserPolicy(user)
         assert policy.can_create_user() is False
 
 
 @pytest.mark.django_db
 class TestCanEditUserDB:
-    """Valida o fluxo real de can_edit_user com ClassificacaoUsuario no banco."""
+    """Valida o fluxo real de can_edit_user com auth_user_user_permissions no banco."""
 
     def test_portal_admin_db_can_edit_user(self, db_portal_admin):
         policy = UserPolicy(db_portal_admin)
         assert policy.can_edit_user() is True
 
     def test_gestor_db_can_edit_user(self, db_gestor):
-        """Gestor com pode_editar_usuario=True deve retornar True."""
+        """
+        Gestor deve ter auth.change_user materializado em auth_user_user_permissions
+        via sync_user_permissions() para que can_edit_user() retorne True.
+
+        A fixture db_gestor agora chama sync_user_permissions() após criar o UserRole
+        (ver conftest.py). Se a Role/Group do gestor inclui auth.change_user,
+        a permissão fica em auth_user_user_permissions e has_perm() retorna True.
+        """
         policy = UserPolicy(db_gestor)
         assert policy.can_edit_user() is True
 
     def test_regular_user_db_cannot_edit_user(self, db_regular_user):
-        """Usuário com ClassificacaoUsuario padrão (pode_editar=False) retorna False."""
+        """Usuário sem auth.change_user em auth_user_user_permissions retorna False."""
         policy = UserPolicy(db_regular_user)
         assert policy.can_edit_user() is False
 
@@ -569,32 +594,11 @@ class TestCanCreateUserInApplicationDB:
 
     def test_gestor_with_role_in_app_can_create(self, db_gestor, db_app_ready):
         """
-        Gestor + UserRole na app + pode_criar_usuario=True → True.
+        Gestor + UserRole na app + auth.add_user em auth_user_user_permissions → True.
 
-        Cria uma ClassificacaoUsuario dedicada (pk=3) para não interferir
-        na fixture db_gestor que depende de pk=2 com pode_editar=True.
-        Atualiza o profile do gestor para apontar para a nova classificacao.
+        A fixture db_gestor chama sync_user_permissions() e o Group associado
+        à Role do gestor deve incluir auth.add_user para que can_create_user() = True.
         """
-        from apps.accounts.models import ClassificacaoUsuario
-
-        classificacao_criador, _ = ClassificacaoUsuario.objects.get_or_create(
-            idclassificacaousuario=3,
-            defaults={
-                "strdescricao": "Gestor Criador",
-                "pode_criar_usuario": True,
-                "pode_editar_usuario": True,
-            },
-        )
-        # Garante pode_criar=True caso o objeto já existia
-        if not classificacao_criador.pode_criar_usuario:
-            classificacao_criador.pode_criar_usuario = True
-            classificacao_criador.save()
-
-        profile = db_gestor.profile
-        profile.classificacao_usuario = classificacao_criador
-        profile.save()
-        db_gestor.refresh_from_db()
-
         policy = UserPolicy(db_gestor)
         assert policy.can_create_user_in_application(db_app_ready) is True
 
