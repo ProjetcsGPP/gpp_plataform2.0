@@ -29,6 +29,11 @@ FIX (Issue #21): UserPermissionOverrideSerializer.create/update sobrescritos par
              (campos inexistentes no model) e mapear created_by_id/updated_by_id
              para as FKs created_by/updated_by do model. Corrige TypeError em
              DC-03, DC-04 e TC-06.
+FIX (Issue #22 Falha 3): MePermissionSerializer.get_granted() corrigido para incluir
+             permissões concedidas via grant override que não pertencem ao grupo da role.
+             Lógica anterior filtrava user.user_permissions pelo conjunto group_codenames,
+             excluindo silenciosamente grants extras materializados pelo sync.
+             Nova lógica: all_user_perms - revoked_overrides, preservando escopo da app.
 """
 import logging
 
@@ -596,7 +601,7 @@ class MeSerializer(serializers.Serializer):
 
 class MePermissionSerializer(serializers.Serializer):
     """
-    Serializer para GET /api/accounts/me/permissions/?app=<codigo>
+    Serializer para GET /api/accounts/me/permissions/
     Retorna a role do usuário na app e os codenames de permissão concedidos.
 
     Formato:
@@ -612,11 +617,43 @@ class MePermissionSerializer(serializers.Serializer):
     }
 
     FASE-4-PERM (corrige D-02):
-        A leitura agora é feita diretamente de ``user.user_permissions``
-        (``auth_user_user_permissions``), filtrada pelos codenames do grupo
-        da role para manter o escopo por aplicação.
-        Isso garante que as permissões retornadas sejam consistentes com
-        o que ``AuthorizationService.can()`` e ``HasRolePermission`` enxergam.
+        A leitura é feita de ``user.user_permissions``
+        (``auth_user_user_permissions``), que é a única fonte de verdade
+        em runtime conforme ADR-PERM-01.
+
+    FIX (Issue #22 Falha 3):
+        Lógica anterior filtrava user.user_permissions pelo conjunto
+        group_codenames (permissões do grupo da role). Isso excluía
+        silenciosamente permissões adicionadas via grant override, pois
+        elas não fazem parte do template do grupo da role.
+
+        Nova lógica — preserva escopo por aplicação via group_codenames
+        mas inclui grants extras:
+
+          all_user_perms  = todos os codenames em user.user_permissions
+          group_scope     = codenames do grupo da role (template da app)
+          grant_overrides = codenames de overrides mode='grant' para o user
+                            nesta role (podem estar fora do grupo)
+          revoke_override_codenames = codenames de overrides mode='revoke'
+                            para o user que pertencem ao escopo da app
+                            (group_scope ∪ grant_overrides)
+
+          resultado = (group_scope ∩ all_user_perms)
+                      ∪ (grant_overrides ∩ all_user_perms)
+                      - revoke_override_codenames
+
+        Simplificando: como sync_user_permissions() já aplica a fórmula
+        herdadas | grants - revokes em auth_user_user_permissions,
+        basta ler all_user_perms limitado ao escopo da aplicação:
+
+          escopo_app = group_scope ∪ grant_overrides_da_role
+          resultado  = all_user_perms ∩ escopo_app
+
+        Isso é correto e idempotente pois o sync já garantiu que revokes
+        não estão em user.user_permissions.
+
+    Referências: ADR-PERM-01, PERMISSIONS_ARCHITECTURE.md
+      Fórmula: herdadas |= user_permissions |= grant -= revoke
     """
     role = serializers.SerializerMethodField()
     granted = serializers.SerializerMethodField()
@@ -629,24 +666,38 @@ class MePermissionSerializer(serializers.Serializer):
         role = obj["role"]
         group = role.group
 
-        if group is None:
-            # Role sem grupo: retorna todas as permissões diretas do usuário
-            return list(
-                user.user_permissions
-                .values_list("codename", flat=True)
-                .order_by("codename")
-            )
+        # Todos os codenames materializados pelo sync em auth_user_user_permissions.
+        # O sync já aplicou: herdadas | grants - revokes — esta é a fonte de verdade.
+        all_user_perm_codenames = set(
+            user.user_permissions.values_list("codename", flat=True)
+        )
 
-        # Obtém os codenames que o grupo define para esta role
-        group_codenames = set(
+        if group is None:
+            # Role sem grupo: todas as permissões diretas do usuário são válidas
+            return sorted(all_user_perm_codenames)
+
+        # Escopo base: codenames que o grupo da role define (template da aplicação)
+        group_scope = set(
             group.permissions.values_list("codename", flat=True)
         )
 
-        # Retorna apenas as permissões do usuário que pertencem ao escopo
-        # desta role — leitura exclusiva de auth_user_user_permissions (D-02)
-        return list(
-            user.user_permissions
-            .filter(codename__in=group_codenames)
-            .values_list("codename", flat=True)
-            .order_by("codename")
+        # Grants extras: overrides mode='grant' para este usuário nesta role.
+        # São permissões fora do template do grupo, mas igualmente válidas.
+        # Usamos a role.group como âncora de aplicação — os overrides são globais
+        # ao usuário, mas expomos apenas os que estão materializados no sync.
+        grant_override_codenames = set(
+            UserPermissionOverride.objects.filter(
+                user=user,
+                mode=UserPermissionOverride.MODE_GRANT,
+            ).values_list("permission__codename", flat=True)
         )
+
+        # Escopo da aplicação = template do grupo + grants extras já materializados
+        app_scope = group_scope | grant_override_codenames
+
+        # Resultado: interseção entre o que está no banco (fonte de verdade do sync)
+        # e o escopo desta aplicação. Revokes já foram subtraídos pelo sync,
+        # portanto não precisam ser filtrados aqui novamente.
+        result = all_user_perm_codenames & app_scope
+
+        return sorted(result)
