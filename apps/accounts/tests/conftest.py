@@ -33,7 +33,7 @@ URLs dos endpoints accounts:
   POST /api/accounts/users/create-with-role/
 """
 import pytest
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import Group, User, Permission
 from rest_framework.test import APIClient
 from django.db import connection
 
@@ -165,19 +165,21 @@ def _bootstrap_aplicacoes():
 def _bootstrap_roles():
     """
     Cria os Groups e Roles base com pks fixos.
-    O Group e criado antes da Role para que role.group seja populado.
+    O Group é criado antes da Role para que role.group seja populado.
+    Após criação, popula auth_group_permissions espelhando o banco de produção
+    para que sync_user_permissions() materialize corretamente as permissões
+    em auth_user_user_permissions (ADR-PERM-01).
     """
     app_portal = Aplicacao.objects.get(pk=1)
     app_pngi   = Aplicacao.objects.get(pk=2)
     app_carga  = Aplicacao.objects.get(pk=3)
 
     _role_data = [
-        # (pk, codigoperfil, nomeperfil, aplicacao, group_name)
-        (1, "PORTAL_ADMIN",    "Portal Admin",      app_portal, "portal_admin_group"),
-        (2, "GESTOR_PNGI",     "Gestor PNGI",       app_pngi,   "gestor_pngi_group"),
-        (3, "COORDENADOR_PNGI","Coordenador PNGI",  app_pngi,   "coordenador_pngi_group"),
-        (4, "OPERADOR_ACAO",   "Operador de Acao",  app_pngi,   "operador_acao_group"),
-        (6, "GESTOR_CARGA",    "Gestor Carga",      app_carga,  "gestor_carga_group"),
+        (1, "PORTAL_ADMIN",      "Portal Admin",      app_portal, "portal_admin_group"),
+        (2, "GESTOR_PNGI",       "Gestor PNGI",       app_pngi,   "gestor_pngi_group"),
+        (3, "COORDENADOR_PNGI",  "Coordenador PNGI",  app_pngi,   "coordenador_pngi_group"),
+        (4, "OPERADOR_ACAO",     "Operador de Acao",  app_pngi,   "operador_acao_group"),
+        (6, "GESTOR_CARGA",      "Gestor Carga",      app_carga,  "gestor_carga_group"),
     ]
 
     for pk, codigo, nome, app, group_name in _role_data:
@@ -186,11 +188,60 @@ def _bootstrap_roles():
             pk=pk,
             defaults={
                 "codigoperfil": codigo,
-                "nomeperfil": nome,
-                "aplicacao": app,
-                "group": group,
+                "nomeperfil":   nome,
+                "aplicacao":    app,
+                "group":        group,
             },
         )
+
+    # ── Permissões por grupo (espelha auth_group_permissions do banco de produção)
+    # Mapeamento: group_name → lista de codenames que o grupo deve ter
+    # Fonte de verdade: public_auth_group_permissions_202604081338-8.json
+    _group_permissions = {
+        "portal_admin_group": [
+            # auth.user — acesso total
+            "add_user", "change_user", "delete_user", "view_user",
+            # accounts
+            "add_aplicacao", "change_aplicacao", "delete_aplicacao", "view_aplicacao",
+            "add_role", "change_role", "delete_role", "view_role",
+            "add_userprofile", "change_userprofile", "delete_userprofile", "view_userprofile",
+            "add_userrole", "change_userrole", "delete_userrole", "view_userrole",
+            "add_classificacaousuario", "change_classificacaousuario",
+            "delete_classificacaousuario", "view_classificacaousuario",
+            "add_statususuario", "change_statususuario",
+            "delete_statususuario", "view_statususuario",
+            "add_tipousuario", "change_tipousuario",
+            "delete_tipousuario", "view_tipousuario",
+        ],
+        "gestor_pngi_group": [
+            # auth.user — criar e editar (materializado em auth_user_user_permissions)
+            "add_user", "change_user", "delete_user", "view_user",
+            # accounts
+            "add_userprofile", "change_userprofile", "delete_userprofile", "view_userprofile",
+            "add_userrole", "change_userrole", "delete_userrole", "view_userrole",
+        ],
+        "coordenador_pngi_group": [
+            "view_user",
+            "view_userprofile",
+            "add_userrole", "change_userrole", "view_userrole",
+        ],
+        "operador_acao_group": [
+            "view_user",
+            "view_userprofile",
+            "view_userrole",
+        ],
+        "gestor_carga_group": [
+            "add_user", "change_user", "view_user",
+            "add_userprofile", "change_userprofile", "view_userprofile",
+            "add_userrole", "change_userrole", "view_userrole",
+        ],
+    }
+
+    for group_name, codenames in _group_permissions.items():
+        group = Group.objects.get(name=group_name)
+        perms = Permission.objects.filter(codename__in=codenames)
+        # set() é idempotente — seguro com --reuse-db
+        group.permissions.set(perms)
 
 
 def _bootstrap_status_usuario():

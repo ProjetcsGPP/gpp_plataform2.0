@@ -55,12 +55,23 @@ class TestUserCreate:
         resp = client_portal_admin.post(USERS_URL, payload, format="json")
         assert resp.status_code == 400
 
-    def test_gestor_sem_permissao_criar_retorna_403(self, client_gestor):
-        resp = client_gestor.post(
+#    def test_gestor_sem_permissao_criar_retorna_403(self, client_gestor):
+#        resp = client_gestor.post(
+#            USERS_URL, _payload_usuario("forbidden"), format="json"
+#        )
+#        assert resp.status_code == 403
+
+    def test_operador_sem_permissao_criar_retorna_403(self, client_operador):
+        """
+        Operador (OPERADOR_ACAO) não tem add_user em auth_user_user_permissions
+        → can_create_user() retorna False → 403.
+        ADR-PERM-01: autorização via has_perm(), não via classificacao.
+        """
+        resp = client_operador.post(
             USERS_URL, _payload_usuario("forbidden"), format="json"
         )
         assert resp.status_code == 403
-
+        
     def test_nao_autenticado_retorna_401_ou_403(self, client_anonimo):
         resp = client_anonimo.post(
             USERS_URL, _payload_usuario("anon"), format="json"
@@ -72,14 +83,27 @@ class TestUserCreate:
 
 class TestUserCreateViewEdgeCases:
 
-    def test_nao_portal_admin_sem_permissao_na_app_retorna_403(
-        self, client_gestor, gestor_pngi
+#    def test_nao_portal_admin_sem_permissao_na_app_retorna_403(
+#        self, client_gestor, gestor_pngi
+#    ):
+#        """
+#        views.py 348→358: gestor_pngi (não-portal-admin) tenta criar usuário
+#        numa aplicação para a qual não tem permissão de gestão → 403.
+#        """
+#        resp = client_gestor.post(
+#            USERS_URL, _payload_usuario("edge_np"), format="json"
+#        )
+#        assert resp.status_code == 403
+
+    def test_nao_portal_admin_sem_permissao_criar_retorna_403(
+        self, client_operador
     ):
         """
-        views.py 348→358: gestor_pngi (não-portal-admin) tenta criar usuário
-        numa aplicação para a qual não tem permissão de gestão → 403.
+        views.py 348→358: operador (não-portal-admin) não tem add_user
+        → can_create_user() retorna False → 403.
+        ADR-PERM-01: autorização via has_perm(), não via classificacao.
         """
-        resp = client_gestor.post(
+        resp = client_operador.post(
             USERS_URL, _payload_usuario("edge_np"), format="json"
         )
         assert resp.status_code == 403
