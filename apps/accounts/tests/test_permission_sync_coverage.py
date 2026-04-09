@@ -13,21 +13,18 @@ Linhas alvo:
 Meta: cobertura de permission_sync.py de 88% → >= 95%
 """
 import pytest
-from unittest.mock import patch, MagicMock
-from django.contrib.auth.models import Permission
+from unittest.mock import patch
 
 from apps.accounts.services.permission_sync import (
-    calculate_effective_permissions,
-    calculate_inherited_permissions,
     sync_all_users_permissions,
     sync_user_permissions,
     sync_users_permissions,
 )
 from apps.accounts.tests.factories import (
-    PermissionFactory,
-    RoleFactory,
-    UserFactory,
-    UserRoleFactory,
+    make_permission,
+    make_role,
+    make_user,
+    make_user_role,
 )
 
 
@@ -45,13 +42,13 @@ class TestSyncUserPermissionsEdgeCases:
         Linha 236: sync_user_permissions retorna sem alterar o banco
         quando current_pks == new_pks.
         """
-        perm = PermissionFactory(codename="noop_sync_perm")
-        role = RoleFactory()
+        perm = make_permission(codename="noop_sync_perm")
+        role = make_role()
         role.group.permissions.add(perm)
-        ur = UserRoleFactory(role=role)
+        ur = make_user_role(role=role)
         user = ur.user
 
-        # Primeira sync já foi chamada pelo factory.
+        # Primeira sync já foi chamada pelo helper.
         # Segunda chamada deve ser NOOP (sem alteração de estado).
         perms_antes = set(user.user_permissions.values_list("pk", flat=True))
         sync_user_permissions(user)
@@ -64,13 +61,13 @@ class TestSyncUserPermissionsEdgeCases:
         Linhas 242-243: quando added e removed são calculados.
         Verifica que added = new - current e removed = current - new.
         """
-        perm_inicial = PermissionFactory(codename="perm_antes_sync")
-        perm_nova = PermissionFactory(codename="perm_depois_sync")
+        perm_inicial = make_permission(codename="perm_antes_sync")
+        perm_nova = make_permission(codename="perm_depois_sync")
 
-        role = RoleFactory()
+        role = make_role()
         role.group.permissions.add(perm_inicial)
 
-        ur = UserRoleFactory(role=role)
+        ur = make_user_role(role=role)
         user = ur.user
 
         # Troca as permissões do grupo
@@ -90,11 +87,11 @@ class TestSyncUserPermissionsEdgeCases:
         """
         from apps.accounts.models import UserRole
 
-        perm = PermissionFactory(codename="perm_a_remover_sync")
-        role = RoleFactory()
+        perm = make_permission(codename="perm_a_remover_sync")
+        role = make_role()
         role.group.permissions.add(perm)
 
-        ur = UserRoleFactory(role=role)
+        ur = make_user_role(role=role)
         user = ur.user
         assert user.user_permissions.count() > 0
 
@@ -126,8 +123,8 @@ class TestSyncUsersPermissionsEdgeCases:
         Linhas 296-300: quando sync_user_permissions lanca excecao para
         um usuário, o batch continua e não propaga o erro.
         """
-        user1 = UserFactory()
-        user2 = UserFactory()
+        user1 = make_user()
+        user2 = make_user()
 
         call_count = {"count": 0}
 
@@ -150,10 +147,10 @@ class TestSyncUsersPermissionsEdgeCases:
         assert call_count["count"] == 2
 
     def test_batch_processa_multiplos_users(self):
-        ur1 = UserRoleFactory()
-        ur2 = UserRoleFactory()
+        ur1 = make_user_role()
+        ur2 = make_user_role()
 
-        perm = PermissionFactory(codename="batch_perm_multi")
+        perm = make_permission(codename="batch_perm_multi")
         ur1.role.group.permissions.add(perm)
         ur2.role.group.permissions.add(perm)
 
@@ -176,8 +173,8 @@ class TestSyncAllUsersPermissions:
         Linhas 314-318: sync_all chama sync_users_permissions para
         todos os user_ids com UserRole.
         """
-        perm = PermissionFactory(codename="all_sync_perm")
-        ur = UserRoleFactory()
+        perm = make_permission(codename="all_sync_perm")
+        ur = make_user_role()
         ur.role.group.permissions.add(perm)
 
         # Remove as permissões manualmente para forçar re-sync
@@ -191,7 +188,7 @@ class TestSyncAllUsersPermissions:
 
     def test_sync_all_nao_afeta_users_sem_role(self):
         """Usuários sem role não devem ter permissões após sync_all."""
-        user_sem_role = UserFactory()
+        user_sem_role = make_user()
         sync_all_users_permissions()
         assert user_sem_role.user_permissions.count() == 0
 

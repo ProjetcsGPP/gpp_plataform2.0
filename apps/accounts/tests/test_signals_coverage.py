@@ -13,12 +13,12 @@ Linhas alvo:
 Meta: cobertura de signals.py de 94% → >= 97%
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from apps.accounts.tests.factories import (
-    RoleFactory,
-    UserFactory,
-    UserRoleFactory,
+    make_role,
+    make_user,
+    make_user_role,
 )
 
 
@@ -45,7 +45,7 @@ class TestInvalidateOnUserroleChangeEdgeCases:
         from apps.accounts.models import UserRole
         from django.contrib.auth.models import User
 
-        ur = UserRoleFactory()
+        ur = make_user_role()
         user_id = ur.user.pk
 
         # Simulamos um cenario onde o user foi deletado antes do signal
@@ -64,10 +64,10 @@ class TestInvalidateOnUserroleChangeEdgeCases:
         Quando sync_user_permissions lança uma excecao inesperada,
         o handler deve logar e não propagar.
         """
-        from apps.accounts.models import UserRole, Aplicacao, Role
+        from apps.accounts.models import UserRole
 
-        user = UserFactory()
-        role = RoleFactory()
+        user = make_user()
+        role = make_role()
 
         with patch(
             "apps.accounts.signals.sync_user_permissions",
@@ -96,7 +96,7 @@ class TestSyncOnRoleGroupChangeEdgeCases:
         """
         from django.contrib.auth.models import Group
 
-        role = RoleFactory()
+        role = make_role()
         # Garante que nenhum user tem essa role
         from apps.accounts.models import UserRole
         UserRole.objects.filter(role=role).delete()
@@ -120,7 +120,7 @@ class TestSyncOnRoleGroupChangeEdgeCases:
         """
         from django.contrib.auth.models import Group
 
-        ur = UserRoleFactory()
+        ur = make_user_role()
         new_group, _ = Group.objects.get_or_create(
             name=f"new_group_signal_{ur.role.codigoperfil}"
         )

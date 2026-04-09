@@ -2,38 +2,40 @@
 factories.py
 ============
 
-Factories para os testes do sistema de permissões GPP.
-Criadas com factory_boy para uso em toda a suíte de testes.
+Helpers de criação de objetos para os testes do sistema de permissões GPP.
+Implementado com Django ORM puro — sem dependências externas (factory_boy).
 
 Regras fundamentais (ADR-PERM-01)
 ----------------------------------
-- NENHUMA factory popula ``auth_user_groups`` diretamente.
-- ``UserRoleFactory`` e ``UserPermissionOverrideFactory`` disparam
-  ``sync_user_permissions`` no ``_after_create`` para garantir que
-  ``auth_user_user_permissions`` está materializado ao sair do ``create()``.
+- NENHUM helper popula ``auth_user_groups`` diretamente.
+- ``make_user_role`` e ``make_user_permission_override`` disparam
+  ``sync_user_permissions`` após a criação para garantir que
+  ``auth_user_user_permissions`` está materializado ao retornar.
 - A única fonte de verdade em runtime é ``auth_user_user_permissions``.
 
-Factories disponíveis
----------------------
-  PermissionFactory                — cria ``django.contrib.auth.Permission``
-  UserFactory                      — usuário básico + UserProfile, sem role
-  RoleFactory                      — role com Group associado a uma Aplicacao
-  UserRoleFactory                  — associa UserFactory a RoleFactory + sync
-  UserPermissionOverrideFactory    — cria override grant/revoke + sync
+Funções disponíveis
+--------------------
+  make_permission(**kwargs)               — cria/obtém Permission
+  make_user(**kwargs)                     — usuário ativo + UserProfile
+  make_role(**kwargs)                     — role com Group e Aplicacao
+  make_user_role(user, role, **kwargs)    — UserRole + sync automático
+  make_user_permission_override(          — Override grant/revoke + sync
+      user, permission, mode, **kwargs)
 
 Uso básico
 ----------
-  user = UserFactory()                        # sem role
-  user = UserFactory(username='joao')         # sobrescreve campo
-  role = RoleFactory()                        # nova role em nova aplicacao
-  ur   = UserRoleFactory(user=user)           # atribui role ao user, chama sync
-  ov   = UserPermissionOverrideFactory(       # override de revoke
+  user = make_user()                          # sem role
+  user = make_user(username='joao')           # sobrescreve campo
+  role = make_role()                          # nova role em nova aplicacao
+  ur   = make_user_role(user=user)            # atribui role ao user + sync
+  ov   = make_user_permission_override(       # override de revoke
              user=user,
+             permission=perm,
              mode='revoke',
          )
 """
 
-import factory
+import itertools
 from django.contrib.auth.models import Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
 
@@ -48,9 +50,16 @@ from apps.accounts.models import (
     UserRole,
 )
 
+# ---------------------------------------------------------------------------
+# Contadores de sequência (substituem factory.Sequence)
+# ---------------------------------------------------------------------------
+_perm_seq = itertools.count(1)
+_user_seq = itertools.count(1)
+_role_seq = itertools.count(1)
+
 
 # ---------------------------------------------------------------------------
-# Helpers internos
+# Helpers internos de lookup-tables
 # ---------------------------------------------------------------------------
 
 def _get_or_create_status_ativo():
@@ -80,227 +89,252 @@ def _get_or_create_classificacao_padrao():
 
 
 # ---------------------------------------------------------------------------
-# PermissionFactory
+# make_permission
 # ---------------------------------------------------------------------------
 
-class PermissionFactory(factory.django.DjangoModelFactory):
+def make_permission(
+    codename: str | None = None,
+    name: str | None = None,
+    content_type=None,
+) -> Permission:
     """
-    Cria um ``django.contrib.auth.Permission`` para uso em overrides e testes.
+    Cria ou obtém um ``django.contrib.auth.Permission``.
 
-    Por padrão usa o ContentType de ``User``. Pode ser sobrescrito passando
-    ``content_type=...`` explicitamente.
+    Idempotente: se ``codename`` + ``content_type`` já existir, retorna o
+    existente sem criar duplicata.
+
+    Parâmetros
+    ----------
+    codename      : str, opcional  — padrão sequencial ``test_perm_N``
+    name          : str, opcional  — padrão derivado do codename
+    content_type  : ContentType, opcional — padrão ContentType de ``User``
 
     Exemplo::
 
-        perm = PermissionFactory(codename='can_do_something')
-        perm = PermissionFactory(
-            codename='view_report',
-            name='Can view report',
-            content_type=ContentType.objects.get_for_model(MyModel),
-        )
+        perm = make_permission(codename='can_do_something')
     """
+    if content_type is None:
+        content_type = ContentType.objects.get_for_model(User)
+    if codename is None:
+        codename = f"test_perm_{next(_perm_seq)}"
+    if name is None:
+        name = f"Test permission {codename}"
 
-    class Meta:
-        model = Permission
-        django_get_or_create = ("codename", "content_type")
-
-    codename = factory.Sequence(lambda n: f"test_perm_{n}")
-    name = factory.LazyAttribute(lambda obj: f"Test permission {obj.codename}")
-    content_type = factory.LazyFunction(
-        lambda: ContentType.objects.get_for_model(User)
+    perm, _ = Permission.objects.get_or_create(
+        codename=codename,
+        content_type=content_type,
+        defaults={"name": name},
     )
+    return perm
 
 
 # ---------------------------------------------------------------------------
-# UserFactory
+# make_user
 # ---------------------------------------------------------------------------
 
-class UserFactory(factory.django.DjangoModelFactory):
+def make_user(
+    username: str | None = None,
+    email: str | None = None,
+    password: str = "TestPass@2026",
+    is_active: bool = True,
+    is_superuser: bool = False,
+    **extra_fields,
+) -> User:
     """
     Cria um ``auth.User`` ativo com ``UserProfile`` associado.
 
     Não atribui nenhuma role nem popula ``auth_user_groups`` (ADR-PERM-01).
-    ``auth_user_user_permissions`` começa vazio — use ``UserRoleFactory`` ou
-    ``UserPermissionOverrideFactory`` para materializar permissões.
+    ``auth_user_user_permissions`` começa vazio — use ``make_user_role`` ou
+    ``make_user_permission_override`` para materializar permissões.
 
     Exemplo::
 
-        user = UserFactory()                          # username único seqüencial
-        user = UserFactory(username='maria')          # username fixo
-        user = UserFactory(is_superuser=True)         # superuser
+        user = make_user()                       # username único seqüencial
+        user = make_user(username='maria')       # username fixo
+        user = make_user(is_superuser=True)      # superuser
     """
+    if username is None:
+        username = f"test_user_{next(_user_seq)}"
+    if email is None:
+        email = f"{username}@test.gpp.br"
 
-    class Meta:
-        model = User
-        django_get_or_create = ("username",)
+    user = User.objects.create_user(
+        username=username,
+        email=email,
+        password=password,
+        is_active=is_active,
+        is_superuser=is_superuser,
+        **extra_fields,
+    )
 
-    username = factory.Sequence(lambda n: f"test_user_{n}")
-    email = factory.LazyAttribute(lambda obj: f"{obj.username}@test.gpp.br")
-    is_active = True
-    is_superuser = False
-
-    @factory.post_generation
-    def password(obj, create, extracted, **kwargs):  # noqa: N805
-        raw = extracted or "TestPass@2026"
-        obj.set_password(raw)
-        if create:
-            obj.save(update_fields=["password"])
-
-    @factory.post_generation
-    def _create_profile(obj, create, extracted, **kwargs):  # noqa: N805
-        if not create:
-            return
-        UserProfile.objects.get_or_create(
-            user=obj,
-            defaults={
-                "name": obj.username,
-                "status_usuario": _get_or_create_status_ativo(),
-                "tipo_usuario": _get_or_create_tipo_interno(),
-                "classificacao_usuario": _get_or_create_classificacao_padrao(),
-            },
-        )
+    UserProfile.objects.get_or_create(
+        user=user,
+        defaults={
+            "name": username,
+            "status_usuario": _get_or_create_status_ativo(),
+            "tipo_usuario": _get_or_create_tipo_interno(),
+            "classificacao_usuario": _get_or_create_classificacao_padrao(),
+        },
+    )
+    return user
 
 
 # ---------------------------------------------------------------------------
-# RoleFactory
+# make_role
 # ---------------------------------------------------------------------------
 
-class RoleFactory(factory.django.DjangoModelFactory):
+def make_role(
+    codigoperfil: str | None = None,
+    nomeperfil: str | None = None,
+    group: Group | None = None,
+    aplicacao: Aplicacao | None = None,
+) -> Role:
     """
-    Cria uma ``Role`` com ``Group`` associado a uma ``Aplicacao``.
+    Cria uma ``Role`` com ``Group`` e ``Aplicacao`` associados.
 
     Cria automaticamente um novo ``auth.Group`` e uma nova ``Aplicacao`` se
     não forem fornecidos. Não popula ``auth_group_permissions`` — isso é
     responsabilidade do teste que precisar de permissões específicas.
 
-    Para criar uma role sobre uma aplicacao existente::
-
-        app = Aplicacao.objects.get(codigointerno='ACOES_PNGI')
-        role = RoleFactory(aplicacao=app)
-
     Para criar com permissões::
 
-        perm = PermissionFactory(codename='view_user')
-        role = RoleFactory()
+        perm = make_permission(codename='view_user')
+        role = make_role()
         role.group.permissions.add(perm)
     """
-
-    class Meta:
-        model = Role
-        django_get_or_create = ("codigoperfil",)
-
-    codigoperfil = factory.Sequence(lambda n: f"TEST_ROLE_{n}")
-    nomeperfil = factory.LazyAttribute(lambda obj: f"Role {obj.codigoperfil}")
-    group = factory.LazyAttribute(
-        lambda obj: Group.objects.get_or_create(
-            name=f"group_{obj.codigoperfil.lower()}"
-        )[0]
-    )
-    aplicacao = factory.LazyAttribute(
-        lambda obj: Aplicacao.objects.get_or_create(
-            codigointerno=f"APP_{obj.codigoperfil}",
+    n = next(_role_seq)
+    if codigoperfil is None:
+        codigoperfil = f"TEST_ROLE_{n}"
+    if nomeperfil is None:
+        nomeperfil = f"Role {codigoperfil}"
+    if group is None:
+        group, _ = Group.objects.get_or_create(
+            name=f"group_{codigoperfil.lower()}"
+        )
+    if aplicacao is None:
+        aplicacao, _ = Aplicacao.objects.get_or_create(
+            codigointerno=f"APP_{codigoperfil}",
             defaults={
-                "nomeaplicacao": f"App {obj.codigoperfil}",
+                "nomeaplicacao": f"App {codigoperfil}",
                 "isappbloqueada": False,
                 "isappproductionready": True,
             },
-        )[0]
+        )
+
+    role, _ = Role.objects.get_or_create(
+        codigoperfil=codigoperfil,
+        defaults={
+            "nomeperfil": nomeperfil,
+            "group": group,
+            "aplicacao": aplicacao,
+        },
     )
+    return role
 
 
 # ---------------------------------------------------------------------------
-# UserRoleFactory
+# make_user_role
 # ---------------------------------------------------------------------------
 
-class UserRoleFactory(factory.django.DjangoModelFactory):
+def make_user_role(
+    user: User | None = None,
+    role: Role | None = None,
+) -> UserRole:
     """
     Associa um ``User`` a uma ``Role`` via ``UserRole`` e dispara
-    ``sync_user_permissions`` no ``_after_create``.
+    ``sync_user_permissions`` após a criação.
 
-    Garante que ``auth_user_user_permissions`` está materializado ao sair
-    do ``create()``, sem necessidade de chamada manual no ``setUp``.
+    Garante que ``auth_user_user_permissions`` está materializado ao
+    retornar, sem necessidade de chamada manual no ``setUp``.
     Não popula ``auth_user_groups`` (ADR-PERM-01).
 
     Uso básico::
 
-        ur = UserRoleFactory()                       # cria user e role novos
-        ur = UserRoleFactory(user=meu_user)          # reutiliza user existente
-        ur = UserRoleFactory(role=role_especifica)   # reutiliza role existente
+        ur = make_user_role()                     # cria user e role novos
+        ur = make_user_role(user=meu_user)        # reutiliza user existente
+        ur = make_user_role(role=role_especifica) # reutiliza role existente
 
     Verificar permissões após create::
 
-        ur = UserRoleFactory(user=user, role=role_com_perms)
-        assert user.user_permissions.exists()        # já materializado
+        ur = make_user_role(user=user, role=role_com_perms)
+        assert user.user_permissions.exists()     # já materializado
     """
+    if user is None:
+        user = make_user()
+    if role is None:
+        role = make_role()
 
-    class Meta:
-        model = UserRole
-        django_get_or_create = ("user", "aplicacao")
+    ur, _ = UserRole.objects.get_or_create(
+        user=user,
+        aplicacao=role.aplicacao,
+        defaults={"role": role},
+    )
 
-    user = factory.SubFactory(UserFactory)
-    role = factory.SubFactory(RoleFactory)
-    aplicacao = factory.LazyAttribute(lambda obj: obj.role.aplicacao)
-
-    @classmethod
-    def _after_postgeneration(cls, instance, create, results=None):
-        """
-        Materializa auth_user_user_permissions após criação da UserRole.
-        Chamado automaticamente pelo factory_boy após todos os post_generation.
-        """
-        if not create:
-            return
-        from apps.accounts.services.permission_sync import sync_user_permissions
-        sync_user_permissions(instance.user)
+    from apps.accounts.services.permission_sync import sync_user_permissions
+    sync_user_permissions(user)
+    return ur
 
 
 # ---------------------------------------------------------------------------
-# UserPermissionOverrideFactory
+# make_user_permission_override
 # ---------------------------------------------------------------------------
 
-class UserPermissionOverrideFactory(factory.django.DjangoModelFactory):
+def make_user_permission_override(
+    user: User | None = None,
+    permission: Permission | None = None,
+    mode: str = "grant",
+    source: str = "manual",
+    reason: str = "",
+) -> UserPermissionOverride:
     """
     Cria um ``UserPermissionOverride`` (grant ou revoke) e dispara
-    ``sync_user_permissions`` no ``_after_create``.
+    ``sync_user_permissions`` após a criação.
 
-    Garante que ``auth_user_user_permissions`` reflete o override imediatamente
-    após o ``create()``.
-    Não popula ``auth_user_groups`` (ADR-PERM-01).
+    Garante que ``auth_user_user_permissions`` reflete o override
+    imediatamente ao retornar. Não popula ``auth_user_groups`` (ADR-PERM-01).
 
-    Parâmetros-chave:
-        mode (str): ``'grant'`` (padrão) ou ``'revoke'``
-        source (str): origem do override (padrão: ``'manual'``)
-        reason (str): motivo do override (padrão: ``''``)
+    Parâmetros
+    ----------
+    mode   : ``'grant'`` (padrão) ou ``'revoke'``
+    source : origem do override (padrão: ``'manual'``)
+    reason : motivo do override (padrão: ``''``)
 
     Uso::
 
         # Grant extra além das roles
-        ov = UserPermissionOverrideFactory(user=user, permission=perm)
+        ov = make_user_permission_override(user=user, permission=perm)
 
         # Revoke de permissão herdada
-        ov = UserPermissionOverrideFactory(
+        ov = make_user_permission_override(
             user=user,
             permission=perm_herdada,
             mode='revoke',
             reason='Bloqueado por auditoria',
         )
     """
+    if user is None:
+        user = make_user()
+    if permission is None:
+        permission = make_permission()
 
-    class Meta:
-        model = UserPermissionOverride
-        django_get_or_create = ("user", "permission")
+    override, _ = UserPermissionOverride.objects.get_or_create(
+        user=user,
+        permission=permission,
+        defaults={"mode": mode, "source": source, "reason": reason},
+    )
 
-    user = factory.SubFactory(UserFactory)
-    permission = factory.SubFactory(PermissionFactory)
-    mode = "grant"
-    source = "manual"
-    reason = ""
+    from apps.accounts.services.permission_sync import sync_user_permissions
+    sync_user_permissions(user)
+    return override
 
-    @classmethod
-    def _after_postgeneration(cls, instance, create, results=None):
-        """
-        Re-materializa auth_user_user_permissions após criação do override.
-        """
-        if not create:
-            return
-        from apps.accounts.services.permission_sync import sync_user_permissions
-        sync_user_permissions(instance.user)
+
+# ---------------------------------------------------------------------------
+# Aliases de compatibilidade (uso: make_* como nomes antigos XxxFactory)
+# ---------------------------------------------------------------------------
+# Permitem chamar make_permission() em vez de PermissionFactory() nos testes
+# que ainda usam o estilo antigo, sem precisar alterar os imports.
+PermissionFactory = make_permission
+UserFactory = make_user
+RoleFactory = make_role
+UserRoleFactory = make_user_role
+UserPermissionOverrideFactory = make_user_permission_override
