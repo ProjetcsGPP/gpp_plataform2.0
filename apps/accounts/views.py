@@ -701,9 +701,12 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
     http_method_names = ["get", "post", "delete", "head", "options"]
 
     def get_queryset(self):
+        #return UserRole.objects.all().select_related(
+        #    "user", "aplicacao", "role"
+        #)
         return UserRole.objects.all().select_related(
             "user", "aplicacao", "role"
-        )
+        ).order_by("user__username", "role__nomeperfil")
 
     def perform_create(self, serializer):
         serializer.save()
