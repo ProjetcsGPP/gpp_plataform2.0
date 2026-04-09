@@ -30,12 +30,15 @@ class TestHasRolePermissionCommon:
         assert perm.has_permission(request, MagicMock()) is False
 
     def test_sem_user_roles_retorna_false(self):
-        """Usuário autenticado sem roles → False (linhas 35-39)."""
+        """Usuário autenticado sem roles → False (linhas 35-39).
+
+        make_user() cria usuário ativo — is_authenticated já é True
+        pela property read-only do Django; não setar diretamente.
+        """
         user = make_user()
         perm = HasRolePermission()
         request = MagicMock()
         request.user = user
-        request.user.is_authenticated = True
         request.is_portal_admin = False
         request.user_roles = []
         result = perm.has_permission(request, MagicMock())
@@ -47,7 +50,6 @@ class TestHasRolePermissionCommon:
         perm = HasRolePermission()
         request = MagicMock()
         request.user = user
-        request.user.is_authenticated = True
         request.is_portal_admin = True
         request.user_roles = []
         result = perm.has_permission(request, MagicMock())
@@ -60,7 +62,6 @@ class TestHasRolePermissionCommon:
         perm = HasRolePermission()
         request = MagicMock()
         request.user = user
-        request.user.is_authenticated = True
         request.is_portal_admin = False
         request.user_roles = [role]
         result = perm.has_permission(request, MagicMock())
