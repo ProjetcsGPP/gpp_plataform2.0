@@ -19,6 +19,7 @@ urlpatterns = [
     path("api/portal/", include("apps.portal.urls", namespace="portal")),
     path("api/acoes-pngi/", include("apps.acoes_pngi.urls", namespace="acoes_pngi")),
     path("api/carga-org-lot/", include("apps.carga_org_lot.urls", namespace="carga_org_lot")),
+    path("api/", include("apps.core.urls", namespace="core")),
 
     # ── Health check ─────────────────────────────────────────────────────
     path("api/health/", include("common.urls")),

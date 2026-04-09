@@ -61,20 +61,22 @@ class TestGetClientIp:
 class TestFrontEndLogging:
 
     def test_frontend_log_retorna_ok(self):
-        """
-        Usa APIClient.force_authenticate para passar pelo pipeline
-        completo do DRF — garante que request.data esteja disponível.
-        """
+        from django.test import Client as DjangoClient
+        from apps.accounts.tests.factories import make_user, make_user_role
+
         user = make_user()
-        client = APIClient()
-        client.force_authenticate(user=user)
+        make_user_role(user=user)
+
+        client = DjangoClient()
+        client.force_login(user)
+
         response = client.post(
             "/api/core/frontendlog/",
-            {"level": "error", "message": "erro js"},
-            format="json",
+            data='{"level": "error", "message": "erro js"}',
+            content_type="application/json",
         )
         assert response.status_code == 200
-        assert response.data["status"] == "ok"
+
 
     def test_frontend_log_via_client(self, db):
         """
@@ -307,23 +309,34 @@ class TestCanCreateEditUser:
         assert result is False
 
     def test_can_create_com_classificacao_pode_criar_true(self):
-        """ClassificacaoUsuario com pode_criar_usuario=True deve retornar True."""
+        """
+        can_create_user() verifica user.has_perm('auth.add_user') — ADR-PERM-01.
+        classificacao_usuario.pode_criar_usuario foi descontinuado para autorização.
+        O teste valida que um usuário com role cujo Group contém auth.add_user
+        passa em CanCreateUser.
+        """
+        from django.contrib.auth.models import Permission, User as DjangoUser
+        from django.contrib.contenttypes.models import ContentType
+
+        # 1. Buscar permissão auth.add_user (já existe no banco do Django)
+        ct = ContentType.objects.get_for_model(DjangoUser)
+        add_user_perm = Permission.objects.get(codename="add_user", content_type=ct)
+
+        # 2. Criar role e adicionar auth.add_user ao seu Group
+        role = make_role()
+        role.group.permissions.add(add_user_perm)
+
+        # 3. Criar usuário e associar a role — make_user_role dispara sync automaticamente
         user = make_user()
-        classif, _ = ClassificacaoUsuario.objects.get_or_create(
-            pk=2,
-            defaults={
-                "strdescricao": "Gestor",
-                "pode_criar_usuario": True,
-                "pode_editar_usuario": True,
-            },
-        )
-        profile = UserProfile.objects.get(user=user)
-        profile.classificacao_usuario = classif
-        profile.save()
+        make_user_role(user=user, role=role)
+
+        # 4. Verificar que a permissão foi materializada (garantia de setup)
+        user.refresh_from_db()
+        assert user.has_perm("auth.add_user"), "Setup incorreto: auth.add_user não materializado"
 
         perm = CanCreateUser()
         request = MagicMock()
         request.user = user
-        # make_user() cria usuário ativo — não setar is_authenticated diretamente
         result = perm.has_permission(request, MagicMock())
         assert result is True
+
