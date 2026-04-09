@@ -48,6 +48,8 @@ FIX(Issue #22): LoginView substitui update_or_create por revoke+create.
 FIX(MePermissionView): removido fallback request.session em get() — incoerente
              com a arquitetura AppContextMiddleware/AccountsSession e causa
              AttributeError em requests sem SessionMiddleware (ex: testes diretos).
+FIX(UserRoleViewSet): adicionado order_by("user__username", "role__nomeperfil") em
+             get_queryset() para eliminar UnorderedObjectListWarning durante paginação.
 """
 import logging
 from datetime import timedelta
