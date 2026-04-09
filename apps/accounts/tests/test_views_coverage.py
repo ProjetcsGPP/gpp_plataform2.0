@@ -237,7 +237,7 @@ class TestMeView:
         """
         user = User.objects.create_user(username="sem_profile_me", password=DEFAULT_PASSWORD)
         # Atribui role no PORTAL para que o login seja aceito pelo middleware
-        _assign_role(user, aplicacao_pk=1, role_pk=1)
+        _assign_role(user, role_pk=1)
         client = APIClient()
         resp = _do_login(client, "sem_profile_me", "PORTAL")
         assert resp.status_code == 200
@@ -265,20 +265,31 @@ class TestMePermissionView:
         Quando app_context não está presente no request (None), a view deve
         retornar 400 com code=no_app_context.
 
-        Usa APIRequestFactory com request.app_context = None explícito para
-        contornar o middleware de autorização, que retornaria 401 antes da
-        view ao receber force_authenticate sem sessão real.
+        APIRequestFactory invoca a view diretamente, sem passar pelo middleware.
+        A Response do DRF precisa de .render() antes de .data ser acessado fora
+        do ciclo normal de requisição.
         """
+        from rest_framework.renderers import JSONRenderer
         from rest_framework.test import APIRequestFactory
         from apps.accounts.views import MePermissionView
+
         factory = APIRequestFactory()
         request = factory.get(ME_PERMISSIONS_URL)
         request.user = gestor_pngi
         request.app_context = None
+
         view = MePermissionView.as_view()
         resp = view(request)
+
+        # Necessário para que resp.data seja acessível fora do ciclo DRF
+        resp.accepted_renderer = JSONRenderer()
+        resp.accepted_media_type = "application/json"
+        resp.renderer_context = {}
+        resp.render()
+
         assert resp.status_code == 400
         assert resp.data["code"] == "no_app_context"
+
 
     def test_com_app_context_valido_via_session(self, _ensure_base_data, gestor_pngi):
         """Login real popula app_context na sessão Django; middleware resolve."""
