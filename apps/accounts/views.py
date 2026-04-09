@@ -45,6 +45,9 @@ FIX(Issue #22): LoginView substitui update_or_create por revoke+create.
              acumulando sessões antigas com app_context=None no banco.
              A correção revoga sessões ativas do mesmo usuário/app antes de criar
              a nova, garantindo exatamente uma AccountsSession ativa por (user, app).
+FIX(MePermissionView): removido fallback request.session em get() — incoerente
+             com a arquitetura AppContextMiddleware/AccountsSession e causa
+             AttributeError em requests sem SessionMiddleware (ex: testes diretos).
 """
 import logging
 from datetime import timedelta
@@ -379,14 +382,16 @@ class MePermissionView(APIView):
     AccountsSession, gravando o resultado em request.app_context (atributo da
     request). Ele NÃO popula request.session (sessão Django padrão) nesse fluxo,
     portanto é obrigatório ler request.app_context — e não request.session.
+
+    Não há fallback para request.session: usar request.session aqui seria
+    incoerente com a arquitetura e causaria AttributeError em contextos sem
+    SessionMiddleware (ex: requests diretos via APIRequestFactory nos testes).
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        app_codigo = (
-            getattr(request, "app_context", None)
-            or request.session.get("app_context", "")
-        )
+        app_codigo = getattr(request, "app_context", None)
+
         if isinstance(app_codigo, str):
             app_codigo = app_codigo.strip().upper()
 
