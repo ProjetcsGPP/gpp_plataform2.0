@@ -4,6 +4,12 @@ Testes do management command recompute_user_permissions (Fase 11).
 Cada teste é completamente independente (sem dependência de ordem).
 Usa as factories da Fase 10 (factories.py).
 
+Nota sobre Role e permissões:
+  Role não expõe .permissions diretamente.
+  Permissões são associadas via role.group.permissions (auth_group_permissions),
+  conforme documentado na docstring de make_role() em factories.py:
+      role.group.permissions.add(perm)
+
 Casos obrigatórios:
   1. test_all_users_recomputes_active_userrole_users
   2. test_user_id_recomputes_only_target_user
@@ -58,14 +64,14 @@ def _perm_codenames(user):
 def test_all_users_recomputes_active_userrole_users():
     perm = PermissionFactory()
     role = RoleFactory()
-    role.permissions.add(perm)
+    role.group.permissions.add(perm)  # Role expõe permissões via role.group
 
     user_a = UserFactory()
     user_b = UserFactory()
     UserRoleFactory(user=user_a, role=role)
     UserRoleFactory(user=user_b, role=role)
 
-    # Limpa permissões para garantir estado inicial sem o sync automático de signal
+    # Limpa para garantir estado inicial sem o sync automático de signal
     user_a.user_permissions.clear()
     user_b.user_permissions.clear()
 
@@ -86,7 +92,7 @@ def test_all_users_recomputes_active_userrole_users():
 def test_user_id_recomputes_only_target_user():
     perm = PermissionFactory()
     role = RoleFactory()
-    role.permissions.add(perm)
+    role.group.permissions.add(perm)
 
     user_target = UserFactory()
     user_other = UserFactory()
@@ -96,6 +102,9 @@ def test_user_id_recomputes_only_target_user():
     # Garante que user_other começa sem permissões
     user_other.user_permissions.clear()
     before_other = _perm_pks(user_other)
+
+    # Limpa target para verificar que o recompute adiciona via role
+    user_target.user_permissions.clear()
 
     call_command("recompute_user_permissions", user_id=user_target.pk)
 
@@ -115,7 +124,7 @@ def test_user_id_recomputes_only_target_user():
 def test_dry_run_does_not_persist():
     perm = PermissionFactory()
     role = RoleFactory()
-    role.permissions.add(perm)
+    role.group.permissions.add(perm)
 
     user = UserFactory()
     UserRoleFactory(user=user, role=role)
@@ -140,7 +149,7 @@ def test_dry_run_does_not_persist():
 def test_idempotency():
     perm = PermissionFactory()
     role = RoleFactory()
-    role.permissions.add(perm)
+    role.group.permissions.add(perm)
 
     user = UserFactory()
     UserRoleFactory(user=user, role=role)
@@ -184,7 +193,7 @@ def test_grant_override_reflected_after_recompute():
 def test_revoke_override_reflected_after_recompute():
     perm = PermissionFactory()
     role = RoleFactory()
-    role.permissions.add(perm)
+    role.group.permissions.add(perm)  # permissão vem da role via group
 
     user = UserFactory()
     UserRoleFactory(user=user, role=role)
@@ -226,7 +235,7 @@ def test_user_without_role_has_empty_permissions():
 def test_single_user_failure_does_not_abort_batch():
     perm = PermissionFactory()
     role = RoleFactory()
-    role.permissions.add(perm)
+    role.group.permissions.add(perm)  # permissão via group da role
 
     user_ok = UserFactory()
     user_fail = UserFactory()
