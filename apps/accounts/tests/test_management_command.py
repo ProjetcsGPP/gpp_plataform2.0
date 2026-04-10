@@ -26,12 +26,18 @@ Edge-cases adicionais (Issue #24 — conclusão):
   11. test_strict_aborta_em_falha
   12. test_dry_run_com_override_nao_persiste
   13. test_multiplas_roles_acumulam_permissoes
+
+Garantias negativas (Issue #24 — conclusão):
+  14. test_nunca_escreve_em_auth_user_groups
+  15. test_nunca_chama_sync_user_permissions_from_group
+  16. test_nunca_chama_revoke_user_permissions_from_group
+  17. test_dry_run_nunca_escreve_em_auth_user_groups
 """
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.management import call_command, CommandError
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from apps.accounts.services.permission_sync import sync_user_permissions
 from apps.accounts.tests.factories import (
@@ -400,4 +406,124 @@ def test_multiplas_roles_acumulam_permissoes():
     )
     assert perm_b in user.user_permissions.all(), (
         "Permissão da role_b deve estar presente após recompute com múltiplas roles"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Teste 14 — GARANTIA NEGATIVA: nunca escreve em auth_user_groups
+# ---------------------------------------------------------------------------
+
+def test_nunca_escreve_em_auth_user_groups():
+    """
+    O command NUNCA deve escrever em auth_user_groups (user.groups).
+    Verifica que groups do usuário permanece vazio antes e depois,
+    mesmo com role + override + dry_run=False.
+    """
+    perm = PermissionFactory()
+    role = RoleFactory()
+    role.group.permissions.add(perm)
+
+    user = UserFactory()
+    UserRoleFactory(user=user, role=role)
+    UserPermissionOverrideFactory(user=user, permission=perm, mode="grant")
+
+    # Garante que o usuário não pertence a nenhum group antes
+    user.groups.clear()
+    assert user.groups.count() == 0, "Setup: user.groups deve estar vazio"
+
+    call_command("recompute_user_permissions", user_id=user.pk)
+
+    user.refresh_from_db()
+    assert user.groups.count() == 0, (
+        "recompute_user_permissions NUNCA deve escrever em auth_user_groups"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Teste 15 — GARANTIA NEGATIVA: nunca chama sync_user_permissions_from_group
+# ---------------------------------------------------------------------------
+
+def test_nunca_chama_sync_user_permissions_from_group():
+    """
+    O command não deve chamar sync_user_permissions_from_group (função legada).
+    Qualquer chamada a essa função é uma regressão crítica de arquitetura.
+    """
+    perm = PermissionFactory()
+    role = RoleFactory()
+    role.group.permissions.add(perm)
+
+    user = UserFactory()
+    UserRoleFactory(user=user, role=role)
+
+    legacy_target = (
+        "apps.accounts.services.permission_sync"
+        ".sync_user_permissions_from_group"
+    )
+
+    mock_legacy = MagicMock()
+
+    with patch(legacy_target, mock_legacy):
+        call_command("recompute_user_permissions", user_id=user.pk)
+
+    mock_legacy.assert_not_called(), (
+        "recompute_user_permissions NUNCA deve chamar sync_user_permissions_from_group"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Teste 16 — GARANTIA NEGATIVA: nunca chama revoke_user_permissions_from_group
+# ---------------------------------------------------------------------------
+
+def test_nunca_chama_revoke_user_permissions_from_group():
+    """
+    O command não deve chamar revoke_user_permissions_from_group (função legada).
+    Qualquer chamada a essa função é uma regressão crítica de arquitetura.
+    """
+    perm = PermissionFactory()
+    role = RoleFactory()
+    role.group.permissions.add(perm)
+
+    user = UserFactory()
+    UserRoleFactory(user=user, role=role)
+    UserPermissionOverrideFactory(user=user, permission=perm, mode="revoke")
+
+    legacy_target = (
+        "apps.accounts.services.permission_sync"
+        ".revoke_user_permissions_from_group"
+    )
+
+    mock_legacy = MagicMock()
+
+    with patch(legacy_target, mock_legacy):
+        call_command("recompute_user_permissions", user_id=user.pk)
+
+    mock_legacy.assert_not_called(), (
+        "recompute_user_permissions NUNCA deve chamar revoke_user_permissions_from_group"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Teste 17 — GARANTIA NEGATIVA: --dry-run também nunca toca auth_user_groups
+# ---------------------------------------------------------------------------
+
+def test_dry_run_nunca_escreve_em_auth_user_groups():
+    """
+    Com --dry-run, auth_user_groups deve permanecer intocado.
+    Garante que mesmo o caminho de rollback não escreve groups.
+    """
+    perm = PermissionFactory()
+    role = RoleFactory()
+    role.group.permissions.add(perm)
+
+    user = UserFactory()
+    UserRoleFactory(user=user, role=role)
+
+    user.groups.clear()
+    assert user.groups.count() == 0, "Setup: user.groups deve estar vazio"
+
+    call_command("recompute_user_permissions", user_id=user.pk, dry_run=True)
+
+    user.refresh_from_db()
+    assert user.groups.count() == 0, (
+        "--dry-run NUNCA deve escrever em auth_user_groups"
     )
