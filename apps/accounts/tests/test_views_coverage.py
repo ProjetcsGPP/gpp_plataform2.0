@@ -352,6 +352,71 @@ class TestMePermissionView:
         # gestor_pngi_group tem add_user, view_user, etc.
         assert "view_user" in resp.data["granted"]
 
+    # ── Edge-cases adicionais (Issue #24) ────────────────────────────────
+
+    def test_anonimo_retorna_401_ou_403(self, client_anonimo):
+        """Usuário não autenticado não deve acessar /me/permissions/."""
+        resp = client_anonimo.get(ME_PERMISSIONS_URL)
+        assert resp.status_code in (401, 403)
+
+    def test_override_grant_aparece_em_granted(self, _ensure_base_data, gestor_pngi):
+        """
+        Uma permissão extra concedida via UserPermissionOverride mode='grant'
+        deve aparecer na lista 'granted' da MePermissionView.
+        """
+        from rest_framework.test import APIRequestFactory
+        from apps.accounts.views import MePermissionView
+        from apps.accounts.models import UserPermissionOverride
+        from django.contrib.auth.models import Permission
+        from django.contrib.contenttypes.models import ContentType
+
+        ct = ContentType.objects.get(app_label="auth", model="user")
+        perm, _ = Permission.objects.get_or_create(
+            codename="me_perm_extra_grant",
+            content_type=ct,
+            defaults={"name": "me_perm_extra_grant"},
+        )
+        UserPermissionOverride.objects.create(
+            user=gestor_pngi, permission=perm, mode="grant"
+        )
+        sync_user_permissions(gestor_pngi)
+
+        factory = APIRequestFactory()
+        request = factory.get(ME_PERMISSIONS_URL)
+        request.user = gestor_pngi
+        request.app_context = "ACOES_PNGI"
+        view = MePermissionView.as_view()
+        resp = view(request)
+
+        assert resp.status_code == 200
+        assert "me_perm_extra_grant" in resp.data["granted"]
+
+    def test_override_revoke_ausente_em_granted(self, _ensure_base_data, gestor_pngi):
+        """
+        Uma permissão removida via UserPermissionOverride mode='revoke'
+        não deve aparecer na lista 'granted', mesmo que venha da role.
+        """
+        from rest_framework.test import APIRequestFactory
+        from apps.accounts.views import MePermissionView
+        from apps.accounts.models import UserPermissionOverride
+
+        # view_user é uma permissão que gestor_pngi herda via role
+        perm = Permission.objects.get(codename="view_user")
+        UserPermissionOverride.objects.create(
+            user=gestor_pngi, permission=perm, mode="revoke"
+        )
+        sync_user_permissions(gestor_pngi)
+
+        factory = APIRequestFactory()
+        request = factory.get(ME_PERMISSIONS_URL)
+        request.user = gestor_pngi
+        request.app_context = "ACOES_PNGI"
+        view = MePermissionView.as_view()
+        resp = view(request)
+
+        assert resp.status_code == 200
+        assert "view_user" not in resp.data["granted"]
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # AplicacaoPublicaViewSet

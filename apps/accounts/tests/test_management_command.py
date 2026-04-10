@@ -19,11 +19,18 @@ Casos obrigatórios:
   6. test_revoke_override_reflected_after_recompute
   7. test_user_without_role_has_empty_permissions
   8. test_single_user_failure_does_not_abort_batch
+
+Edge-cases adicionais (Issue #24 — conclusão):
+  9.  test_user_id_inexistente_nao_lanca_excecao
+  10. test_verbose_nao_altera_resultado
+  11. test_strict_aborta_em_falha
+  12. test_dry_run_com_override_nao_persiste
+  13. test_multiplas_roles_acumulam_permissoes
 """
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.core.management import call_command
+from django.core.management import call_command, CommandError
 from unittest.mock import patch
 
 from apps.accounts.services.permission_sync import sync_user_permissions
@@ -265,4 +272,132 @@ def test_single_user_failure_does_not_abort_batch():
     user_ok.refresh_from_db()
     assert perm in user_ok.user_permissions.all(), (
         "user_ok deve ter sido processado normalmente mesmo com falha em user_fail"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Teste 9 — --user-id com PK inexistente não lança exceção
+# ---------------------------------------------------------------------------
+
+def test_user_id_inexistente_nao_lanca_excecao():
+    """
+    Passar um PK que não existe no banco não deve estourar DoesNotExist
+    nem interromper o processo — o command deve ignorar silenciosamente
+    ou emitir um warning, mas nunca levantar exceção não tratada.
+    """
+    pk_inexistente = 999_999_999
+    # Confirma que o usuário realmente não existe
+    assert not User.objects.filter(pk=pk_inexistente).exists()
+
+    # Não deve lançar nada
+    call_command("recompute_user_permissions", user_id=pk_inexistente)
+
+
+# ---------------------------------------------------------------------------
+# Teste 10 — --verbose não altera o resultado final
+# ---------------------------------------------------------------------------
+
+def test_verbose_nao_altera_resultado():
+    """
+    --verbose apenas adiciona saída de log; o estado do banco deve ser
+    idêntico ao de uma execução sem --verbose.
+    """
+    perm = PermissionFactory()
+    role = RoleFactory()
+    role.group.permissions.add(perm)
+
+    user = UserFactory()
+    UserRoleFactory(user=user, role=role)
+    user.user_permissions.clear()
+
+    call_command("recompute_user_permissions", user_id=user.pk, verbose=True)
+
+    user.refresh_from_db()
+    assert perm in user.user_permissions.all(), (
+        "--verbose não deve alterar o resultado do recompute"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Teste 11 — --strict aborta o batch em caso de falha
+# ---------------------------------------------------------------------------
+
+def test_strict_aborta_em_falha():
+    """
+    Com --strict, qualquer exceção durante o processamento de um usuário
+    deve ser propagada, abortando o command com CommandError ou a exceção
+    original (não deve engolir silenciosamente).
+    """
+    user_fail = UserFactory()
+    UserRoleFactory(user=user_fail, role=RoleFactory())
+
+    target = (
+        "apps.accounts.management.commands"
+        ".recompute_user_permissions.sync_user_permissions"
+    )
+
+    with patch(target, side_effect=RuntimeError("Erro simulado --strict")):
+        with pytest.raises((RuntimeError, CommandError, SystemExit)):
+            call_command("recompute_user_permissions", all_users=True, strict=True)
+
+
+# ---------------------------------------------------------------------------
+# Teste 12 — --dry-run com override grant não persiste
+# ---------------------------------------------------------------------------
+
+def test_dry_run_com_override_nao_persiste():
+    """
+    Mesmo que haja um override mode='grant', --dry-run não deve alterar
+    auth_user_user_permissions.
+    """
+    perm = PermissionFactory()
+    user = UserFactory()
+    UserPermissionOverrideFactory(user=user, permission=perm, mode="grant")
+    user.user_permissions.clear()
+
+    before = _perm_pks(user)
+
+    call_command("recompute_user_permissions", user_id=user.pk, dry_run=True)
+
+    after = _perm_pks(user)
+    assert before == after, (
+        "--dry-run não deve persistir override grant em auth_user_user_permissions"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Teste 13 — múltiplas roles acumulam permissões (quando o modelo permite)
+# ---------------------------------------------------------------------------
+
+def test_multiplas_roles_acumulam_permissoes():
+    """
+    Se o usuário tiver UserRole em mais de uma aplicação, as permissões
+    das duas roles devem estar presentes após o recompute.
+    Cada role pertence a uma aplicação diferente (unicidade por app).
+    """
+    from apps.accounts.models import Aplicacao
+
+    perm_a = PermissionFactory()
+    perm_b = PermissionFactory()
+
+    role_a = RoleFactory()  # aplicacao A
+    role_b = RoleFactory()  # aplicacao B (diferente)
+    role_a.group.permissions.add(perm_a)
+    role_b.group.permissions.add(perm_b)
+
+    user = UserFactory()
+    # UserRoleFactory cria roles em aplicações distintas automaticamente
+    UserRoleFactory(user=user, role=role_a)
+    UserRoleFactory(user=user, role=role_b)
+
+    user.user_permissions.clear()
+
+    call_command("recompute_user_permissions", user_id=user.pk)
+
+    user.refresh_from_db()
+    assert perm_a in user.user_permissions.all(), (
+        "Permissão da role_a deve estar presente após recompute com múltiplas roles"
+    )
+    assert perm_b in user.user_permissions.all(), (
+        "Permissão da role_b deve estar presente após recompute com múltiplas roles"
     )
