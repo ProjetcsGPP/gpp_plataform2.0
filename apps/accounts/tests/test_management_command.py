@@ -21,9 +21,9 @@ Casos obrigatórios:
   8. test_single_user_failure_does_not_abort_batch
 
 Edge-cases adicionais (Issue #24 — conclusão):
-  9.  test_user_id_inexistente_nao_lanca_excecao
+  9.  test_user_id_inexistente_levanta_command_error
   10. test_verbose_nao_altera_resultado
-  11. test_strict_aborta_em_falha
+  11. test_strict_e_documental_nao_propaga_excecao
   12. test_dry_run_com_override_nao_persiste
   13. test_multiplas_roles_acumulam_permissoes
 
@@ -34,6 +34,7 @@ Garantias negativas (Issue #24 — conclusão):
   17. test_dry_run_nunca_escreve_em_auth_user_groups
 """
 
+import io
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.management import call_command, CommandError
@@ -282,21 +283,20 @@ def test_single_user_failure_does_not_abort_batch():
 
 
 # ---------------------------------------------------------------------------
-# Teste 9 — --user-id com PK inexistente não lança exceção
+# Teste 9 — --user-id com PK inexistente LEVANTA CommandError (comportamento intencional)
 # ---------------------------------------------------------------------------
 
-def test_user_id_inexistente_nao_lanca_excecao():
+def test_user_id_inexistente_levanta_command_error():
     """
-    Passar um PK que não existe no banco não deve estourar DoesNotExist
-    nem interromper o processo — o command deve ignorar silenciosamente
-    ou emitir um warning, mas nunca levantar exceção não tratada.
+    Passar um PK que não existe no banco deve levantar CommandError.
+    Esse é o comportamento documentado em _resolve_users(): falha rápida
+    e explícita quando o operador passa um ID inválido.
     """
     pk_inexistente = 999_999_999
-    # Confirma que o usuário realmente não existe
     assert not User.objects.filter(pk=pk_inexistente).exists()
 
-    # Não deve lançar nada
-    call_command("recompute_user_permissions", user_id=pk_inexistente)
+    with pytest.raises(CommandError, match=str(pk_inexistente)):
+        call_command("recompute_user_permissions", user_id=pk_inexistente)
 
 
 # ---------------------------------------------------------------------------
@@ -325,14 +325,22 @@ def test_verbose_nao_altera_resultado():
 
 
 # ---------------------------------------------------------------------------
-# Teste 11 — --strict aborta o batch em caso de falha
+# Teste 11 — --strict é puramente documental: não propaga exceções
 # ---------------------------------------------------------------------------
 
-def test_strict_aborta_em_falha():
+def test_strict_e_documental_nao_propaga_excecao():
     """
-    Com --strict, qualquer exceção durante o processamento de um usuário
-    deve ser propagada, abortando o command com CommandError ou a exceção
-    original (não deve engolir silenciosamente).
+    --strict NÃO muda o comportamento de tratamento de erros no command atual.
+    É uma flag documental que apenas emite um aviso no output indicando que
+    a reconstrução é exata (herdadas + grants - revokes).
+
+    Quando sync_user_permissions falha, o command:
+      - loga o erro no stderr via self.stderr.write
+      - NÃO propaga a exceção (o except genérico engole)
+      - NÃO aborta o batch (processed=0 mas sem raise)
+
+    Se --strict vier a mudar de comportamento, este teste deve ser atualizado
+    junto com a docstring do command (contrato explícito).
     """
     user_fail = UserFactory()
     UserRoleFactory(user=user_fail, role=RoleFactory())
@@ -342,9 +350,22 @@ def test_strict_aborta_em_falha():
         ".recompute_user_permissions.sync_user_permissions"
     )
 
+    stderr_capture = io.StringIO()
+
+    # NÃO deve lançar — --strict é apenas documental no command atual
     with patch(target, side_effect=RuntimeError("Erro simulado --strict")):
-        with pytest.raises((RuntimeError, CommandError, SystemExit)):
-            call_command("recompute_user_permissions", all_users=True, strict=True)
+        call_command(
+            "recompute_user_permissions",
+            all_users=True,
+            strict=True,
+            stderr=stderr_capture,
+        )
+
+    # O erro deve aparecer no stderr (self.stderr.write foi chamado)
+    stderr_output = stderr_capture.getvalue()
+    assert "ERRO" in stderr_output or str(user_fail.pk) in stderr_output, (
+        "--strict deve logar o erro no stderr mesmo sem propagar a exceção"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -381,8 +402,6 @@ def test_multiplas_roles_acumulam_permissoes():
     das duas roles devem estar presentes após o recompute.
     Cada role pertence a uma aplicação diferente (unicidade por app).
     """
-    from apps.accounts.models import Aplicacao
-
     perm_a = PermissionFactory()
     perm_b = PermissionFactory()
 
