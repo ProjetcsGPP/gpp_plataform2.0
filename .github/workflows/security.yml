@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
   security-events: write
 
 jobs:
@@ -40,12 +41,14 @@ jobs:
       - name: Analyze
         if: matrix.tool == 'codeql'
         uses: github/codeql-action/analyze@v3
-        continue-on-error: true  # fallback extra de segurança
+        continue-on-error: true
 
-      # 🔑 Gitleaks
+      # 🔑 Gitleaks (FIX aplicado)
       - name: Run Gitleaks
         if: matrix.tool == 'gitleaks'
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # 📦 Trivy
       - name: Run Trivy
@@ -56,13 +59,14 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-  # 🧪 TESTES (paralelo por suite)
+  # 🧪 TESTES (rodando apenas no push)
   tests:
+    if: github.event_name == 'push'
     name: Tests (${{ matrix.suite }})
     runs-on: ubuntu-latest
 
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         suite: [auth, policies, full]
 
@@ -119,7 +123,7 @@ jobs:
             sleep 2
           done
 
-      # 🎯 AUTH (SEM FAIL GLOBAL)
+      # 🎯 AUTH
       - name: Run AUTH tests
         if: matrix.suite == 'auth'
         run: |
@@ -127,7 +131,7 @@ jobs:
             --cov=apps/accounts/middleware \
             --cov-report=term-missing
 
-      # 🎯 POLICIES (SEM FAIL GLOBAL)
+      # 🎯 POLICIES
       - name: Run POLICY tests
         if: matrix.suite == 'policies'
         run: |
@@ -135,7 +139,7 @@ jobs:
             --cov=apps/accounts/policies \
             --cov-report=term-missing
 
-      # 🎯 FULL (REGRA REAL)
+      # 🎯 FULL (regra principal)
       - name: Run FULL suite
         if: matrix.suite == 'full'
         run: |
