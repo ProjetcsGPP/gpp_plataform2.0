@@ -10,11 +10,18 @@ Método principal:
     pode = service.can("view_acao")
     pode = service.can("change_acao", context={"eixo": "X"})
 
-Estratégia de cache:
+Estrategia de cache:
     Chave: authz:{user_id}:{version}:{app_code}
     TTL:   300s
     Version key: authz_version:{user_id}
-    Invalidação: signals em UserRole, Role, auth_group_permissions
+    Invalidação: signals em UserRole, Role, auth_group_permissions,
+                 UserPermissionOverride
+
+Resolução de permissões (ordem):
+    1. Permissões herdadas do grupo da role (auth_group_permissions)
+    2. Permissões diretas do usuário    (auth_user_user_permissions)  — D-02
+    3. + grant overrides                (UserPermissionOverride)       — D-01
+    4. - revoke overrides               (UserPermissionOverride)       — D-01
 """
 
 import logging
@@ -152,7 +159,6 @@ class AuthorizationService:
             .select_related("role", "role__group", "aplicacao")
         )
 
-
     # ─────────────────────────────────────────────
     # PORTAL ADMIN — usado por can() e por core/permissions.py
     # (IsPortalAdmin, ObjectPermission)
@@ -201,6 +207,15 @@ class AuthorizationService:
     # ─────────────────────────────────────────────
 
     def _load_permissions(self) -> set:
+        """
+        Resolve o conjunto final de permissões do usuário.
+
+        Ordem de resolução (ADR-PERM-01):
+          1. Permissões herdadas do grupo da role (auth_group_permissions)
+          2. Permissões diretas do usuário (auth_user_user_permissions)  [D-02]
+          3. + grant overrides (UserPermissionOverride mode='grant')     [D-01]
+          4. - revoke overrides (UserPermissionOverride mode='revoke')   [D-01]
+        """
 
         if self._permissions is not None:
             return self._permissions
@@ -214,10 +229,11 @@ class AuthorizationService:
             return self._permissions
 
         from django.contrib.auth.models import Permission
-        from apps.accounts.models import UserRole
+        from apps.accounts.models import UserPermissionOverride
 
         roles = self._load_roles()
 
+        # 1. Permissões herdadas pelos grupos das roles
         group_ids = [
             ur.role.group_id
             for ur in roles
@@ -225,14 +241,38 @@ class AuthorizationService:
         ]
 
         if group_ids:
-            perms = (
+            base_perms = set(
                 Permission.objects
                 .filter(group__id__in=group_ids)
                 .values_list("codename", flat=True)
             )
-            self._permissions = set(perms)
         else:
-            self._permissions = set()
+            base_perms = set()
+
+        # 2. Permissões diretas do usuário (auth_user_user_permissions) — corrige D-02
+        direct_perms = set(
+            self.user.user_permissions
+            .values_list("codename", flat=True)
+        )
+        base_perms |= direct_perms
+
+        # 3. Aplicar grant overrides — corrige D-01
+        grant_codenames = set(
+            UserPermissionOverride.objects
+            .filter(user=self.user, mode=UserPermissionOverride.MODE_GRANT)
+            .values_list("permission__codename", flat=True)
+        )
+        base_perms |= grant_codenames
+
+        # 4. Aplicar revoke overrides — corrige D-01
+        revoke_codenames = set(
+            UserPermissionOverride.objects
+            .filter(user=self.user, mode=UserPermissionOverride.MODE_REVOKE)
+            .values_list("permission__codename", flat=True)
+        )
+        base_perms -= revoke_codenames
+
+        self._permissions = base_perms
 
         cache.set(cache_key, self._permissions, CACHE_TTL)
 

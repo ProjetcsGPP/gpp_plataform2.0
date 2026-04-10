@@ -31,6 +31,25 @@ FIX-THROTTLE-2: throttle_scope removido de LoginView — o rate limit de login �
 MULTI-COOKIE: cada app possui sessão independente (gpp_session_{APP}).
               SwitchAppView removida — obsoleta neste modelo; o frontend
               simplesmente faz um segundo login na app destino.
+FIX-ME-PERMISSIONS: MePermissionView agora lê request.app_context (definido pelo
+              AppContextMiddleware) em vez de request.session.get('app_context').
+              O middleware não usa o sistema de sessão Django padrão — ele resolve
+              a sessão via AccountsSession e grava o contexto diretamente na request.
+FASE-4-PERM: UserRoleViewSet.create() e destroy() agora usam sync_user_permissions()
+             — orquestrador idempotente com substituição completa (corrige D-04).
+FASE-5-PERM (Issue #18): UserPermissionOverrideViewSet adicionado — garante que toda
+             mutação em UserPermissionOverride aciona sync_user_permissions(user).
+FIX(Issue #22): LoginView substitui update_or_create por revoke+create.
+             cycle_key() rotaciona o session_key antes do update_or_create, portanto
+             o lookup nunca encontrava registro existente e sempre criava um novo,
+             acumulando sessões antigas com app_context=None no banco.
+             A correção revoga sessões ativas do mesmo usuário/app antes de criar
+             a nova, garantindo exatamente uma AccountsSession ativa por (user, app).
+FIX(MePermissionView): removido fallback request.session em get() — incoerente
+             com a arquitetura AppContextMiddleware/AccountsSession e causa
+             AttributeError em requests sem SessionMiddleware (ex: testes diretos).
+FIX(UserRoleViewSet): adicionado order_by("user__username", "role__nomeperfil") em
+             get_queryset() para eliminar UnorderedObjectListWarning durante paginação.
 """
 import logging
 from datetime import timedelta
@@ -50,27 +69,26 @@ from rest_framework.views import APIView
 from common.mixins import AuditableMixin, SecureQuerysetMixin
 from common.permissions import CanCreateUser, CanEditUser, HasRolePermission, IsPortalAdmin
 
-from .models import AccountsSession, Aplicacao, Role, UserProfile, UserRole
+from .models import AccountsSession, Aplicacao, Role, UserPermissionOverride, UserProfile, UserRole
 from .serializers import (
     AplicacaoPublicaSerializer,
     AplicacaoSerializer,
     RoleSerializer,
     UserCreateSerializer,
     UserCreateWithRoleSerializer,
+    UserPermissionOverrideSerializer,
     UserProfileSerializer,
     UserRoleSerializer,
     MeSerializer,
+    MePermissionSerializer,
 )
-from .services.permission_sync import (
-    sync_user_permissions_from_group,
-    revoke_user_permissions_from_group,
-)
+from .services.permission_sync import sync_user_permissions
 from .utils import get_client_ip
 
 security_logger = logging.getLogger("gpp.security")
 
 
-# ─── Auth Views (Sessão) ──────────────────────────────────────────────────────
+# ─── Auth Views (Sessão) ──────────────────────────────────────────────────
 class LoginView(APIView):
     """
     POST /api/accounts/login/
@@ -118,10 +136,15 @@ class LoginView(APIView):
                 role__codigoperfil="PORTAL_ADMIN"
             ).exists()
             if not has_access:
-                return Response(
-                    {"detail": "Acesso ao Portal restrito a administradores.", "code": "not_portal_admin"},
-                    status=status.HTTP_403_FORBIDDEN
-                )
+                has_access_user = UserRole.objects.filter(
+                    user=user,
+                    role__codigoperfil="PORTAL_USER"
+                ).exists()
+                if not has_access_user:
+                    return Response(
+                        {"detail": "Usuário sem acesso ao Portal.", "code": "no_role"},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
         else:
             has_access = UserRole.objects.filter(
                 user=user,
@@ -146,17 +169,32 @@ class LoginView(APIView):
         cookie_name = f"gpp_session_{app_context}"
         session_key = request.session.session_key
 
-        AccountsSession.objects.update_or_create(
+        # FIX(Issue #22): cycle_key() já rotacionou o session_key antes deste ponto,
+        # portanto update_or_create com (user, session_key) nunca encontraria um
+        # registro existente — sempre criaria um novo, acumulando sessões antigas
+        # com app_context=None que poluem o resultado do middleware.
+        #
+        # Correção: revogar TODAS as sessões ativas do mesmo (user, cookie_name)
+        # antes de criar a nova, garantindo exatamente uma AccountsSession ativa
+        # por (usuário, aplicação) a qualquer momento.
+        AccountsSession.objects.filter(
+            user=user,
+            session_cookie_name=cookie_name,
+            revoked=False,
+        ).update(
+            revoked=True,
+            revoked_at=dj_timezone.now(),
+        )
+
+        AccountsSession.objects.create(
             user=user,
             session_key=session_key,
-            defaults={
-                "app_context": app_context,
-                "session_cookie_name": cookie_name,
-                "expires_at": dj_timezone.now() + timedelta(seconds=settings.SESSION_COOKIE_AGE),
-                "ip_address": get_client_ip(request),
-                "user_agent": request.META.get("HTTP_USER_AGENT", ""),
-                "revoked": False,
-            }
+            app_context=app_context,
+            session_cookie_name=cookie_name,
+            expires_at=dj_timezone.now() + timedelta(seconds=settings.SESSION_COOKIE_AGE),
+            ip_address=get_client_ip(request),
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            revoked=False,
         )
 
         security_logger.info("LOGIN_SUCCESS user_id=%s app=%s cookie=%s", user.id, app_context, cookie_name)
@@ -293,8 +331,7 @@ class LogoutAppView(APIView):
         return response
 
 
-# ─── Me View ──────────────────────────────────────────────────────────────────
-
+# ─── Me View ────────────────────────────────────────────────────────────────────────────────────
 class MeView(APIView):
     """
     GET /api/accounts/me/
@@ -304,6 +341,7 @@ class MeView(APIView):
 
     def get(self, request):
         user = request.user
+
         try:
             profile = user.profile
         except UserProfile.DoesNotExist:
@@ -324,7 +362,80 @@ class MeView(APIView):
         return Response(data)
 
 
-# ─── User Create View (GAP-01) ─────────────────────────────────────────────────
+class MePermissionView(APIView):
+    """
+    GET /api/accounts/me/permissions/
+
+    Retorna a role do usuário autenticado na aplicação da sessão atual
+    e as permissões concedidas por essa role.
+
+    Resposta:
+    {
+        "role": "GESTOR",
+        "granted": ["programas.view", "usuarios.manage"]
+    }
+
+    Erros:
+    - 400 se a sessão não tiver app_context gravado
+    - 404 se a aplicação não existir/estiver bloqueada ou o usuário não tiver role nela
+
+    NOTA TÉCNICA:
+    O AppContextMiddleware resolve a sessão via cookie gpp_session_{APP} e
+    AccountsSession, gravando o resultado em request.app_context (atributo da
+    request). Ele NÃO popula request.session (sessão Django padrão) nesse fluxo,
+    portanto é obrigatório ler request.app_context — e não request.session.
+
+    Não há fallback para request.session: usar request.session aqui seria
+    incoerente com a arquitetura e causaria AttributeError em contextos sem
+    SessionMiddleware (ex: requests diretos via APIRequestFactory nos testes).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        app_codigo = getattr(request, "app_context", None)
+
+        if isinstance(app_codigo, str):
+            app_codigo = app_codigo.strip().upper()
+
+        if not app_codigo:
+            return Response(
+                {"detail": "Contexto de app não encontrado na sessão.", "code": "no_app_context"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        app = Aplicacao.objects.filter(
+            codigointerno=app_codigo,
+            isappbloqueada=False,
+        ).first()
+
+        if not app:
+            return Response(
+                {"detail": "Aplicação não encontrada ou bloqueada.", "code": "app_not_found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        user_role = (
+            UserRole.objects
+            .select_related("role__group")
+            .filter(user=request.user, aplicacao=app)
+            .first()
+        )
+
+        if not user_role:
+            return Response(
+                {"detail": "Usuário sem role na aplicação informada.", "code": "no_role"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        data = MePermissionSerializer({
+            "user": request.user,
+            "role": user_role.role,
+        }).data
+
+        return Response(data)
+
+
+# ─── User Create View (GAP-01) ───────────────────────────────────────────────────────
 
 class UserCreateView(APIView):
     """
@@ -378,7 +489,7 @@ class UserCreateView(APIView):
         )
 
 
-# ─── User Create With Role View (FASE 6) ──────────────────────────────────────
+# ─── User Create With Role View (FASE 6) ──────────────────────────────────────────────
 
 class UserCreateWithRoleView(APIView):
     """
@@ -432,18 +543,16 @@ class UserCreateWithRoleView(APIView):
             ) from exc
 
         security_logger.info(
-            "USER_CREATED_WITH_ROLE admin_id=%s new_user_id=%s role=%s app=%s perms_added=%s",
+            "USER_CREATED_WITH_ROLE admin_id=%s new_user_id=%s role=%s app=%s",
             request.user.id,
             result["user_id"],
             result["role"],
             result["aplicacao"],
-            result["permissions_added"],
         )
         return Response(result, status=status.HTTP_201_CREATED)
 
 
-# ─── Aplicacao Publica ViewSet (ARCH-01) ───────────────────────────────────────
-
+# ─── Aplicacao Publica ViewSet (ARCH-01) ────────────────────────────────────────────────
 class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/auth/aplicacoes/
@@ -473,8 +582,7 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
         ).order_by("nomeaplicacao")
 
 
-# ─── Aplicacao ViewSet (GAP-02 / ARCH-01) ─────────────────────────────────────
-
+# ─── Aplicacao ViewSet (GAP-02 / ARCH-01) ───────────────────────────────────────────────
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/aplicacoes/
@@ -512,7 +620,7 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
         ).order_by("nomeaplicacao")
 
 
-# ─── CRUD ViewSets ─────────────────────────────────────────────────────────────
+# ─── CRUD ViewSets ────────────────────────────────────────────────────────────────────────
 
 class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """
@@ -595,9 +703,12 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
     http_method_names = ["get", "post", "delete", "head", "options"]
 
     def get_queryset(self):
+        #return UserRole.objects.all().select_related(
+        #    "user", "aplicacao", "role"
+        #)
         return UserRole.objects.all().select_related(
             "user", "aplicacao", "role"
-        )
+        ).order_by("user__username", "role__nomeperfil")
 
     def perform_create(self, serializer):
         serializer.save()
@@ -615,15 +726,12 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
                 "user", "role__group"
             ).get(pk=userrole_id)
 
-            added = sync_user_permissions_from_group(
-                user=userrole.user,
-                group=userrole.role.group,
-            )
+            sync_user_permissions(user=userrole.user)
+
             security_logger.info(
-                "USERROLE_PERM_SYNC user_id=%s role=%s permissions_added=%s",
+                "USERROLE_PERM_SYNC user_id=%s role=%s",
                 userrole.user_id,
                 userrole.role.codigoperfil,
-                added,
             )
 
         return response
@@ -640,14 +748,102 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             user = instance.user
-            group = instance.role.group
 
             response = super().destroy(request, *args, **kwargs)
 
-            removed = revoke_user_permissions_from_group(user=user, group_removed=group)
+            # Re-sync completo após remoção da role — o orquestrador recalcula
+            # o conjunto efetivo com as roles remanescentes (corrige D-04).
+            sync_user_permissions(user=user)
+
             security_logger.info(
-                "USERROLE_PERM_REVOKE user_id=%s group=%s permissions_removed=%s",
-                user.pk, group.name if group else "None", removed,
+                "USERROLE_PERM_REVOKE_SYNC user_id=%s",
+                user.pk,
+            )
+
+        return response
+
+
+class UserPermissionOverrideViewSet(AuditableMixin, viewsets.ModelViewSet):
+    """
+    CRUD de UserPermissionOverride. Apenas PORTAL_ADMIN.
+
+    Toda mutação (create, update, partial_update, destroy) aciona
+    ``sync_user_permissions(user)`` para garantir que auth_user_user_permissions
+    reflita imediatamente o override criado/alterado/removido.
+
+    Endpoints:
+      GET    /api/accounts/permission-overrides/
+      POST   /api/accounts/permission-overrides/
+      GET    /api/accounts/permission-overrides/{id}/
+      PUT    /api/accounts/permission-overrides/{id}/
+      PATCH  /api/accounts/permission-overrides/{id}/
+      DELETE /api/accounts/permission-overrides/{id}/
+
+    FASE-5-PERM (Issue #18).
+    """
+    serializer_class = UserPermissionOverrideSerializer
+    permission_classes = [IsAuthenticated, IsPortalAdmin]
+
+    def get_queryset(self):
+        return UserPermissionOverride.objects.all().select_related(
+            "user", "permission"
+        ).order_by("user__username", "permission__codename")
+
+    def _sync_after_mutation(self, override):
+        """Chama sync_user_permissions e registra log após qualquer mutação."""
+        sync_user_permissions(user=override.user)
+        security_logger.info(
+            "OVERRIDE_PERM_SYNC user_id=%s permission=%s mode=%s",
+            override.user_id,
+            override.permission.codename,
+            override.mode,
+        )
+
+    def create(self, request, *args, **kwargs):
+        security_logger.info(
+            "OVERRIDE_CREATE admin_id=%s payload=%s",
+            request.user.id, request.data,
+        )
+        with transaction.atomic():
+            response = super().create(request, *args, **kwargs)
+            override = UserPermissionOverride.objects.select_related(
+                "user", "permission"
+            ).get(pk=response.data["id"])
+            self._sync_after_mutation(override)
+        return response
+
+    def update(self, request, *args, **kwargs):
+        security_logger.info(
+            "OVERRIDE_UPDATE admin_id=%s override_id=%s",
+            request.user.id, kwargs.get("pk"),
+        )
+        with transaction.atomic():
+            response = super().update(request, *args, **kwargs)
+            override = UserPermissionOverride.objects.select_related(
+                "user", "permission"
+            ).get(pk=response.data["id"])
+            self._sync_after_mutation(override)
+        return response
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        user = instance.user
+
+        security_logger.info(
+            "OVERRIDE_DELETE admin_id=%s override_id=%s user_id=%s permission=%s mode=%s",
+            request.user.id, instance.pk, user.pk,
+            instance.permission.codename, instance.mode,
+        )
+
+        with transaction.atomic():
+            response = super().destroy(request, *args, **kwargs)
+            sync_user_permissions(user=user)
+            security_logger.info(
+                "OVERRIDE_DELETE_PERM_SYNC user_id=%s", user.pk,
             )
 
         return response

@@ -13,6 +13,27 @@ POLICY-EXPANSION: AplicacaoSerializer expõe os três flags; UserCreateWithRoleS
 FASE-0: GPPTokenObtainPairSerializer removido — JWT eliminado do fluxo de autenticação.
 ARCH-01: AplicacaoPublicaSerializer — endpoint público expõe apenas codigointerno +
          nomeaplicacao, sem vazar flags internos nem idaplicacao (PK interna).
+FASE-4-PERM: UserCreateWithRoleSerializer.create() usa sync_user_permissions() —
+             orquestrador idempotente com substituição completa (corrige D-04).
+FASE-4-PERM: MePermissionSerializer.get_granted() lê de user.user_permissions
+             filtrado pelos codenames do grupo da role (corrige D-02).
+FIX-PERMISSIONS-ADDED: UserCreateWithRoleSerializer.create() agora inclui
+             permissions_added no dict de retorno — count calculado via
+             calculate_effective_permissions() antes do sync.
+FASE-7 (Issue #20): UserPermissionOverrideSerializer criado — resolve ImportError
+             crítico que quebrava o URL routing completo do Django e derrubava
+             ~135 testes. Expõe campos completos do model UserPermissionOverride
+             com validação de conflito grant/revoke no nível DRF (400).
+FIX (Issue #21): UserPermissionOverrideSerializer.create/update sobrescritos para
+             descartar created_by_name e updated_by_name injetados pelo AuditableMixin
+             (campos inexistentes no model) e mapear created_by_id/updated_by_id
+             para as FKs created_by/updated_by do model. Corrige TypeError em
+             DC-03, DC-04 e TC-06.
+FIX (Issue #22 Falha 3): MePermissionSerializer.get_granted() corrigido para incluir
+             permissões concedidas via grant override que não pertencem ao grupo da role.
+             Lógica anterior filtrava user.user_permissions pelo conjunto group_codenames,
+             excluindo silenciosamente grants extras materializados pelo sync.
+             Nova lógica: all_user_perms - revoked_overrides, preservando escopo da app.
 """
 import logging
 
@@ -23,7 +44,7 @@ from django.db import transaction
 from django.utils import timezone as dj_timezone
 from rest_framework import serializers
 
-from .services.permission_sync import sync_user_permissions_from_group
+from .services.permission_sync import sync_user_permissions, calculate_effective_permissions
 
 from .models import (
     Aplicacao,
@@ -32,6 +53,7 @@ from .models import (
     Role,
     StatusUsuario,
     TipoUsuario,
+    UserPermissionOverride,
     UserProfile,
     UserRole,
 )
@@ -280,6 +302,11 @@ class UserRoleSerializer(serializers.ModelSerializer):
 class UserCreateWithRoleSerializer(serializers.Serializer):
     """
     FASE 6 — Criação atômica de auth.User + UserProfile + UserRole + sync de permissões.
+    FASE 4 — usa sync_user_permissions() (orquestrador idempotente) em vez de
+             sync_user_permissions_from_group() (incremental).
+    FIX     — retorna permissions_added: int com o total de permissões materializadas
+              para o novo usuário. Calculado via calculate_effective_permissions()
+              antes do sync para evitar dupla chamada ao banco.
     """
 
     username   = serializers.CharField(max_length=150)
@@ -381,22 +408,149 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
                 role=role,
             )
 
-            permissions_added = sync_user_permissions_from_group(
-                user=user,
-                group=role.group,
-            )
+            # Calcula o conjunto efetivo ANTES do sync para expor o count
+            # na resposta sem precisar de uma segunda consulta após o set().
+            effective_perms = calculate_effective_permissions(user)
+            permissions_added = len(effective_perms)
+
+            # Fase 4: sync completo via orquestrador idempotente
+            sync_user_permissions(user)
 
         return {
-            "user_id":           user.id,
-            "username":          user.username,
-            "email":             user.email,
-            "name":              profile.name,
-            "orgao":             profile.orgao,
-            "aplicacao":         aplicacao.codigointerno,
-            "role":              role.codigoperfil,
-            "permissions_added": permissions_added,
-            "datacriacao":       profile.datacriacao,
+            "user_id":            user.id,
+            "username":           user.username,
+            "email":              user.email,
+            "name":               profile.name,
+            "orgao":              profile.orgao,
+            "aplicacao":          aplicacao.codigointerno,
+            "role":               role.codigoperfil,
+            "datacriacao":        profile.datacriacao,
+            "permissions_added":  permissions_added,
         }
+
+
+# ─── UserPermissionOverride ───────────────────────────────────────────────────────────
+
+class UserPermissionOverrideSerializer(serializers.ModelSerializer):
+    """
+    FASE-7 (Issue #20) — Serializer para UserPermissionOverride.
+
+    Resolve o ImportError crítico que impedia o carregamento de views.py
+    e quebrava o URL routing completo do Django (~135 testes afetados).
+
+    Campos expostos:
+      - id              : PK do override (read_only via ModelSerializer)
+      - user            : FK para auth.User (PK inteira)
+      - permission      : FK para auth.Permission (PK inteira)
+      - mode            : 'grant' | 'revoke'
+      - source          : origem do override (ex: 'admin manual') — opcional
+      - reason          : justificativa para auditoria — opcional
+      - created_at      : timestamp de criação (read_only)
+      - updated_at      : timestamp da última atualização (read_only)
+      - created_by      : usuário que criou (read_only — preenchido pela view via AuditableMixin)
+      - updated_by      : último usuário que atualizou (read_only — idem)
+
+    Validação:
+      validate() impede coexistência de override 'grant' e 'revoke' para o
+      mesmo par (user, permission), espelhando o clean() do model em nível DRF
+      para garantir resposta 400 em vez de exceção não tratada.
+
+    FIX (Issue #21):
+      create() e update() sobrescritos para descartar created_by_name e
+      updated_by_name injetados pelo AuditableMixin (campos inexistentes no
+      model UserPermissionOverride) e mapear created_by_id/updated_by_id
+      para as FKs created_by/updated_by do model.
+
+    Referências: ADR-PERM-01, divergência D-04, Issue #18, Issue #20, Issue #21.
+    """
+
+    class Meta:
+        model = UserPermissionOverride
+        fields = [
+            "id",
+            "user",
+            "permission",
+            "mode",
+            "source",
+            "reason",
+            "created_at",
+            "updated_at",
+            "created_by",
+            "updated_by",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at", "created_by", "updated_by"]
+
+    def validate(self, data):
+        user = data.get("user") or (self.instance.user if self.instance else None)
+        permission = data.get("permission") or (self.instance.permission if self.instance else None)
+        mode = data.get("mode") or (self.instance.mode if self.instance else None)
+
+        if user and permission and mode:
+            opposite_mode = (
+                UserPermissionOverride.MODE_REVOKE
+                if mode == UserPermissionOverride.MODE_GRANT
+                else UserPermissionOverride.MODE_GRANT
+            )
+            conflict_qs = UserPermissionOverride.objects.filter(
+                user=user,
+                permission=permission,
+                mode=opposite_mode,
+            )
+            if self.instance:
+                conflict_qs = conflict_qs.exclude(pk=self.instance.pk)
+            if conflict_qs.exists():
+                raise serializers.ValidationError(
+                    {
+                        "mode": (
+                            f"Já existe um override '{opposite_mode}' para este usuário e permissão. "
+                            "Remova o override conflitante antes de criar um novo."
+                        )
+                    }
+                )
+
+        return data
+
+    def _extract_audit_fields(self, kwargs):
+        """
+        Extrai e normaliza os campos de auditoria injetados pelo AuditableMixin.
+
+        O AuditableMixin passa created_by_id/updated_by_id (int) e
+        created_by_name/updated_by_name (str). O model UserPermissionOverride
+        possui apenas FKs created_by/updated_by (sem campos _name), portanto:
+          - created_by_name e updated_by_name são descartados
+          - created_by_id é convertido para created_by (instância User ou None)
+          - updated_by_id é convertido para updated_by (instância User ou None)
+        """
+        # Descarta campos de texto inexistentes no model
+        kwargs.pop("created_by_name", None)
+        kwargs.pop("updated_by_name", None)
+
+        # Converte _id para FK se fornecidos como kwargs separados
+        created_by_id = kwargs.pop("created_by_id", None)
+        updated_by_id = kwargs.pop("updated_by_id", None)
+
+        if created_by_id is not None:
+            kwargs["created_by"] = User.objects.filter(pk=created_by_id).first()
+        if updated_by_id is not None:
+            kwargs["updated_by"] = User.objects.filter(pk=updated_by_id).first()
+
+        return kwargs
+
+    def create(self, validated_data):
+        """
+        Cria UserPermissionOverride descartando campos _name do AuditableMixin
+        e mapeando _id para as FKs do model.
+        """
+        validated_data = self._extract_audit_fields(validated_data)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        """
+        Atualiza UserPermissionOverride descartando campos _name do AuditableMixin
+        e mapeando _id para as FKs do model.
+        """
+        validated_data = self._extract_audit_fields(validated_data)
+        return super().update(instance, validated_data)
 
 
 # ─── Me Serializer ────────────────────────────────────────────────────────────────────
@@ -443,3 +597,107 @@ class MeSerializer(serializers.Serializer):
     def get_status_usuario_id(self, obj):
         profile = obj.get("profile")
         return profile.status_usuario_id if profile else None
+
+
+class MePermissionSerializer(serializers.Serializer):
+    """
+    Serializer para GET /api/accounts/me/permissions/
+    Retorna a role do usuário na app e os codenames de permissão concedidos.
+
+    Formato:
+    {
+        "role": "GESTOR",
+        "granted": ["view_programa", "add_programa"]
+    }
+
+    Espera receber o dict:
+    {
+        "role": <instância Role>,
+        "user": <instância User>,
+    }
+
+    FASE-4-PERM (corrige D-02):
+        A leitura é feita de ``user.user_permissions``
+        (``auth_user_user_permissions``), que é a única fonte de verdade
+        em runtime conforme ADR-PERM-01.
+
+    FIX (Issue #22 Falha 3):
+        Lógica anterior filtrava user.user_permissions pelo conjunto
+        group_codenames (permissões do grupo da role). Isso excluía
+        silenciosamente permissões adicionadas via grant override, pois
+        elas não fazem parte do template do grupo da role.
+
+        Nova lógica — preserva escopo por aplicação via group_codenames
+        mas inclui grants extras:
+
+          all_user_perms  = todos os codenames em user.user_permissions
+          group_scope     = codenames do grupo da role (template da app)
+          grant_overrides = codenames de overrides mode='grant' para o user
+                            nesta role (podem estar fora do grupo)
+          revoke_override_codenames = codenames de overrides mode='revoke'
+                            para o user que pertencem ao escopo da app
+                            (group_scope ∪ grant_overrides)
+
+          resultado = (group_scope ∩ all_user_perms)
+                      ∪ (grant_overrides ∩ all_user_perms)
+                      - revoke_override_codenames
+
+        Simplificando: como sync_user_permissions() já aplica a fórmula
+        herdadas | grants - revokes em auth_user_user_permissions,
+        basta ler all_user_perms limitado ao escopo da aplicação:
+
+          escopo_app = group_scope ∪ grant_overrides_da_role
+          resultado  = all_user_perms ∩ escopo_app
+
+        Isso é correto e idempotente pois o sync já garantiu que revokes
+        não estão em user.user_permissions.
+
+    Referências: ADR-PERM-01, PERMISSIONS_ARCHITECTURE.md
+      Fórmula: herdadas |= user_permissions |= grant -= revoke
+    """
+    role = serializers.SerializerMethodField()
+    granted = serializers.SerializerMethodField()
+
+    def get_role(self, obj):
+        return obj["role"].codigoperfil
+
+    def get_granted(self, obj):
+        user = obj["user"]
+        role = obj["role"]
+        group = role.group
+
+        # Todos os codenames materializados pelo sync em auth_user_user_permissions.
+        # O sync já aplicou: herdadas | grants - revokes — esta é a fonte de verdade.
+        all_user_perm_codenames = set(
+            user.user_permissions.values_list("codename", flat=True)
+        )
+
+        if group is None:
+            # Role sem grupo: todas as permissões diretas do usuário são válidas
+            return sorted(all_user_perm_codenames)
+
+        # Escopo base: codenames que o grupo da role define (template da aplicação)
+        group_scope = set(
+            group.permissions.values_list("codename", flat=True)
+        )
+
+        # Grants extras: overrides mode='grant' para este usuário nesta role.
+        # São permissões fora do template do grupo, mas igualmente válidas.
+        # Usamos a role.group como âncora de aplicação — os overrides são globais
+        # ao usuário, mas expomos apenas os que estão materializados no sync.
+        grant_override_codenames = set(
+            UserPermissionOverride.objects.filter(
+                user=user,
+                mode=UserPermissionOverride.MODE_GRANT,
+            ).values_list("permission__codename", flat=True)
+        )
+
+        # Escopo da aplicação = template do grupo + grants extras já materializados
+        app_scope = group_scope | grant_override_codenames
+
+        # Resultado: interseção entre o que está no banco (fonte de verdade do sync)
+        # e o escopo desta aplicação. Revokes já foram subtraídos pelo sync,
+        # portanto não precisam ser filtrados aqui novamente.
+        result = all_user_perm_codenames & app_scope
+
+        return sorted(result)

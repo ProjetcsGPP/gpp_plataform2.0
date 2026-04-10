@@ -13,13 +13,15 @@ from .utils import get_client_ip
 
 security_logger = logging.getLogger("gpp.fontend_log")# Create your views here.
 class FrontEndLogging(APIView):
-    
-    permission_classes = [AllowAny]
-    
-    def frontend_log(self, request):
+
+    permission_classes = [IsAuthenticated]  # AllowAny seria inseguro — qualquer um logaria
+
+    def post(self, request):               # ← era "frontend_log", precisa ser "post"
         log_data = request.data
-        remote_adress = get_client_ip(request)
-        
-        security_logger.info("FROONTEND_LOG_ERR: {remote_adress} - {log_data}")
-        
+        remote_address = get_client_ip(request)
+
+        security_logger.info(
+            "FRONTEND_LOG_ERR: %s - %s", remote_address, log_data  # ← formato de log correto
+        )
+
         return Response({"status": "ok"})

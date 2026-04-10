@@ -8,9 +8,11 @@ from .views import (
     LogoutView,
     LogoutAppView,
     MeView,
+    MePermissionView,
     RoleViewSet,
     UserCreateView,
     UserCreateWithRoleView,
+    UserPermissionOverrideViewSet,
     UserProfileViewSet,
     UserRoleViewSet,
     ResolveUserView,
@@ -26,6 +28,7 @@ router.register(r"aplicacoes", AplicacaoViewSet, basename="aplicacao")
 router.register(r"profiles", UserProfileViewSet, basename="userprofile")
 router.register(r"roles", RoleViewSet, basename="role")
 router.register(r"user-roles", UserRoleViewSet, basename="userrole")
+router.register(r"permission-overrides", UserPermissionOverrideViewSet, basename="permission-override")
 
 auth_router = DefaultRouter()
 auth_router.register(r"aplicacoes", AplicacaoPublicaViewSet, basename="aplicacao-publica")
@@ -40,6 +43,7 @@ urlpatterns = [
     path("logout/<str:app_slug>/", LogoutAppView.as_view(), name="logout_app"),
 
     path("me/", MeView.as_view(), name="me"),
+    path("me/permissions/", MePermissionView.as_view(), name="me-permissions"),
     path("users/", UserCreateView.as_view(), name="user-create"),
     path("users/create-with-role/", UserCreateWithRoleView.as_view(), name="user-create-with-role"),
 ]

@@ -2,9 +2,10 @@
 
 **App**: `apps/accounts`
 **Schema PostgreSQL**: `public`
-**Última revisão**: 2026-03-25
+**Última revisão**: 2026-04-10 — Fase 13 (Issue #26)
 
-> Para visão geral do projeto ver [`ARCH_SNAPSHOT.md`](./ARCH_SNAPSHOT.md).
+> Para a arquitetura completa do sistema de permissões, ver [`PERMISSIONS_ARCHITECTURE.md`](./PERMISSIONS_ARCHITECTURE.md).
+> Para visão geral do projeto, ver [`ARCH_SNAPSHOT.md`](./ARCH_SNAPSHOT.md).
 
 ---
 
@@ -203,6 +204,27 @@ Atribui uma Role a um usuário em uma aplicação específica.
 
 **Constraint**: `UniqueConstraint(user, aplicacao)` — 1 role por usuário/app.
 
+### `UserPermissionOverride` (accounts_userpermissionoverride)
+
+Permite exceções individuais de permissão por usuário. Implementado na Fase 3 (Issue #16).
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `user` | FK `auth.User` CASCADE | |
+| `permission` | FK `auth.Permission` CASCADE | |
+| `mode` | `CharField` | `grant` ou `revoke` |
+| `source` | `CharField(200)` blank | Origem do override (auditoria) |
+| `reason` | `TextField` blank | Justificativa (auditoria) |
+| `created_by` | FK `auth.User` SET_NULL nullable | |
+| `updated_by` | FK `auth.User` SET_NULL nullable | |
+| `created_at` | `DateTimeField` auto | |
+| `updated_at` | `DateTimeField` auto | |
+
+**Constraint**: `UniqueConstraint(user, permission, mode)` — sem duplicidade por `(usuário, permissão, modo)`.
+
+> `revoke` neutraliza qualquer outra fonte de permissão, incluindo `grant`. Não é permitida
+> coexistência de `grant` e `revoke` para o mesmo `(user, permission)` — validada via `clean()`/`save()`.
+
 ### `AccountsSession` (accounts_session)
 
 Registro de sessões ativas com suporte a revogação explícita.
@@ -247,8 +269,11 @@ Tabela de referência que define capacidades de gerenciamento de usuários.
 | `pode_criar_usuario` | `BooleanField` default=False | Lido por `CanCreateUser` |
 | `pode_editar_usuario` | `BooleanField` default=False | Lido por `CanEditUser` |
 
-Esses campos são lidos diretamente pelas permissions `CanCreateUser` e `CanEditUser`
-definidas em `apps/core/permissions.py` e re-exportadas por `common/permissions.py`.
+> ⚠️ **Violação pendente (Fase 14 — Issue #27)**: `CanCreateUser`, `CanEditUser` e
+> `apps/accounts/policies/user_policy.py` ainda leem autorização a partir de
+> `ClassificacaoUsuario.pode_criar_usuario` / `pode_editar_usuario`, em vez de
+> `user.has_perm()`. Isso viola o ADR-PERM-01 e será corrigido na Fase 14.
+> **Não replicar esse padrão em código novo.**
 
 ### Tabelas Auxiliares
 
@@ -259,14 +284,28 @@ definidas em `apps/core/permissions.py` e re-exportadas por `common/permissions.
 
 ---
 
+## Permissões em runtime — ADR-PERM-01
+
+> Para documentação completa do sistema de permissões, ver [`PERMISSIONS_ARCHITECTURE.md`](./PERMISSIONS_ARCHITECTURE.md).
+
+**Regra fundamental**: a única tabela consultada para permissões em runtime é `auth_user_user_permissions`.
+`auth_user_groups` **não é populado** neste sistema (ADR-PERM-01 — confirmado na Fase 12).
+
+Permissões são materializadas via `sync_user_permissions(user)` em `apps/accounts/services/permission_sync.py`
+apenas — nenhum outro componente deve escrever em `auth_user_user_permissions`.
+
+Overrides individuais são gerenciados via `UserPermissionOverride` (endpoint `/api/accounts/user-permission-overrides/`).
+
+---
+
 ## Matriz de Permissões por Aplicação
 
 ### `accounts` — Gestão de Usuários
 
 | Operação | Permissão DRF | Condição |
 |---|---|---|
-| Criar usuário | `CanCreateUser` | `classificacao_usuario.pode_criar_usuario = True` |
-| Editar usuário | `CanEditUser` | `classificacao_usuario.pode_editar_usuario = True` |
+| Criar usuário | `CanCreateUser` | `classificacao_usuario.pode_criar_usuario = True` ⚠️ (pendente Fase 14) |
+| Editar usuário | `CanEditUser` | `classificacao_usuario.pode_editar_usuario = True` ⚠️ (pendente Fase 14) |
 | Listar/ver usuários | `IsAuthenticated` | Autenticado + role ativa |
 | Gestão de roles | `IsPortalAdmin` | `is_portal_admin = True` |
 
@@ -295,8 +334,12 @@ Definidas em `apps/core/permissions.py`, re-exportadas por `common/permissions.p
 |---|---|---|
 | `HasRolePermission` | `common/permissions.py` | Valida se usuário tem ao menos 1 role ativa para a app |
 | `IsPortalAdmin` | `common/permissions.py` | Acesso exclusivo a `PORTAL_ADMIN` |
-| `CanCreateUser` | `apps/core/permissions.py` | `classificacao_usuario.pode_criar_usuario` |
-| `CanEditUser` | `apps/core/permissions.py` | `classificacao_usuario.pode_editar_usuario` |
+| `CanCreateUser` | `apps/core/permissions.py` | `classificacao_usuario.pode_criar_usuario` ⚠️ (pendente Fase 14) |
+| `CanEditUser` | `apps/core/permissions.py` | `classificacao_usuario.pode_editar_usuario` ⚠️ (pendente Fase 14) |
+
+> ⚠️ `CanCreateUser` e `CanEditUser` violam ADR-PERM-01 ao ler de `ClassificacaoUsuario`
+> em vez de `user.has_perm()`. Serão refatoradas na Fase 14 (Issue #27).
+> **Não criar novas classes de permissão com esse padrão.**
 
 `HasRolePermission` só valida a **presença** de role — a verificação do **nível** (READ/WRITE/DELETE)
 é responsabilidade de cada ViewSet via `_check_roles()`.
