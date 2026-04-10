@@ -18,24 +18,12 @@ import importlib
 import inspect
 
 import pytest
+from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 
 User = get_user_model()
-
-
-def _get_clean_token_blacklist_fn():
-    """
-    Importa a função clean_token_blacklist da migration 0010.
-
-    O módulo tem nome que começa com dígito (0010_...), tornando-o
-    inválido como identificador Python. Usamos importlib para importá-lo.
-    """
-    module = importlib.import_module(
-        'apps.accounts.migrations.0010_clean_token_blacklist_residues'
-    )
-    return module.clean_token_blacklist
 
 
 # =============================================================================
@@ -139,31 +127,32 @@ class TestAuthUserGroupsAudit:
         sync_user_permissions() não deve adicionar o usuário a
         auth_user_groups. Grupos são templates; suas permissões são
         COPIADAS para auth_user_user_permissions, nunca via M2M de grupos.
+
+        FIX: factories.py não exporta AplicacaoFactory. make_role() já
+        cria Aplicacao internamente. Usa make_user() + make_user_role()
+        que é o padrão correto do projeto.
         """
-        from apps.accounts.tests.factories import (
-            UserFactory,
-            AplicacaoFactory,
-            RoleFactory,
-            UserRoleFactory,
-        )
+        from apps.accounts.tests.factories import UserFactory, make_user_role
         from apps.accounts.services.permission_sync import sync_user_permissions
 
-        app = AplicacaoFactory()
-        role = RoleFactory(aplicacao=app)
+        # make_user_role cria user + role + aplicacao + dispara sync
         user = UserFactory()
-        UserRoleFactory(user=user, aplicacao=app, role=role)
+        make_user_role(user=user)  # cria role com aplicacao interna
 
-        assert user.groups.count() == 0, (
-            "Usuário não deve ter grupos antes do sync."
-        )
-
-        sync_user_permissions(user)
-
+        # Verifica estado pós-sync: user.groups deve continuar vazio
         user.refresh_from_db()
         assert user.groups.count() == 0, (
             "FALHA ADR-PERM-01: sync_user_permissions() populou auth_user_groups. "
             "Grupos são templates — permissões devem ser COPIADAS para "
             "auth_user_user_permissions, nunca adicionando o usuário ao grupo."
+        )
+
+        # Segundo sync (idempotente) — ainda não deve popular auth_user_groups
+        sync_user_permissions(user)
+        user.refresh_from_db()
+        assert user.groups.count() == 0, (
+            "FALHA ADR-PERM-01: segundo sync_user_permissions() populou "
+            "auth_user_groups."
         )
 
 
@@ -176,16 +165,26 @@ class TestTokenBlacklistCleanupMigration:
     """
     Testa a função de limpeza `clean_token_blacklist` da migration 0010.
 
-    Os testes exercitam o comportamento de limpeza usando os modelos reais
-    do Django. O import da função é feito via importlib (nome começa com
-    dígito, não é identificador Python válido para import direto).
+    O import do módulo é feito via importlib (nome começa com dígito,
+    não é identificador Python válido para import direto).
+
+    Para invocar a função fora do contexto da migration, passamos
+    `django_apps` (registry real) como argumento `apps`, que suporta
+    .get_model() de forma idêntica ao registry histórico das migrations
+    em um banco já migrado.
     """
+
+    def _load_clean_fn(self):
+        """Carrega clean_token_blacklist via importlib (nome com dígito)."""
+        module = importlib.import_module(
+            'apps.accounts.migrations.0010_clean_token_blacklist_residues'
+        )
+        return module.clean_token_blacklist
 
     def test_no_token_blacklist_content_types_in_clean_db(self):
         """
-        No banco de testes limpo (sem token_blacklist instalado),
-        não deve haver content types com app_label='token_blacklist'.
-        Critério de aceite CA-03 (Issue #25).
+        No banco de testes limpo, não deve haver content types com
+        app_label='token_blacklist'. Critério de aceite CA-03.
         """
         cts = ContentType.objects.filter(app_label='token_blacklist')
         assert not cts.exists(), (
@@ -196,8 +195,7 @@ class TestTokenBlacklistCleanupMigration:
     def test_no_token_blacklist_permissions_in_clean_db(self):
         """
         No banco de testes limpo, não deve haver permissões com
-        content_type__app_label='token_blacklist'.
-        Critério de aceite CA-03 (Issue #25).
+        content_type__app_label='token_blacklist'. Critério de aceite CA-03.
         """
         perms = Permission.objects.filter(
             content_type__app_label='token_blacklist'
@@ -211,7 +209,7 @@ class TestTokenBlacklistCleanupMigration:
         """
         No banco de testes limpo, nenhum usuário deve ter permissões
         de token_blacklist em auth_user_user_permissions.
-        Critério de aceite CA-04 (Issue #25).
+        Critério de aceite CA-04.
         """
         affected = User.objects.filter(
             user_permissions__content_type__app_label='token_blacklist'
@@ -224,29 +222,27 @@ class TestTokenBlacklistCleanupMigration:
     def test_clean_function_is_idempotent_on_empty_db(self):
         """
         Testa que clean_token_blacklist() é idempotente quando chamada
-        em um banco sem resíduos de token_blacklist.
-        Não deve lançar exceção e deve retornar imediatamente.
-        Critério de aceite CA-05 (Issue #25).
+        em banco sem resíduos. Critério de aceite CA-05.
 
-        Import via importlib pois o nome do módulo começa com dígito.
+        FIX: passa django_apps (registry real) em vez de None.
+        A função usa apps.get_model() — django_apps suporta isso
+        identicamente ao registry histórico das migrations em banco
+        já migrado. schema_editor não é usado pela função, pode ser None.
         """
-        migration_module = importlib.import_module(
-            'apps.accounts.migrations.0010_clean_token_blacklist_residues'
-        )
-        clean_fn = migration_module.clean_token_blacklist
+        clean_fn = self._load_clean_fn()
 
-        # Primeira execução — banco já está limpo (guard `if not ct_ids: return`)
+        # 1ª execução — banco limpo, deve retornar imediatamente via guard
         try:
-            clean_fn(None, None)
+            clean_fn(django_apps, None)
         except Exception as exc:
             pytest.fail(
                 f"FALHA CA-05: clean_token_blacklist() lançou exceção "
                 f"em banco limpo (1ª execução): {exc}"
             )
 
-        # Segunda execução — deve ser igualmente segura
+        # 2ª execução — idempotente
         try:
-            clean_fn(None, None)
+            clean_fn(django_apps, None)
         except Exception as exc:
             pytest.fail(
                 f"FALHA CA-05: clean_token_blacklist() não é idempotente: "
@@ -255,12 +251,9 @@ class TestTokenBlacklistCleanupMigration:
 
     def test_clean_function_removes_residual_content_types_and_permissions(self):
         """
-        Testa que a lógica de limpeza remove content types e permissões
-        residuais de token_blacklist quando existem no banco.
-
-        Simula o estado de um banco legado criando manualmente um
-        ContentType e Permission com app_label='token_blacklist',
-        executa a lógica equivalente à migration e verifica a limpeza.
+        Testa que a lógica de limpeza remove ContentTypes e Permissions
+        residuais de token_blacklist. Simula banco legado.
+        Critério de aceite CA-03.
         """
         # Setup: cria resíduos simulados
         ct = ContentType.objects.create(
@@ -278,18 +271,11 @@ class TestTokenBlacklistCleanupMigration:
         )
         assert Permission.objects.filter(
             content_type__app_label='token_blacklist'
-        ).exists(), (
-            "Setup falhou: Permission de token_blacklist deveria existir."
-        )
+        ).exists(), "Setup falhou: Permission de token_blacklist deveria existir."
 
-        # Executa limpeza equivalente à migration (usando models reais)
-        blacklist_cts = ContentType.objects.filter(app_label='token_blacklist')
-        ct_ids = list(blacklist_cts.values_list('id', flat=True))
-        perms_to_remove = Permission.objects.filter(content_type_id__in=ct_ids)
-        for p in perms_to_remove:
-            p.user_set.clear()
-        Permission.objects.filter(content_type_id__in=ct_ids).delete()
-        blacklist_cts.delete()
+        # Executa a função de limpeza real via django_apps
+        clean_fn = self._load_clean_fn()
+        clean_fn(django_apps, None)
 
         # Validação pós-limpeza
         assert not ContentType.objects.filter(app_label='token_blacklist').exists(), (
@@ -303,15 +289,15 @@ class TestTokenBlacklistCleanupMigration:
 
     def test_clean_removes_user_permissions_m2m_links(self):
         """
-        Testa que a lógica de limpeza remove as linhas de
-        auth_user_user_permissions que referenciam perms de token_blacklist.
-        Critério de aceite CA-04 (Issue #25).
+        Testa que a limpeza remove linhas de auth_user_user_permissions
+        que referenciam perms de token_blacklist.
+        Critério de aceite CA-04.
         """
         from apps.accounts.tests.factories import UserFactory
 
         user = UserFactory()
 
-        # Setup: cria resíduos simulados com usuário vinculado
+        # Setup: cria resíduos simulados e vincula ao usuário
         ct = ContentType.objects.create(
             app_label='token_blacklist',
             model='outstandingtoken',
@@ -327,16 +313,11 @@ class TestTokenBlacklistCleanupMigration:
             content_type__app_label='token_blacklist'
         ).exists(), "Setup falhou: usuário deveria ter perm de token_blacklist."
 
-        # Executa limpeza
-        blacklist_cts = ContentType.objects.filter(app_label='token_blacklist')
-        ct_ids = list(blacklist_cts.values_list('id', flat=True))
-        perms_to_remove = Permission.objects.filter(content_type_id__in=ct_ids)
-        for p in perms_to_remove:
-            p.user_set.clear()  # Limpa auth_user_user_permissions
-        Permission.objects.filter(content_type_id__in=ct_ids).delete()
-        blacklist_cts.delete()
+        # Executa a função de limpeza real via django_apps
+        clean_fn = self._load_clean_fn()
+        clean_fn(django_apps, None)
 
-        # Validação: recarrega do banco para limpar cache do Django
+        # Recarrega do banco para limpar cache de permissões do Django
         user = User.objects.get(pk=user.pk)
         assert not user.user_permissions.filter(
             content_type__app_label='token_blacklist'
@@ -344,3 +325,34 @@ class TestTokenBlacklistCleanupMigration:
             "FALHA CA-04: auth_user_user_permissions ainda contém "
             "perms de token_blacklist após limpeza."
         )
+
+    def test_clean_function_is_idempotent_after_cleanup(self):
+        """
+        Testa que clean_token_blacklist() pode ser chamada N vezes
+        após já ter limpado o banco, sem lançar exceção.
+        Critério de aceite CA-05 — idempotência completa.
+        """
+        clean_fn = self._load_clean_fn()
+
+        # Cria resíduos e executa limpeza
+        ct = ContentType.objects.create(
+            app_label='token_blacklist',
+            model='blacklistedtoken_idempotent',
+        )
+        Permission.objects.create(
+            codename='test_idempotent_perm',
+            name='Test idempotent perm',
+            content_type=ct,
+        )
+
+        clean_fn(django_apps, None)  # 1ª execução: limpa
+
+        # 2ª e 3ª execuções — banco já limpo, guard deve proteger
+        try:
+            clean_fn(django_apps, None)
+            clean_fn(django_apps, None)
+        except Exception as exc:
+            pytest.fail(
+                f"FALHA CA-05: clean_token_blacklist() não é idempotente: "
+                f"lançou exceção em execuções subsequentes: {exc}"
+            )
