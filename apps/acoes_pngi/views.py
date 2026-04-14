@@ -33,6 +33,7 @@ from functools import lru_cache
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
+from drf_spectacular.utils import extend_schema_view, extend_schema, OpenApiParameter
 from common.schema import tag_all_actions
 
 from common.mixins import AuditableMixin
@@ -65,6 +66,13 @@ _LEVEL_READ = "READ"
 _LEVEL_WRITE = "WRITE"
 _LEVEL_DELETE = "DELETE"
 
+# Parâmetro reutilizável para os 3 nested ViewSets
+_ACAO_PK_PARAM = OpenApiParameter(
+    name="acao_pk",
+    type=int,
+    location=OpenApiParameter.PATH,
+    description="ID (idacao) da Ação PNGI pai",
+)
 
 @lru_cache(maxsize=1)
 def _load_role_matrix() -> dict[str, frozenset[str]]:
@@ -299,7 +307,14 @@ class AcaoViewSet(AuditableMixin, viewsets.ModelViewSet):
 # ---------------------------------------------------------------------------
 # ViewSets nested em Acao
 # ---------------------------------------------------------------------------
-
+@extend_schema_view(
+    list=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    create=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    retrieve=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    update=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    partial_update=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    destroy=extend_schema(parameters=[_ACAO_PK_PARAM]),
+)
 @tag_all_actions("3 - Ações PNGI")
 class AcaoPrazoViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
@@ -308,6 +323,7 @@ class AcaoPrazoViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     serializer_class = AcaoPrazoSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
+    queryset = AcaoPrazo.objects.all()  # ← usado apenas pelo drf-spectacular para introspecção
 
     def get_queryset(self):
         return AcaoPrazo.objects.filter(
@@ -338,7 +354,14 @@ class AcaoPrazoViewSet(AuditableMixin, viewsets.ModelViewSet):
         _check_roles(request, _LEVEL_DELETE)
         return super().destroy(request, *args, **kwargs)
 
-
+@extend_schema_view(
+    list=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    create=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    retrieve=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    update=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    partial_update=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    destroy=extend_schema(parameters=[_ACAO_PK_PARAM]),
+)
 @tag_all_actions("3 - Ações PNGI")
 class AcaoDestaqueViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
@@ -347,6 +370,7 @@ class AcaoDestaqueViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     serializer_class = AcaoDestaqueSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
+    queryset = AcaoDestaque.objects.all()  # ← adicionar
 
     def get_queryset(self):
         return AcaoDestaque.objects.filter(
@@ -378,6 +402,14 @@ class AcaoDestaqueViewSet(AuditableMixin, viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 
+@extend_schema_view(
+    list=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    create=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    retrieve=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    update=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    partial_update=extend_schema(parameters=[_ACAO_PK_PARAM]),
+    destroy=extend_schema(parameters=[_ACAO_PK_PARAM]),
+)
 @tag_all_actions("3 - Ações PNGI")
 class AcaoAnotacaoViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
@@ -386,6 +418,7 @@ class AcaoAnotacaoViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     serializer_class = AcaoAnotacaoAlinhamentoSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
+    queryset = AcaoAnotacaoAlinhamento.objects.all()
 
     def get_queryset(self):
         return AcaoAnotacaoAlinhamento.objects.filter(
