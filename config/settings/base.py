@@ -41,6 +41,7 @@ THIRD_PARTY_APPS = [
     "corsheaders",
     "django_extensions",
     "csp",                 # django-csp >= 4.0 (Content Security Policy)
+    "drf_spectacular",
 ]
 
 LOCAL_APPS = [
@@ -197,6 +198,7 @@ REST_FRAMEWORK = {
         "rest_framework.renderers.JSONRenderer",
     ],
     "EXCEPTION_HANDLER": "common.exceptions.gpp_exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 # ─── CSP (Content Security Policy) ────────────────────────────────────────────────────
@@ -205,12 +207,49 @@ REST_FRAMEWORK = {
 CONTENT_SECURITY_POLICY = {
     "DIRECTIVES": {
         "default-src": ("'self'",),
-        "script-src":  ("'self'",),
+        "script-src":  ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
+        "style-src":   ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
+        "img-src":     ("'self'", "data:"),
         "object-src":  ("'none'",),
         "base-uri":    ("'self'",),
         "frame-ancestors": ("'none'",),
     }
 }
+
+# ─── Swagger / OpenAPI (drf-spectacular) ──────────────────────────────────────
+SPECTACULAR_SETTINGS = {
+    "TITLE": "GPP Plataforma 2.0 — API",
+    "DESCRIPTION": (
+        "Documentação da API REST da Plataforma GPP 2.0. "
+        "Autenticação via SessionAuthentication (cookie de sessão + CSRF)."
+    ),
+    "VERSION": "2.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+
+    # Segurança: documenta o fluxo de sessão + CSRF
+    "SECURITY": [{"cookieAuth": []}],
+    "COMPONENTS": {
+        "securitySchemes": {
+            "cookieAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "sessionid",
+            }
+        }
+    },
+
+    # Filtra paths que não devem aparecer na documentação
+    "PREPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.preprocess_exclude_path_format",
+    ],
+
+    # Melhora a aparência no Swagger UI
+    "SWAGGER_UI_SETTINGS": {
+        "persistAuthorization": True,
+        "displayOperationId": False,
+    },
+}
+
 
 # ─── Security Headers ───────────────────────────────────────────────────────────
 SECURE_BROWSER_XSS_FILTER = True
@@ -235,6 +274,9 @@ AUTHORIZATION_EXEMPT_PATHS = [
     "/admin",
     "/api/health/",
     "/__debug__/",
+    "/api/schema/",   # ← schema JSON
+    "/api/docs/",     # ← Swagger UI
+    "/api/redoc/",    # ← ReDoc UI
 ]
 
 # ─── Logging de Segurança ──────────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import Aplicacao, UserRole
 from apps.portal.serializers import AplicacaoSerializer, DashboardSerializer
-
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
 
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -28,6 +28,19 @@ class DashboardView(APIView):
     """
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Dashboard do Portal.",
+        description=(
+            "Retorna todas as aplicações que o usuário autenticado tem permissão para acessar, "
+            "retorna também os perfis do usuário para cada aplicação que está cadastrada."
+        ),
+        responses={
+            200: DashboardSerializer,   # ← passa o serializer diretamente, não OpenApiResponse
+            403: OpenApiResponse(description="Usuário não autenticado ou sem permissão"),
+        },
+        tags=["Portal"],
+    )
+    
     def get(self, request):
         apps = Aplicacao.objects.filter(isshowinportal=True).order_by("nomeaplicacao")
         user_roles = (

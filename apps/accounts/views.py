@@ -68,6 +68,7 @@ from rest_framework.views import APIView
 
 from common.mixins import AuditableMixin, SecureQuerysetMixin
 from common.permissions import CanCreateUser, CanEditUser, HasRolePermission, IsPortalAdmin
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
 
 from .models import AccountsSession, Aplicacao, Role, UserPermissionOverride, UserProfile, UserRole
 from .serializers import (
@@ -100,6 +101,33 @@ class LoginView(APIView):
     Em testes, o conftest raiz zera as classes — sem throttle_scope fixo aqui.
     """
     permission_classes = [AllowAny]
+
+
+    @extend_schema(
+        summary="Login via sessão",
+        description=(
+            "Autentica o usuário e cria uma sessão por aplicação (cookie `gpp_session_{APP}`). "
+            "Requer `username`, `password` e `app_context`."
+        ),
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "username": {"type": "string", "example": "joao.silva"},
+                    "password": {"type": "string", "example": "senha123"},
+                    "app_context": {"type": "string", "example": "PORTAL"},
+                },
+                "required": ["username", "password", "app_context"],
+            }
+        },
+        responses={
+            200: OpenApiResponse(description="Login realizado com sucesso"),
+            400: OpenApiResponse(description="Credenciais ou app_context não informados"),
+            401: OpenApiResponse(description="Credenciais inválidas"),
+            403: OpenApiResponse(description="Usuário sem acesso à aplicação"),
+        },
+        tags=["Auth"],
+    )
 
     def post(self, request):
         username = request.data.get("username")
@@ -230,6 +258,28 @@ class ResolveUserView(APIView):
     """
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        summary="Resolve username a partir de email ou username",
+        description=(
+            "Recebe um identificador (email ou username) e retorna o username canônico. "
+            "Usado pelo frontend antes do login."
+        ),
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "identifier": {"type": "string", "example": "joao@gov.br"},
+                },
+                "required": ["identifier"],
+            }
+        },
+        responses={
+            200: OpenApiResponse(description="Username resolvido: { 'username': '...' }"),
+            404: OpenApiResponse(description="Usuário não encontrado"),
+        },
+        tags=["Auth"],
+    )
+
     def post(self, request):
         from django.contrib.auth import get_user_model
         User = get_user_model()
@@ -288,6 +338,13 @@ class LogoutView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="Logout da sessão atual",
+        description="Encerra a sessão ativa e revoga o registro em AccountsSession.",
+        responses={200: OpenApiResponse(description="Logout realizado")},
+        tags=["Auth"],
+    )
+    
     def post(self, request):
         session_key = request.session.session_key
 
@@ -444,6 +501,18 @@ class UserCreateView(APIView):
     """
     permission_classes = [IsAuthenticated, CanCreateUser]
 
+    @extend_schema(
+        summary="Criar usuário (sem role)",
+        description="Cria atomicamente um auth.User e seu UserProfile.",
+        request=UserCreateSerializer,
+        responses={
+            201: UserCreateSerializer,
+            400: OpenApiResponse(description="Dados inválidos"),
+            403: OpenApiResponse(description="Sem permissão para criar usuário"),
+        },
+        tags=["Usuários"],
+    )
+
     def post(self, request):
         serializer = UserCreateSerializer(
             data=request.data,
@@ -497,6 +566,20 @@ class UserCreateWithRoleView(APIView):
     Cria atomicamente auth.User + UserProfile + UserRole + sync de permissões.
     """
     permission_classes = [IsAuthenticated, CanCreateUser]
+
+    @extend_schema(
+        summary="Criar usuário com role (fluxo completo)",
+        description=(
+            "Cria atomicamente auth.User + UserProfile + UserRole e dispara "
+            "sync de permissões. Restrito a PORTAL_ADMIN."
+        ),
+        request=UserCreateWithRoleSerializer,
+        responses={
+            201: OpenApiResponse(description="Usuário criado com role"),
+            403: OpenApiResponse(description="Sem permissão"),
+        },
+        tags=["Usuários"],
+    )
 
     def post(self, request):
         from apps.accounts.services.authorization_service import AuthorizationService
