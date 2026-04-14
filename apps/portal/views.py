@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import Aplicacao, UserRole
-from apps.portal.serializers import AplicacaoSerializer, DashboardSerializer
+from apps.portal.serializers import AplicacaoPortalSerializer, DashboardSerializer
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
 from common.schema import tag_all_actions
 
@@ -19,7 +19,7 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     Requer autenticação.
     """
     queryset = Aplicacao.objects.filter(isshowinportal=True).order_by("nomeaplicacao")
-    serializer_class = AplicacaoSerializer
+    serializer_class = AplicacaoPortalSerializer
     permission_classes = [permissions.IsAuthenticated]
 
 
