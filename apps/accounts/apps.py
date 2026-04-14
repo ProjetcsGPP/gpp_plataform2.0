@@ -8,3 +8,4 @@ class AccountsConfig(AppConfig):
 
     def ready(self):
         import apps.accounts.signals  # noqa: F401 — registra signals de invalidação de cache
+        import apps.accounts.openapi

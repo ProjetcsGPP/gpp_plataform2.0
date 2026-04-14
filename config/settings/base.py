@@ -294,12 +294,13 @@ SPECTACULAR_SETTINGS = {
                 "description": "Sessão criada com app_context=ACOES_PNGI",
             },
         },
+    },
+
     "EXTENSIONS_INFO": {},
         "EXTENSIONS": [
             "apps.accounts.openapi.AppContextAuthenticationExtension",
         ],
-    },
-
+        
     # ── Ordem das seções no Swagger UI ────────────────────────────────────────
     "TAGS": [
         {"name": "0 - Autenticação",  "description": "Login, logout e sessão do usuário"},
