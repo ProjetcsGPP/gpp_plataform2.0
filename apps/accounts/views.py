@@ -341,6 +341,7 @@ class LogoutView(APIView):
     POST /api/accounts/logout/
     Encerra a sessão atual e revoga no banco.
     """
+    authentication_classes = [] 
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
