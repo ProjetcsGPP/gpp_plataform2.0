@@ -224,22 +224,75 @@ CONTENT_SECURITY_POLICY = {
 SPECTACULAR_SETTINGS = {
     "TITLE": "GPP Plataforma 2.0 — API",
     "DESCRIPTION": (
-        "Documentação da API REST da Plataforma GPP 2.0. "
-        "Autenticação via SessionAuthentication (cookie de sessão + CSRF)."
+        "## Bem-vindo à API da Plataforma GPP 2.0\n\n"
+        "Esta documentação descreve todos os endpoints da API REST da Plataforma GPP 2.0.\n\n"
+        "---\n\n"
+        "## 🔐 Como autenticar\n\n"
+        "Todos os endpoints (exceto os da seção **0 - Autenticação**) exigem uma sessão ativa. "
+        "Siga os passos abaixo antes de usar qualquer outro método:\n\n"
+        "1. Localize a seção **0 - Autenticação** no menu\n"
+        "2. Abra o endpoint **POST /api/accounts/login/**\n"
+        "3. Clique em **Try it out**\n"
+        "4. Preencha o body com suas credenciais:\n\n"
+        "```json\n"
+        "{\n"
+        '  "username": "seu.usuario",\n'
+        '  "password": "sua_senha",\n'
+        '  "app_context": "PORTAL"\n'
+        "}\n"
+        "```\n\n"
+        "5. Clique em **Execute**\n"
+        "6. Aguarde o retorno **200 OK** — a sessão será criada automaticamente no browser\n"
+        "7. A partir deste momento, todos os endpoints estarão disponíveis nesta aba\n\n"
+        "> ⚠️ **Importante:** o login deve ser feito diretamente nesta página do Swagger. "
+        "Sessões criadas externamente (Postman, scripts) não são compartilhadas com o browser.\n\n"
+        "---\n\n"
+        "## 🍪 Mecanismo de autenticação\n\n"
+        "A API utiliza **SessionAuthentication** com cookies HttpOnly por aplicação. "
+        "O nome do cookie varia conforme o `app_context` usado no login: "
+        "`gpp_session_PORTAL`, `gpp_session_CARGA_ORG_LOT`, `gpp_session_ACOES_PNGI`, etc. "
+        "O browser envia o cookie correto automaticamente em todas as requisições desta aba.\n\n"
+        "---\n\n"
+        "## 📋 Estrutura dos módulos\n\n"
+        "| Seção | Descrição |\n"
+        "|---|---|\n"
+        "| **0 - Autenticação** | Login, logout e resolução de usuário |\n"
+        "| **1 - Usuários** | Perfis, roles, permissões e overrides |\n"
+        "| **2 - Portal** | Dashboard e aplicações visíveis no portal |\n"
+        "| **3 - Ações PNGI** | Ações, prazos, anotações e destaques |\n"
+        "| **4 - Carga Org/Lot** | Carga de organogramas e loteamentos |\n"
+        "| **5 - Utilitários** | Health check e logs de frontend |\n"
     ),
     "VERSION": "2.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 
-    # Segurança: documenta o fluxo de sessão + CSRF
-    "SECURITY": [{"cookieAuth": []}],
+    # Segurança: lista os três schemes — browser envia automaticamente o cookie ativo
+    "SECURITY": [
+        {"portalAuth": []},
+        {"cargaOrgLotAuth": []},
+        {"acoesPngiAuth": []},
+    ],
     "COMPONENTS": {
         "securitySchemes": {
-            "cookieAuth": {
+            "portalAuth": {
                 "type": "apiKey",
                 "in": "cookie",
-                "name": "sessionid",
-            }
-        }
+                "name": "gpp_session_PORTAL",
+                "description": "Sessão criada com app_context=PORTAL",
+            },
+            "cargaOrgLotAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "gpp_session_CARGA_ORG_LOT",
+                "description": "Sessão criada com app_context=CARGA_ORG_LOT",
+            },
+            "acoesPngiAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "gpp_session_ACOES_PNGI",
+                "description": "Sessão criada com app_context=ACOES_PNGI",
+            },
+        },
     },
 
     # ── Ordem das seções no Swagger UI ────────────────────────────────────────
@@ -257,12 +310,15 @@ SPECTACULAR_SETTINGS = {
         "drf_spectacular.hooks.preprocess_exclude_path_format",
     ],
 
-    # Melhora a aparência no Swagger UI
+    # Melhora a aparência no Swagger UI + corrige CSRF para SessionAuthentication
     "SWAGGER_UI_SETTINGS": {
         "persistAuthorization": True,
         "displayOperationId": False,
         "tagsSorter": "alpha",
         "operationsSorter": "alpha",
+        "withCredentials": True,          # envia cookies automaticamente no Try it out
+        "csrfCookieName": "csrftoken",    # nome do cookie CSRF padrão do Django
+        "csrfHeaderName": "X-CSRFToken",  # header que o DRF valida
     },
 }
 

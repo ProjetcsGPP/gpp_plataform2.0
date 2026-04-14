@@ -9,7 +9,9 @@ from rest_framework.views import APIView
 from apps.accounts.models import Aplicacao, UserRole
 from apps.portal.serializers import AplicacaoSerializer, DashboardSerializer
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
+from common.schema import tag_all_actions
 
+@tag_all_actions("2 - Portal")
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/portal/aplicacoes/         → lista apps visíveis no portal

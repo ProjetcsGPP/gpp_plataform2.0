@@ -101,6 +101,8 @@ class LoginView(APIView):
     Rate limit: controlado via DEFAULT_THROTTLE_CLASSES no settings.
     Em testes, o conftest raiz zera as classes — sem throttle_scope fixo aqui.
     """
+    
+    authentication_classes = []
     permission_classes = [AllowAny]
 
 
@@ -257,6 +259,8 @@ class ResolveUserView(APIView):
     R-04: Sem rate limit próprio — controlado via DEFAULT_THROTTLE_CLASSES.
     R-05: Log de tentativas para auditoria de segurança.
     """
+    
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     @extend_schema(
@@ -366,11 +370,17 @@ class LogoutView(APIView):
         return Response({"detail": "Logout realizado"})
 
 
-@tag_all_actions("0 - Autenticação")
 class LogoutAppView(APIView):
     authentication_classes = []
     permission_classes = []
 
+    @extend_schema(
+        summary="Logout de uma aplicação específica",
+        description="Revoga a sessão da app informada via slug e apaga o cookie correspondente.",
+        responses={200: OpenApiResponse(description="Logout realizado")},
+        tags=["0 - Autenticação"],
+    )
+    
     def post(self, request, app_slug):
         app_context = app_slug.upper()
         cookie_name = f"gpp_session_{app_context}"
@@ -392,7 +402,6 @@ class LogoutAppView(APIView):
 
 # ─── Me View ────────────────────────────────────────────────────────────────────────────────────
 
-@tag_all_actions("1 - Usuários")
 class MeView(APIView):
     """
     GET /api/accounts/me/
@@ -400,6 +409,13 @@ class MeView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="Dados do usuário autenticado",
+        description="Retorna profile + roles + apps com acesso do usuário da sessão atual.",
+        responses={200: OpenApiResponse(description="Dados do usuário")},
+        tags=["1 - Usuários"],
+    )
+    
     def get(self, request):
         user = request.user
 
@@ -423,7 +439,7 @@ class MeView(APIView):
         return Response(data)
 
 
-@tag_all_actions("1 - Usuários")
+
 class MePermissionView(APIView):
     """
     GET /api/accounts/me/permissions/
@@ -452,6 +468,20 @@ class MePermissionView(APIView):
     SessionMiddleware (ex: requests diretos via APIRequestFactory nos testes).
     """
     permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Permissões do usuário na app atual",
+        description=(
+            "Retorna a role e as permissões do usuário autenticado "
+            "na aplicação da sessão atual (app_context)."
+        ),
+        responses={
+            200: OpenApiResponse(description="Role e permissões"),
+            400: OpenApiResponse(description="Sem app_context na sessão"),
+            404: OpenApiResponse(description="App não encontrada ou usuário sem role"),
+        },
+        tags=["1 - Usuários"],
+    )
 
     def get(self, request):
         app_codigo = getattr(request, "app_context", None)
@@ -659,7 +689,8 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     R-03: pagination_class = None — retorna lista plana sem envelope de paginação.
     R-04: throttle_classes = [] — endpoint público de leitura; sem rate limit.
     """
-    serializer_class = AplicacaoPublicaSerializer
+    serializer_class = AplicacaoPublicaSerializer    
+    authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = []
     pagination_class = None
