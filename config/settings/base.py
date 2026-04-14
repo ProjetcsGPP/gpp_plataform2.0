@@ -201,17 +201,21 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
-# ─── CSP (Content Security Policy) ────────────────────────────────────────────────────
-# Formato django-csp >= 4.0 — dict CONTENT_SECURITY_POLICY
-# Documentação: https://django-csp.readthedocs.io/en/latest/configuration.html
+# ─── CSP relaxada para Swagger UI (development only) ─────────────────────────
+# O base.py usa nonce-based CSP que bloqueia CDN externo.
+# Em dev, liberamos cdn.jsdelivr.net para o Swagger UI funcionar.
 CONTENT_SECURITY_POLICY = {
     "DIRECTIVES": {
-        "default-src": ("'self'",),
-        "script-src":  ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
-        "style-src":   ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
-        "img-src":     ("'self'", "data:"),
-        "object-src":  ("'none'",),
-        "base-uri":    ("'self'",),
+        "default-src":   ("'self'",),
+        "script-src":    ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
+        "script-src-elem": ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
+        "style-src":     ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
+        "style-src-elem":  ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
+        "img-src":       ("'self'", "data:", "cdn.jsdelivr.net"),
+        "font-src":      ("'self'", "cdn.jsdelivr.net"),
+        "worker-src":    ("blob:",),
+        "object-src":    ("'none'",),
+        "base-uri":      ("'self'",),
         "frame-ancestors": ("'none'",),
     }
 }
