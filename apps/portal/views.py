@@ -7,9 +7,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import Aplicacao, UserRole
-from apps.portal.serializers import AplicacaoSerializer, DashboardSerializer
+from apps.portal.serializers import AplicacaoPortalSerializer, DashboardSerializer
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
+from common.schema import tag_all_actions
 
-
+@tag_all_actions("2 - Portal")
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/portal/aplicacoes/         → lista apps visíveis no portal
@@ -17,7 +19,7 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     Requer autenticação.
     """
     queryset = Aplicacao.objects.filter(isshowinportal=True).order_by("nomeaplicacao")
-    serializer_class = AplicacaoSerializer
+    serializer_class = AplicacaoPortalSerializer
     permission_classes = [permissions.IsAuthenticated]
 
 
@@ -28,6 +30,19 @@ class DashboardView(APIView):
     """
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Dashboard do Portal.",
+        description=(
+            "Retorna todas as aplicações que o usuário autenticado tem permissão para acessar, "
+            "retorna também os perfis do usuário para cada aplicação que está cadastrada."
+        ),
+        responses={
+            200: DashboardSerializer,   # ← passa o serializer diretamente, não OpenApiResponse
+            403: OpenApiResponse(description="Usuário não autenticado ou sem permissão"),
+        },
+        tags=["2 - Portal"],
+    )
+    
     def get(self, request):
         apps = Aplicacao.objects.filter(isshowinportal=True).order_by("nomeaplicacao")
         user_roles = (

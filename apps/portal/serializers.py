@@ -2,7 +2,7 @@ from rest_framework import serializers
 from apps.accounts.models import Aplicacao, UserRole
 
 
-class AplicacaoSerializer(serializers.ModelSerializer):
+class AplicacaoPortalSerializer(serializers.ModelSerializer):
     class Meta:
         model = Aplicacao
         fields = ["idaplicacao", "codigointerno", "nomeaplicacao", "base_url", "isshowinportal"]
@@ -23,5 +23,5 @@ class DashboardSerializer(serializers.Serializer):
     Serializador para o endpoint /dashboard/.
     Agrega aplicações visíveis no portal e roles do usuário.
     """
-    aplicacoes = AplicacaoSerializer(many=True)
+    aplicacoes = AplicacaoPortalSerializer(many=True)
     roles = UserRoleDashboardSerializer(many=True)

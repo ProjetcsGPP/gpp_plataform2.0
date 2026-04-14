@@ -33,6 +33,7 @@ from functools import lru_cache
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
+from common.schema import tag_all_actions
 
 from common.mixins import AuditableMixin
 from common.permissions import HasRolePermission
@@ -164,6 +165,7 @@ def _check_roles(request, level: str, matrix_fn=None) -> None:
 # ViewSets de referência (somente leitura)
 # ---------------------------------------------------------------------------
 
+@tag_all_actions("3 - Ações PNGI")
 class EixoViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Eixos temáticos do programa PNGI.
@@ -182,6 +184,7 @@ class EixoViewSet(viewsets.ReadOnlyModelViewSet):
         return super().retrieve(request, *args, **kwargs)
 
 
+@tag_all_actions("3 - Ações PNGI")
 class SituacaoAcaoViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Situações possíveis de uma Ação PNGI.
@@ -204,6 +207,7 @@ class SituacaoAcaoViewSet(viewsets.ReadOnlyModelViewSet):
 # VigenciaPNGIViewSet (CRUD completo — apenas GESTOR/COORDENADOR escrevem)
 # ---------------------------------------------------------------------------
 
+@tag_all_actions("3 - Ações PNGI")
 class VigenciaPNGIViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     Vigências do programa PNGI.
@@ -248,6 +252,7 @@ class VigenciaPNGIViewSet(AuditableMixin, viewsets.ModelViewSet):
 # AcaoViewSet (CRUD completo com matrix de roles)
 # ---------------------------------------------------------------------------
 
+@tag_all_actions("3 - Ações PNGI")
 class AcaoViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     Ações PNGI — entidade principal.
@@ -295,6 +300,7 @@ class AcaoViewSet(AuditableMixin, viewsets.ModelViewSet):
 # ViewSets nested em Acao
 # ---------------------------------------------------------------------------
 
+@tag_all_actions("3 - Ações PNGI")
 class AcaoPrazoViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     Prazos de uma Ação PNGI.
@@ -333,6 +339,7 @@ class AcaoPrazoViewSet(AuditableMixin, viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 
+@tag_all_actions("3 - Ações PNGI")
 class AcaoDestaqueViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     Destaques de uma Ação PNGI.
@@ -371,6 +378,7 @@ class AcaoDestaqueViewSet(AuditableMixin, viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 
+@tag_all_actions("3 - Ações PNGI")
 class AcaoAnotacaoViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     Anotações de alinhamento de uma Ação PNGI.

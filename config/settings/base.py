@@ -41,6 +41,7 @@ THIRD_PARTY_APPS = [
     "corsheaders",
     "django_extensions",
     "csp",                 # django-csp >= 4.0 (Content Security Policy)
+    "drf_spectacular",
 ]
 
 LOCAL_APPS = [
@@ -177,7 +178,8 @@ CSRF_TRUSTED_ORIGINS = env.list(
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         # FASE-0: JWT removido — sessão Django como único mecanismo
-        "rest_framework.authentication.SessionAuthentication",
+        #"rest_framework.authentication.SessionAuthentication",
+        "apps.accounts.authentication.AppContextAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -197,20 +199,135 @@ REST_FRAMEWORK = {
         "rest_framework.renderers.JSONRenderer",
     ],
     "EXCEPTION_HANDLER": "common.exceptions.gpp_exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
-# ─── CSP (Content Security Policy) ────────────────────────────────────────────────────
-# Formato django-csp >= 4.0 — dict CONTENT_SECURITY_POLICY
-# Documentação: https://django-csp.readthedocs.io/en/latest/configuration.html
+# ─── CSP relaxada para Swagger UI (development only) ─────────────────────────
+# O base.py usa nonce-based CSP que bloqueia CDN externo.
+# Em dev, liberamos cdn.jsdelivr.net para o Swagger UI funcionar.
 CONTENT_SECURITY_POLICY = {
     "DIRECTIVES": {
-        "default-src": ("'self'",),
-        "script-src":  ("'self'",),
-        "object-src":  ("'none'",),
-        "base-uri":    ("'self'",),
+        "default-src":   ("'self'",),
+        "script-src":    ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
+        "script-src-elem": ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
+        "style-src":     ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
+        "style-src-elem":  ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
+        "img-src":       ("'self'", "data:", "cdn.jsdelivr.net"),
+        "font-src":      ("'self'", "cdn.jsdelivr.net"),
+        "worker-src":    ("blob:",),
+        "object-src":    ("'none'",),
+        "base-uri":      ("'self'",),
         "frame-ancestors": ("'none'",),
     }
 }
+
+# ─── Swagger / OpenAPI (drf-spectacular) ──────────────────────────────────────
+SPECTACULAR_SETTINGS = {
+    "TITLE": "GPP Plataforma 2.0 — API",
+    "DESCRIPTION": (
+        "## Bem-vindo à API da Plataforma GPP 2.0\n\n"
+        "Esta documentação descreve todos os endpoints da API REST da Plataforma GPP 2.0.\n\n"
+        "---\n\n"
+        "## 🔐 Como autenticar\n\n"
+        "Todos os endpoints (exceto os da seção **0 - Autenticação**) exigem uma sessão ativa. "
+        "Siga os passos abaixo antes de usar qualquer outro método:\n\n"
+        "1. Localize a seção **0 - Autenticação** no menu\n"
+        "2. Abra o endpoint **POST /api/accounts/login/**\n"
+        "3. Clique em **Try it out**\n"
+        "4. Preencha o body com suas credenciais:\n\n"
+        "```json\n"
+        "{\n"
+        '  "username": "seu.usuario",\n'
+        '  "password": "sua_senha",\n'
+        '  "app_context": "PORTAL"\n'
+        "}\n"
+        "```\n\n"
+        "5. Clique em **Execute**\n"
+        "6. Aguarde o retorno **200 OK** — a sessão será criada automaticamente no browser\n"
+        "7. A partir deste momento, todos os endpoints estarão disponíveis nesta aba\n\n"
+        "> ⚠️ **Importante:** o login deve ser feito diretamente nesta página do Swagger. "
+        "Sessões criadas externamente (Postman, scripts) não são compartilhadas com o browser.\n\n"
+        "---\n\n"
+        "## 🍪 Mecanismo de autenticação\n\n"
+        "A API utiliza **SessionAuthentication** com cookies HttpOnly por aplicação. "
+        "O nome do cookie varia conforme o `app_context` usado no login: "
+        "`gpp_session_PORTAL`, `gpp_session_CARGA_ORG_LOT`, `gpp_session_ACOES_PNGI`, etc. "
+        "O browser envia o cookie correto automaticamente em todas as requisições desta aba.\n\n"
+        "---\n\n"
+        "## 📋 Estrutura dos módulos\n\n"
+        "| Seção | Descrição |\n"
+        "|---|---|\n"
+        "| **0 - Autenticação** | Login, logout e resolução de usuário |\n"
+        "| **1 - Usuários** | Perfis, roles, permissões e overrides |\n"
+        "| **2 - Portal** | Dashboard e aplicações visíveis no portal |\n"
+        "| **3 - Ações PNGI** | Ações, prazos, anotações e destaques |\n"
+        "| **4 - Carga Org/Lot** | Carga de organogramas e loteamentos |\n"
+        "| **5 - Utilitários** | Health check e logs de frontend |\n"
+    ),
+    "VERSION": "2.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+
+    # Segurança: lista os três schemes — browser envia automaticamente o cookie ativo
+    "SECURITY": [
+        {"portalAuth": []},
+        {"cargaOrgLotAuth": []},
+        {"acoesPngiAuth": []},
+    ],
+    "COMPONENTS": {
+        "securitySchemes": {
+            "portalAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "gpp_session_PORTAL",
+                "description": "Sessão criada com app_context=PORTAL",
+            },
+            "cargaOrgLotAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "gpp_session_CARGA_ORG_LOT",
+                "description": "Sessão criada com app_context=CARGA_ORG_LOT",
+            },
+            "acoesPngiAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "gpp_session_ACOES_PNGI",
+                "description": "Sessão criada com app_context=ACOES_PNGI",
+            },
+        },
+    },
+
+    "EXTENSIONS_INFO": {},
+        "EXTENSIONS": [
+            "apps.accounts.openapi.AppContextAuthenticationExtension",
+        ],
+        
+    # ── Ordem das seções no Swagger UI ────────────────────────────────────────
+    "TAGS": [
+        {"name": "0 - Autenticação",  "description": "Login, logout e sessão do usuário"},
+        {"name": "1 - Usuários",      "description": "Perfis, roles e permissões"},
+        {"name": "2 - Portal",        "description": "Dashboard e aplicações do portal"},
+        {"name": "3 - Ações PNGI",    "description": "Ações, prazos, anotações e destaques"},
+        {"name": "4 - Carga Org/Lot", "description": "Carga de organogramas e loteamentos"},
+        {"name": "5 - Utilitários",   "description": "Health check e logs de frontend"},
+    ],
+
+    # Filtra paths que não devem aparecer na documentação
+    "PREPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.preprocess_exclude_path_format",
+    ],
+
+    # Melhora a aparência no Swagger UI + corrige CSRF para SessionAuthentication
+    "SWAGGER_UI_SETTINGS": {
+        "persistAuthorization": True,
+        "displayOperationId": False,
+        "tagsSorter": "alpha",
+        "operationsSorter": "alpha",
+        "withCredentials": True,          # envia cookies automaticamente no Try it out
+        "csrfCookieName": "csrftoken",    # nome do cookie CSRF padrão do Django
+        "csrfHeaderName": "X-CSRFToken",  # header que o DRF valida
+    },
+}
+
 
 # ─── Security Headers ───────────────────────────────────────────────────────────
 SECURE_BROWSER_XSS_FILTER = True
@@ -235,6 +352,9 @@ AUTHORIZATION_EXEMPT_PATHS = [
     "/admin",
     "/api/health/",
     "/__debug__/",
+    "/api/schema/",   # ← schema JSON
+    "/api/docs/",     # ← Swagger UI
+    "/api/redoc/",    # ← ReDoc UI
 ]
 
 # ─── Logging de Segurança ──────────────────────────────────────────────────────────

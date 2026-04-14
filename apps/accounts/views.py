@@ -68,6 +68,8 @@ from rest_framework.views import APIView
 
 from common.mixins import AuditableMixin, SecureQuerysetMixin
 from common.permissions import CanCreateUser, CanEditUser, HasRolePermission, IsPortalAdmin
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
+from common.schema import tag_all_actions
 
 from .models import AccountsSession, Aplicacao, Role, UserPermissionOverride, UserProfile, UserRole
 from .serializers import (
@@ -99,7 +101,36 @@ class LoginView(APIView):
     Rate limit: controlado via DEFAULT_THROTTLE_CLASSES no settings.
     Em testes, o conftest raiz zera as classes — sem throttle_scope fixo aqui.
     """
+    
+    authentication_classes = []
     permission_classes = [AllowAny]
+
+
+    @extend_schema(
+        summary="Login via sessão",
+        description=(
+            "Autentica o usuário e cria uma sessão por aplicação (cookie `gpp_session_{APP}`). "
+            "Requer `username`, `password` e `app_context`."
+        ),
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "username": {"type": "string", "example": "joao.silva"},
+                    "password": {"type": "string", "example": "senha123"},
+                    "app_context": {"type": "string", "example": "PORTAL"},
+                },
+                "required": ["username", "password", "app_context"],
+            }
+        },
+        responses={
+            200: OpenApiResponse(description="Login realizado com sucesso"),
+            400: OpenApiResponse(description="Credenciais ou app_context não informados"),
+            401: OpenApiResponse(description="Credenciais inválidas"),
+            403: OpenApiResponse(description="Usuário sem acesso à aplicação"),
+        },
+        tags=["0 - Autenticação"],
+    )
 
     def post(self, request):
         username = request.data.get("username")
@@ -228,7 +259,31 @@ class ResolveUserView(APIView):
     R-04: Sem rate limit próprio — controlado via DEFAULT_THROTTLE_CLASSES.
     R-05: Log de tentativas para auditoria de segurança.
     """
+    
+    authentication_classes = []
     permission_classes = [AllowAny]
+
+    @extend_schema(
+        summary="Resolve username a partir de email ou username",
+        description=(
+            "Recebe um identificador (email ou username) e retorna o username canônico. "
+            "Usado pelo frontend antes do login."
+        ),
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "identifier": {"type": "string", "example": "joao@gov.br"},
+                },
+                "required": ["identifier"],
+            }
+        },
+        responses={
+            200: OpenApiResponse(description="Username resolvido: { 'username': '...' }"),
+            404: OpenApiResponse(description="Usuário não encontrado"),
+        },
+        tags=["0 - Autenticação"],
+    )
 
     def post(self, request):
         from django.contrib.auth import get_user_model
@@ -288,6 +343,15 @@ class LogoutView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        operation_id="accounts_logout_session", 
+        summary="Logout da sessão atual",
+        description="Encerra a sessão ativa e revoga o registro em AccountsSession.",
+        request=None,
+        responses={200: OpenApiResponse(description="Logout realizado")},
+        tags=["0 - Autenticação"],
+    )
+
     def post(self, request):
         session_key = request.session.session_key
 
@@ -308,10 +372,20 @@ class LogoutView(APIView):
         return Response({"detail": "Logout realizado"})
 
 
+
 class LogoutAppView(APIView):
     authentication_classes = []
     permission_classes = []
 
+    @extend_schema(
+        operation_id="accounts_logout_app",
+        summary="Logout de uma aplicação específica",
+        description="Revoga a sessão da app informada via slug e apaga o cookie correspondente.",
+        request=None,
+        responses={200: OpenApiResponse(description="Logout realizado")},
+        tags=["0 - Autenticação"],
+    )
+    
     def post(self, request, app_slug):
         app_context = app_slug.upper()
         cookie_name = f"gpp_session_{app_context}"
@@ -332,6 +406,7 @@ class LogoutAppView(APIView):
 
 
 # ─── Me View ────────────────────────────────────────────────────────────────────────────────────
+
 class MeView(APIView):
     """
     GET /api/accounts/me/
@@ -339,6 +414,13 @@ class MeView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary="Dados do usuário autenticado",
+        description="Retorna profile + roles + apps com acesso do usuário da sessão atual.",
+        responses={200: OpenApiResponse(description="Dados do usuário")},
+        tags=["1 - Usuários"],
+    )
+    
     def get(self, request):
         user = request.user
 
@@ -360,6 +442,7 @@ class MeView(APIView):
         }).data
 
         return Response(data)
+
 
 
 class MePermissionView(APIView):
@@ -390,6 +473,20 @@ class MePermissionView(APIView):
     SessionMiddleware (ex: requests diretos via APIRequestFactory nos testes).
     """
     permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Permissões do usuário na app atual",
+        description=(
+            "Retorna a role e as permissões do usuário autenticado "
+            "na aplicação da sessão atual (app_context)."
+        ),
+        responses={
+            200: OpenApiResponse(description="Role e permissões"),
+            400: OpenApiResponse(description="Sem app_context na sessão"),
+            404: OpenApiResponse(description="App não encontrada ou usuário sem role"),
+        },
+        tags=["1 - Usuários"],
+    )
 
     def get(self, request):
         app_codigo = getattr(request, "app_context", None)
@@ -444,6 +541,18 @@ class UserCreateView(APIView):
     """
     permission_classes = [IsAuthenticated, CanCreateUser]
 
+    @extend_schema(
+        summary="Criar usuário (sem role)",
+        description="Cria atomicamente um auth.User e seu UserProfile.",
+        request=UserCreateSerializer,
+        responses={
+            201: UserCreateSerializer,
+            400: OpenApiResponse(description="Dados inválidos"),
+            403: OpenApiResponse(description="Sem permissão para criar usuário"),
+        },
+        tags=["1 - Usuários"],
+    )
+
     def post(self, request):
         serializer = UserCreateSerializer(
             data=request.data,
@@ -497,6 +606,20 @@ class UserCreateWithRoleView(APIView):
     Cria atomicamente auth.User + UserProfile + UserRole + sync de permissões.
     """
     permission_classes = [IsAuthenticated, CanCreateUser]
+
+    @extend_schema(
+        summary="Criar usuário com role (fluxo completo)",
+        description=(
+            "Cria atomicamente auth.User + UserProfile + UserRole e dispara "
+            "sync de permissões. Restrito a PORTAL_ADMIN."
+        ),
+        request=UserCreateWithRoleSerializer,
+        responses={
+            201: OpenApiResponse(description="Usuário criado com role"),
+            403: OpenApiResponse(description="Sem permissão"),
+        },
+        tags=["1 - Usuários"],
+    )
 
     def post(self, request):
         from apps.accounts.services.authorization_service import AuthorizationService
@@ -553,6 +676,8 @@ class UserCreateWithRoleView(APIView):
 
 
 # ─── Aplicacao Publica ViewSet (ARCH-01) ────────────────────────────────────────────────
+
+@tag_all_actions("5 - Utilitários")
 class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/auth/aplicacoes/
@@ -569,7 +694,8 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     R-03: pagination_class = None — retorna lista plana sem envelope de paginação.
     R-04: throttle_classes = [] — endpoint público de leitura; sem rate limit.
     """
-    serializer_class = AplicacaoPublicaSerializer
+    serializer_class = AplicacaoPublicaSerializer    
+    authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = []
     pagination_class = None
@@ -583,6 +709,8 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 # ─── Aplicacao ViewSet (GAP-02 / ARCH-01) ───────────────────────────────────────────────
+
+@tag_all_actions("1 - Usuários")
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/aplicacoes/
@@ -601,6 +729,8 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AplicacaoSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = None
+    lookup_field = "idaplicacao"   # ← adicionar esta linha
+    lookup_url_kwarg = "idaplicacao"  # ← e esta (opcional, mas explícito)
 
     def get_queryset(self):
         user = self.request.user
@@ -622,6 +752,7 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
 
 # ─── CRUD ViewSets ────────────────────────────────────────────────────────────────────────
 
+@tag_all_actions("1 - Usuários")
 class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """
     APIs de UserProfile.
@@ -629,6 +760,7 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
     serializer_class = UserProfileSerializer
     permission_classes = [IsAuthenticated, HasRolePermission, CanEditUser]
     http_method_names = ["get", "patch", "head", "options"]
+    lookup_field = "user_id"
 
     scope_field = "orgao"
     scope_source = "orgao"
@@ -673,6 +805,7 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
         return super().partial_update(request, *args, **kwargs)
 
 
+@tag_all_actions("1 - Usuários")
 class RoleViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/roles/
@@ -694,6 +827,7 @@ class RoleViewSet(viewsets.ReadOnlyModelViewSet):
         return qs.order_by("nomeperfil")
 
 
+@tag_all_actions("1 - Usuários")
 class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     Gerencia UserRoles. Apenas PORTAL_ADMIN.
@@ -763,6 +897,7 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
         return response
 
 
+@tag_all_actions("1 - Usuários")
 class UserPermissionOverrideViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     CRUD de UserPermissionOverride. Apenas PORTAL_ADMIN.
