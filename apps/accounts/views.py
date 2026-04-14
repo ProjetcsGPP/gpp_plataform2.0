@@ -729,6 +729,8 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AplicacaoSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = None
+    lookup_field = "idaplicacao"   # ← adicionar esta linha
+    lookup_url_kwarg = "idaplicacao"  # ← e esta (opcional, mas explícito)
 
     def get_queryset(self):
         user = self.request.user
@@ -758,6 +760,7 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
     serializer_class = UserProfileSerializer
     permission_classes = [IsAuthenticated, HasRolePermission, CanEditUser]
     http_method_names = ["get", "patch", "head", "options"]
+    lookup_field = "user_id"
 
     scope_field = "orgao"
     scope_source = "orgao"
