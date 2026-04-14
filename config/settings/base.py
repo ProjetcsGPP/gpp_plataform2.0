@@ -178,7 +178,8 @@ CSRF_TRUSTED_ORIGINS = env.list(
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         # FASE-0: JWT removido — sessão Django como único mecanismo
-        "rest_framework.authentication.SessionAuthentication",
+        #"rest_framework.authentication.SessionAuthentication",
+        "apps.accounts.authentication.AppContextAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -293,6 +294,10 @@ SPECTACULAR_SETTINGS = {
                 "description": "Sessão criada com app_context=ACOES_PNGI",
             },
         },
+    "EXTENSIONS_INFO": {},
+        "EXTENSIONS": [
+            "apps.accounts.openapi.AppContextAuthenticationExtension",
+        ],
     },
 
     # ── Ordem das seções no Swagger UI ────────────────────────────────────────

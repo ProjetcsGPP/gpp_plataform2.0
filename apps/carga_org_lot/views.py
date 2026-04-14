@@ -17,6 +17,7 @@ from rest_framework.response import Response
 
 from common.mixins import AuditableMixin, SecureQuerysetMixin
 from common.permissions import HasRolePermission
+from drf_spectacular.utils import extend_schema
 from common.schema import tag_all_actions
 
 # Identificador da aplicação no banco (accounts.Aplicacao.codigointerno)
@@ -61,6 +62,7 @@ def _check_carga_role(request) -> None:
 
 
 @tag_all_actions("4 - Carga Org/Lot")
+@extend_schema(exclude=True)
 class CargaOrgLotViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """
     ViewSet scaffold para Carga Organizacional / Lotação.

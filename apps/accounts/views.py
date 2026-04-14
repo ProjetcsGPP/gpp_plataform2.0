@@ -341,16 +341,17 @@ class LogoutView(APIView):
     POST /api/accounts/logout/
     Encerra a sessão atual e revoga no banco.
     """
-    authentication_classes = [] 
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
+        operation_id="accounts_logout_session", 
         summary="Logout da sessão atual",
         description="Encerra a sessão ativa e revoga o registro em AccountsSession.",
+        request=None,
         responses={200: OpenApiResponse(description="Logout realizado")},
         tags=["0 - Autenticação"],
     )
-    
+
     def post(self, request):
         session_key = request.session.session_key
 
@@ -371,13 +372,16 @@ class LogoutView(APIView):
         return Response({"detail": "Logout realizado"})
 
 
+
 class LogoutAppView(APIView):
     authentication_classes = []
     permission_classes = []
 
     @extend_schema(
+        operation_id="accounts_logout_app",
         summary="Logout de uma aplicação específica",
         description="Revoga a sessão da app informada via slug e apaga o cookie correspondente.",
+        request=None,
         responses={200: OpenApiResponse(description="Logout realizado")},
         tags=["0 - Autenticação"],
     )
