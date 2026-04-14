@@ -38,7 +38,7 @@ class FrontEndLogging(APIView):
             200: OpenApiResponse(description='{"status": "ok"}'),
             401: OpenApiResponse(description="Não autenticado"),
         },
-        tags=["Utilitários"],
+        tags=["5 - Utilitários"],
     )
     
     def post(self, request):               # ← era "frontend_log", precisa ser "post"

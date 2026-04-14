@@ -69,6 +69,7 @@ from rest_framework.views import APIView
 from common.mixins import AuditableMixin, SecureQuerysetMixin
 from common.permissions import CanCreateUser, CanEditUser, HasRolePermission, IsPortalAdmin
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
+from common.schema import tag_all_actions
 
 from .models import AccountsSession, Aplicacao, Role, UserPermissionOverride, UserProfile, UserRole
 from .serializers import (
@@ -126,7 +127,7 @@ class LoginView(APIView):
             401: OpenApiResponse(description="Credenciais inválidas"),
             403: OpenApiResponse(description="Usuário sem acesso à aplicação"),
         },
-        tags=["Autenticação"],
+        tags=["0 - Autenticação"],
     )
 
     def post(self, request):
@@ -277,7 +278,7 @@ class ResolveUserView(APIView):
             200: OpenApiResponse(description="Username resolvido: { 'username': '...' }"),
             404: OpenApiResponse(description="Usuário não encontrado"),
         },
-        tags=["Autenticação"],
+        tags=["0 - Autenticação"],
     )
 
     def post(self, request):
@@ -342,7 +343,7 @@ class LogoutView(APIView):
         summary="Logout da sessão atual",
         description="Encerra a sessão ativa e revoga o registro em AccountsSession.",
         responses={200: OpenApiResponse(description="Logout realizado")},
-        tags=["Autenticação"],
+        tags=["0 - Autenticação"],
     )
     
     def post(self, request):
@@ -365,6 +366,7 @@ class LogoutView(APIView):
         return Response({"detail": "Logout realizado"})
 
 
+@tag_all_actions("0 - Autenticação")
 class LogoutAppView(APIView):
     authentication_classes = []
     permission_classes = []
@@ -389,6 +391,8 @@ class LogoutAppView(APIView):
 
 
 # ─── Me View ────────────────────────────────────────────────────────────────────────────────────
+
+@tag_all_actions("1 - Usuários")
 class MeView(APIView):
     """
     GET /api/accounts/me/
@@ -419,6 +423,7 @@ class MeView(APIView):
         return Response(data)
 
 
+@tag_all_actions("1 - Usuários")
 class MePermissionView(APIView):
     """
     GET /api/accounts/me/permissions/
@@ -510,7 +515,7 @@ class UserCreateView(APIView):
             400: OpenApiResponse(description="Dados inválidos"),
             403: OpenApiResponse(description="Sem permissão para criar usuário"),
         },
-        tags=["Usuários"],
+        tags=["1 - Usuários"],
     )
 
     def post(self, request):
@@ -578,7 +583,7 @@ class UserCreateWithRoleView(APIView):
             201: OpenApiResponse(description="Usuário criado com role"),
             403: OpenApiResponse(description="Sem permissão"),
         },
-        tags=["Usuários"],
+        tags=["1 - Usuários"],
     )
 
     def post(self, request):
@@ -636,6 +641,8 @@ class UserCreateWithRoleView(APIView):
 
 
 # ─── Aplicacao Publica ViewSet (ARCH-01) ────────────────────────────────────────────────
+
+@tag_all_actions("5 - Utilitários")
 class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/auth/aplicacoes/
@@ -666,6 +673,8 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 # ─── Aplicacao ViewSet (GAP-02 / ARCH-01) ───────────────────────────────────────────────
+
+@tag_all_actions("1 - Usuários")
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/aplicacoes/
@@ -705,6 +714,7 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
 
 # ─── CRUD ViewSets ────────────────────────────────────────────────────────────────────────
 
+@tag_all_actions("1 - Usuários")
 class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """
     APIs de UserProfile.
@@ -756,6 +766,7 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
         return super().partial_update(request, *args, **kwargs)
 
 
+@tag_all_actions("1 - Usuários")
 class RoleViewSet(viewsets.ReadOnlyModelViewSet):
     """
     GET /api/accounts/roles/
@@ -777,6 +788,7 @@ class RoleViewSet(viewsets.ReadOnlyModelViewSet):
         return qs.order_by("nomeperfil")
 
 
+@tag_all_actions("1 - Usuários")
 class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     Gerencia UserRoles. Apenas PORTAL_ADMIN.
@@ -846,6 +858,7 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
         return response
 
 
+@tag_all_actions("1 - Usuários")
 class UserPermissionOverrideViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     CRUD de UserPermissionOverride. Apenas PORTAL_ADMIN.

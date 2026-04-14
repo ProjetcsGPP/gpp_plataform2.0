@@ -244,12 +244,12 @@ SPECTACULAR_SETTINGS = {
 
     # ── Ordem das seções no Swagger UI ────────────────────────────────────────
     "TAGS": [
-        {"name": "Autenticação",  "description": "Login, logout e sessão do usuário"},
-        {"name": "Usuários",      "description": "Perfis, roles e permissões"},
-        {"name": "Portal",        "description": "Dashboard e aplicações do portal"},
-        {"name": "Ações PNGI",    "description": "Ações, prazos, anotações e destaques"},
-        {"name": "Carga Org/Lot", "description": "Carga de organogramas e loteamentos"},
-        {"name": "Utilitários",   "description": "Health check e logs de frontend"},
+        {"name": "0 - Autenticação",  "description": "Login, logout e sessão do usuário"},
+        {"name": "1 - Usuários",      "description": "Perfis, roles e permissões"},
+        {"name": "2 - Portal",        "description": "Dashboard e aplicações do portal"},
+        {"name": "3 - Ações PNGI",    "description": "Ações, prazos, anotações e destaques"},
+        {"name": "4 - Carga Org/Lot", "description": "Carga de organogramas e loteamentos"},
+        {"name": "5 - Utilitários",   "description": "Health check e logs de frontend"},
     ],
 
     # Filtra paths que não devem aparecer na documentação

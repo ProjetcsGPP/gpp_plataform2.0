@@ -17,6 +17,7 @@ from rest_framework.response import Response
 
 from common.mixins import AuditableMixin, SecureQuerysetMixin
 from common.permissions import HasRolePermission
+from common.schema import tag_all_actions
 
 # Identificador da aplicação no banco (accounts.Aplicacao.codigointerno)
 # DEVE ser maiúsculo para corresponder ao valor gravado no banco.
@@ -59,6 +60,7 @@ def _check_carga_role(request) -> None:
         )
 
 
+@tag_all_actions("4 - Carga Org/Lot")
 class CargaOrgLotViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """
     ViewSet scaffold para Carga Organizacional / Lotação.

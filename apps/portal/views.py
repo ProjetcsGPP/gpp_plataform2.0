@@ -38,7 +38,7 @@ class DashboardView(APIView):
             200: DashboardSerializer,   # ← passa o serializer diretamente, não OpenApiResponse
             403: OpenApiResponse(description="Usuário não autenticado ou sem permissão"),
         },
-        tags=["Portal"],
+        tags=["2 - Portal"],
     )
     
     def get(self, request):
