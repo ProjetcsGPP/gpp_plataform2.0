@@ -126,7 +126,7 @@ class LoginView(APIView):
             401: OpenApiResponse(description="Credenciais inválidas"),
             403: OpenApiResponse(description="Usuário sem acesso à aplicação"),
         },
-        tags=["Auth"],
+        tags=["Autenticação"],
     )
 
     def post(self, request):
@@ -277,7 +277,7 @@ class ResolveUserView(APIView):
             200: OpenApiResponse(description="Username resolvido: { 'username': '...' }"),
             404: OpenApiResponse(description="Usuário não encontrado"),
         },
-        tags=["Auth"],
+        tags=["Autenticação"],
     )
 
     def post(self, request):
@@ -342,7 +342,7 @@ class LogoutView(APIView):
         summary="Logout da sessão atual",
         description="Encerra a sessão ativa e revoga o registro em AccountsSession.",
         responses={200: OpenApiResponse(description="Logout realizado")},
-        tags=["Auth"],
+        tags=["Autenticação"],
     )
     
     def post(self, request):

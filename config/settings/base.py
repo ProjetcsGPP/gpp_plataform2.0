@@ -242,6 +242,16 @@ SPECTACULAR_SETTINGS = {
         }
     },
 
+    # ── Ordem das seções no Swagger UI ────────────────────────────────────────
+    "TAGS": [
+        {"name": "Autenticação",  "description": "Login, logout e sessão do usuário"},
+        {"name": "Usuários",      "description": "Perfis, roles e permissões"},
+        {"name": "Portal",        "description": "Dashboard e aplicações do portal"},
+        {"name": "Ações PNGI",    "description": "Ações, prazos, anotações e destaques"},
+        {"name": "Carga Org/Lot", "description": "Carga de organogramas e loteamentos"},
+        {"name": "Utilitários",   "description": "Health check e logs de frontend"},
+    ],
+
     # Filtra paths que não devem aparecer na documentação
     "PREPROCESSING_HOOKS": [
         "drf_spectacular.hooks.preprocess_exclude_path_format",
@@ -251,6 +261,8 @@ SPECTACULAR_SETTINGS = {
     "SWAGGER_UI_SETTINGS": {
         "persistAuthorization": True,
         "displayOperationId": False,
+        "tagsSorter": "alpha",
+        "operationsSorter": "alpha",
     },
 }
 
