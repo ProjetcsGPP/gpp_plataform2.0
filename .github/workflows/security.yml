@@ -12,12 +12,11 @@ permissions:
 
 jobs:
 
-  # 🔐 Segurança (com proteção para forks)
+  # 🔐 Segurança
   security:
     name: Security Scan
     runs-on: ubuntu-latest
 
-    # 🚨 evita erro em PR de fork
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
 
     strategy:
@@ -29,7 +28,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 🔐 CodeQL
       - name: Init CodeQL
         if: matrix.tool == 'codeql'
         uses: github/codeql-action/init@v3
@@ -45,14 +43,12 @@ jobs:
         uses: github/codeql-action/analyze@v3
         continue-on-error: true
 
-      # 🔑 Gitleaks (FIX aplicado)
       - name: Run Gitleaks
         if: matrix.tool == 'gitleaks'
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 📦 Trivy
       - name: Run Trivy
         if: matrix.tool == 'trivy'
         uses: aquasecurity/trivy-action@master
@@ -61,16 +57,11 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-  # 🧪 TESTES (rodando apenas no push)
+  # 🧪 TESTE ÚNICO (FULL)
   tests:
     if: github.event_name == 'push'
-    name: Tests (${{ matrix.suite }})
+    name: Full Test Suite
     runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        suite: [auth, policies, full]
 
     services:
       postgres:
@@ -98,10 +89,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      # ⚡ Setup + cache
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -127,25 +115,7 @@ jobs:
             sleep 2
           done
 
-      # 🎯 AUTH
-      - name: Run AUTH tests
-        if: matrix.suite == 'auth'
-        run: |
-          pytest apps/accounts/tests/test_multi_cookie.py \
-            --cov=apps/accounts/middleware \
-            --cov-report=term-missing
-
-      # 🎯 POLICIES
-      - name: Run POLICY tests
-        if: matrix.suite == 'policies'
-        run: |
-          pytest apps/accounts/tests/policies/ \
-            --cov=apps/accounts/policies \
-            --cov-report=term-missing
-
-      # 🎯 FULL (regra principal)
       - name: Run FULL suite
-        if: matrix.suite == 'full'
         run: |
           pytest \
             --cov=apps \
