@@ -111,7 +111,8 @@ class TestOverrideRevoke:
         return perm
 
     def test_sem_revoke_permissao_herdada_presente(self, gestor_pngi):
-        # perm = self._grant_perm_to_group(gestor_pngi, "perm_herdada_revoke_test")
+        perm = self._grant_perm_to_group(gestor_pngi, "perm_herdada_revoke_test")
+        assert perm is not None
         cache.clear()
         service = AuthorizationService(gestor_pngi)
         perms = service._load_permissions()

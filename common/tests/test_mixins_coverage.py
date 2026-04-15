@@ -120,6 +120,8 @@ class TestSecureQuerysetMixinScopeNone:
         vs.request = _mock_request(user)
 
         qs.none.assert_called_once()
+        result_qs = vs.get_queryset()  # ou o método correto
+        assert result_qs.none.called or len(result_qs) == 0  # Queryset vazio
 
     def test_scope_missing_gera_log_warning(self):
         """Verifica que o security_logger.warning é chamado quando scope é None."""

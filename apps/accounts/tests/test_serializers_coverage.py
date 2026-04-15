@@ -446,7 +446,7 @@ class TestMePermissionSerializer:
         role.group.permissions.add(perm_base)
 
         user = make_user()
-        # ur = make_user_role(user=user, role=role)
+        make_user_role(user=user, role=role)
 
         perm_extra = make_permission(codename="perm_extra_grant")
         make_user_permission_override(user=user, permission=perm_extra, mode="grant")
