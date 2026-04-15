@@ -68,8 +68,10 @@ disable=
     E0015,
 
     # try/except que re-raise imediatamente
-    W0706
+    W0706,
 
+    # too-many-positional-arguments
+    R0917
 
 [FORMAT]
 max-line-length=120
