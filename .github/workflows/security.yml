@@ -57,10 +57,10 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-  # 🧪 TESTE ÚNICO (FULL)
+  # 🧪 TESTES + QUALIDADE
   tests:
     if: github.event_name == 'push'
-    name: Full Test Suite
+    name: Full Test Suite + Quality
     runs-on: ubuntu-latest
 
     services:
@@ -105,6 +105,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
+          pip install pylint flake8 radon
 
       - name: Wait for Postgres
         run: |
@@ -115,6 +116,23 @@ jobs:
             sleep 2
           done
 
+      # 🔍 CODE QUALITY (ANTES DOS TESTES)
+      - name: Code Quality - Flake8
+        run: |
+          echo "🔍 Running Flake8..."
+          flake8 apps
+
+      - name: Code Quality - Pylint
+        run: |
+          echo "🔍 Running Pylint..."
+          pylint apps --fail-under=7.5
+
+      - name: Code Quality - Radon
+        run: |
+          echo "🔍 Running Radon..."
+          radon cc apps -nc -s
+
+      # 🧪 TESTES
       - name: Run FULL suite
         run: |
           pytest \
