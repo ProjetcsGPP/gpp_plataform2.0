@@ -71,7 +71,9 @@ disable=
     W0706,
 
     # too-many-positional-arguments
-    R0917
+    R0917,
+
+    E5142
 
 [FORMAT]
 max-line-length=120
