@@ -11,14 +11,11 @@ Verifica que:
   - Nenhum helper popula auth_user_groups (ADR-PERM-01).
   - Os cenários-base obrigatórios da issue são atingidos.
 """
-import pytest
-from django.contrib.auth.models import Permission, User
 
-from apps.accounts.models import (
-    Role,
-    UserPermissionOverride,
-    UserRole,
-)
+import pytest
+from django.contrib.auth.models import Permission
+
+from apps.accounts.models import Role, UserPermissionOverride, UserRole
 from apps.accounts.tests.factories import (
     make_permission,
     make_role,
@@ -55,6 +52,7 @@ class TestMakeUser:
 
     def test_tem_userprofile(self):
         from apps.accounts.models import UserProfile
+
         user = make_user()
         assert UserProfile.objects.filter(user=user).exists()
 
@@ -114,9 +112,7 @@ class TestMakeUserRole:
         ur = make_user_role(role=role)
         ur.user.refresh_from_db()
 
-        perm_codes = list(
-            ur.user.user_permissions.values_list("codename", flat=True)
-        )
+        perm_codes = list(ur.user.user_permissions.values_list("codename", flat=True))
         assert "view_userprofile_factory" in perm_codes
 
     def test_nao_popula_auth_user_groups(self):
@@ -137,11 +133,19 @@ class TestMakeUserRole:
 
         app_a, _ = Aplicacao.objects.get_or_create(
             codigointerno="MULTI_APP_A",
-            defaults={"nomeaplicacao": "Multi App A", "isappbloqueada": False, "isappproductionready": True},
+            defaults={
+                "nomeaplicacao": "Multi App A",
+                "isappbloqueada": False,
+                "isappproductionready": True,
+            },
         )
         app_b, _ = Aplicacao.objects.get_or_create(
             codigointerno="MULTI_APP_B",
-            defaults={"nomeaplicacao": "Multi App B", "isappbloqueada": False, "isappproductionready": True},
+            defaults={
+                "nomeaplicacao": "Multi App B",
+                "isappbloqueada": False,
+                "isappproductionready": True,
+            },
         )
 
         role_a = make_role(codigoperfil="MULTI_ROLE_A", aplicacao=app_a)

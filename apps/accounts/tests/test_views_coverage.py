@@ -26,6 +26,7 @@ Views cobertas:
   UserRoleViewSet         (GET/POST/DELETE /api/accounts/user-roles/)
   UserPermissionOverrideViewSet (CRUD /api/accounts/permission-overrides/)
 """
+
 import pytest
 from django.contrib.auth.models import Permission, User
 from django.contrib.contenttypes.models import ContentType
@@ -38,6 +39,7 @@ from apps.accounts.models import (
     UserProfile,
     UserRole,
 )
+from apps.accounts.services.permission_sync import sync_user_permissions
 from apps.accounts.tests.conftest import (
     DEFAULT_PASSWORD,
     LOGIN_URL,
@@ -45,8 +47,6 @@ from apps.accounts.tests.conftest import (
     _do_login,
     _make_user,
 )
-from apps.accounts.services.permission_sync import sync_user_permissions
-
 
 # ── Constantes de URL ─────────────────────────────────────────────────────────
 LOGOUT_URL = "/api/accounts/logout/"
@@ -74,6 +74,7 @@ def _make_perm(codename: str) -> Permission:
 # ════════════════════════════════════════════════════════════════════════════
 # LoginView
 # ════════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.django_db
 class TestLoginView:
@@ -103,7 +104,11 @@ class TestLoginView:
         client = APIClient()
         resp = client.post(
             LOGIN_URL,
-            {"username": "portal_admin_test", "password": DEFAULT_PASSWORD, "app_context": "INVALIDA"},
+            {
+                "username": "portal_admin_test",
+                "password": DEFAULT_PASSWORD,
+                "app_context": "INVALIDA",
+            },
             format="json",
         )
         assert resp.status_code == 403
@@ -114,7 +119,11 @@ class TestLoginView:
         app = Aplicacao.objects.get(pk=2)
         resp = client.post(
             LOGIN_URL,
-            {"username": "sem_role_test", "password": DEFAULT_PASSWORD, "app_context": app.codigointerno},
+            {
+                "username": "sem_role_test",
+                "password": DEFAULT_PASSWORD,
+                "app_context": app.codigointerno,
+            },
             format="json",
         )
         assert resp.status_code == 403
@@ -126,8 +135,11 @@ class TestLoginView:
         resp = _do_login(client, "gestor_test", "PORTAL")
         assert resp.status_code == 403
 
-    def test_login_cria_exatamente_uma_accounts_session(self, _ensure_base_data, portal_admin):
+    def test_login_cria_exatamente_uma_accounts_session(
+        self, _ensure_base_data, portal_admin
+    ):
         from apps.accounts.models import AccountsSession
+
         client = APIClient()
         _do_login(client, "portal_admin_test", "PORTAL")
         _do_login(client, "portal_admin_test", "PORTAL")
@@ -136,12 +148,15 @@ class TestLoginView:
             session_cookie_name="gpp_session_PORTAL",
             revoked=False,
         ).count()
-        assert active_sessions == 1, "deve existir exatamente uma sessão ativa por (user, app)"
+        assert (
+            active_sessions == 1
+        ), "deve existir exatamente uma sessão ativa por (user, app)"
 
 
 # ════════════════════════════════════════════════════════════════════════════
 # LogoutView / LogoutAppView
 # ════════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.django_db
 class TestLogoutViews:
@@ -169,11 +184,14 @@ class TestLogoutViews:
 # ResolveUserView
 # ════════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.django_db
 class TestResolveUserView:
     def test_resolve_por_username(self, _ensure_base_data, portal_admin):
         client = APIClient()
-        resp = client.post(RESOLVE_URL, {"identifier": "portal_admin_test"}, format="json")
+        resp = client.post(
+            RESOLVE_URL, {"identifier": "portal_admin_test"}, format="json"
+        )
         assert resp.status_code == 200
         assert resp.data["username"] == "portal_admin_test"
 
@@ -182,13 +200,17 @@ class TestResolveUserView:
         user.email = "resolve@test.com"
         user.save(update_fields=["email"])
         client = APIClient()
-        resp = client.post(RESOLVE_URL, {"identifier": "resolve@test.com"}, format="json")
+        resp = client.post(
+            RESOLVE_URL, {"identifier": "resolve@test.com"}, format="json"
+        )
         assert resp.status_code == 200
         assert resp.data["username"] == "resolve_email_test"
 
     def test_resolve_usuario_nao_encontrado(self, _ensure_base_data):
         client = APIClient()
-        resp = client.post(RESOLVE_URL, {"identifier": "naoexiste@test.com"}, format="json")
+        resp = client.post(
+            RESOLVE_URL, {"identifier": "naoexiste@test.com"}, format="json"
+        )
         assert resp.status_code == 404
         assert resp.data["code"] == "user_not_found"
 
@@ -207,13 +229,16 @@ class TestResolveUserView:
         user.is_active = False
         user.save(update_fields=["is_active"])
         client = APIClient()
-        resp = client.post(RESOLVE_URL, {"identifier": "inativo_resolve"}, format="json")
+        resp = client.post(
+            RESOLVE_URL, {"identifier": "inativo_resolve"}, format="json"
+        )
         assert resp.status_code == 404
 
 
 # ════════════════════════════════════════════════════════════════════════════
 # MeView
 # ════════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.django_db
 class TestMeView:
@@ -235,7 +260,9 @@ class TestMeView:
         o middleware de autorização precisa de sessão válida para resolver
         app_context antes de autorizar o acesso à view /me/.
         """
-        user = User.objects.create_user(username="sem_profile_me", password=DEFAULT_PASSWORD)
+        user = User.objects.create_user(
+            username="sem_profile_me", password=DEFAULT_PASSWORD
+        )
         # Atribui role no PORTAL para que o login seja aceito pelo middleware
         _assign_role(user, role_pk=1)
         client = APIClient()
@@ -258,6 +285,7 @@ class TestMeView:
 # MePermissionView
 # ════════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.django_db
 class TestMePermissionView:
     def test_sem_app_context_retorna_400(self, _ensure_base_data, gestor_pngi):
@@ -271,6 +299,7 @@ class TestMePermissionView:
         """
         from rest_framework.renderers import JSONRenderer
         from rest_framework.test import APIRequestFactory
+
         from apps.accounts.views import MePermissionView
 
         factory = APIRequestFactory()
@@ -290,7 +319,6 @@ class TestMePermissionView:
         assert resp.status_code == 400
         assert resp.data["code"] == "no_app_context"
 
-
     def test_com_app_context_valido_via_session(self, _ensure_base_data, gestor_pngi):
         """Login real popula app_context na sessão Django; middleware resolve."""
         client = APIClient()
@@ -302,7 +330,9 @@ class TestMePermissionView:
 
     def test_app_nao_encontrada_retorna_404(self, _ensure_base_data, gestor_pngi):
         from rest_framework.test import APIRequestFactory
+
         from apps.accounts.views import MePermissionView
+
         factory = APIRequestFactory()
         request = factory.get(ME_PERMISSIONS_URL)
         request.user = gestor_pngi
@@ -312,9 +342,13 @@ class TestMePermissionView:
         assert resp.status_code == 404
         assert resp.data["code"] == "app_not_found"
 
-    def test_usuario_sem_role_na_app_retorna_404(self, _ensure_base_data, usuario_sem_role):
+    def test_usuario_sem_role_na_app_retorna_404(
+        self, _ensure_base_data, usuario_sem_role
+    ):
         from rest_framework.test import APIRequestFactory
+
         from apps.accounts.views import MePermissionView
+
         factory = APIRequestFactory()
         request = factory.get(ME_PERMISSIONS_URL)
         request.user = usuario_sem_role
@@ -326,7 +360,9 @@ class TestMePermissionView:
 
     def test_retorna_role_e_granted(self, _ensure_base_data, gestor_pngi):
         from rest_framework.test import APIRequestFactory
+
         from apps.accounts.views import MePermissionView
+
         factory = APIRequestFactory()
         request = factory.get(ME_PERMISSIONS_URL)
         request.user = gestor_pngi
@@ -340,7 +376,9 @@ class TestMePermissionView:
     def test_granted_inclui_permissoes_do_grupo(self, _ensure_base_data, gestor_pngi):
         """As permissões do grupo da role devem aparecer em 'granted'."""
         from rest_framework.test import APIRequestFactory
+
         from apps.accounts.views import MePermissionView
+
         sync_user_permissions(gestor_pngi)
         factory = APIRequestFactory()
         request = factory.get(ME_PERMISSIONS_URL)
@@ -364,11 +402,12 @@ class TestMePermissionView:
         Uma permissão extra concedida via UserPermissionOverride mode='grant'
         deve aparecer na lista 'granted' da MePermissionView.
         """
-        from rest_framework.test import APIRequestFactory
-        from apps.accounts.views import MePermissionView
-        from apps.accounts.models import UserPermissionOverride
         from django.contrib.auth.models import Permission
         from django.contrib.contenttypes.models import ContentType
+        from rest_framework.test import APIRequestFactory
+
+        from apps.accounts.models import UserPermissionOverride
+        from apps.accounts.views import MePermissionView
 
         ct = ContentType.objects.get(app_label="auth", model="user")
         perm, _ = Permission.objects.get_or_create(
@@ -397,8 +436,9 @@ class TestMePermissionView:
         não deve aparecer na lista 'granted', mesmo que venha da role.
         """
         from rest_framework.test import APIRequestFactory
-        from apps.accounts.views import MePermissionView
+
         from apps.accounts.models import UserPermissionOverride
+        from apps.accounts.views import MePermissionView
 
         # view_user é uma permissão que gestor_pngi herda via role
         perm = Permission.objects.get(codename="view_user")
@@ -422,20 +462,27 @@ class TestMePermissionView:
 # AplicacaoPublicaViewSet
 # ════════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.django_db
 class TestAplicacaoPublicaViewSet:
-    def test_lista_apps_publicas_sem_autenticacao(self, _ensure_base_data, client_anonimo):
+    def test_lista_apps_publicas_sem_autenticacao(
+        self, _ensure_base_data, client_anonimo
+    ):
         resp = client_anonimo.get(APLICACOES_PUBLICA_URL)
         assert resp.status_code == 200
         assert isinstance(resp.data, list)
 
-    def test_retorna_apenas_apps_ativas_e_prontas(self, _ensure_base_data, client_anonimo):
+    def test_retorna_apenas_apps_ativas_e_prontas(
+        self, _ensure_base_data, client_anonimo
+    ):
         resp = client_anonimo.get(APLICACOES_PUBLICA_URL)
         codigos = [item["codigointerno"] for item in resp.data]
         assert "APP_BLOQUEADA" not in codigos
         assert "APP_NAO_PRONTA" not in codigos
 
-    def test_campos_expostos_sem_flags_internos(self, _ensure_base_data, client_anonimo):
+    def test_campos_expostos_sem_flags_internos(
+        self, _ensure_base_data, client_anonimo
+    ):
         resp = client_anonimo.get(APLICACOES_PUBLICA_URL)
         if resp.data:
             item = resp.data[0]
@@ -457,6 +504,7 @@ class TestAplicacaoPublicaViewSet:
 # ════════════════════════════════════════════════════════════════════════════
 # AplicacaoViewSet
 # ════════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.django_db
 class TestAplicacaoViewSet:
@@ -490,6 +538,7 @@ class TestAplicacaoViewSet:
 # ════════════════════════════════════════════════════════════════════════════
 # UserCreateView
 # ════════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.django_db
 class TestUserCreateView:
@@ -553,6 +602,7 @@ class TestUserCreateView:
 # UserCreateWithRoleView
 # ════════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.django_db
 class TestUserCreateWithRoleView:
     def _payload(self, suffix="cwr01"):
@@ -567,17 +617,23 @@ class TestUserCreateWithRoleView:
         }
 
     def test_portal_admin_cria_usuario_com_role(self, client_portal_admin):
-        resp = client_portal_admin.post(USERS_WITH_ROLE_URL, self._payload("cwr01"), format="json")
+        resp = client_portal_admin.post(
+            USERS_WITH_ROLE_URL, self._payload("cwr01"), format="json"
+        )
         assert resp.status_code == 201
         assert resp.data["role"] == "GESTOR_PNGI"
         assert "permissions_added" in resp.data
 
     def test_anonimo_nao_pode_criar(self, client_anonimo):
-        resp = client_anonimo.post(USERS_WITH_ROLE_URL, self._payload("cwr02"), format="json")
+        resp = client_anonimo.post(
+            USERS_WITH_ROLE_URL, self._payload("cwr02"), format="json"
+        )
         assert resp.status_code in (401, 403)
 
     def test_gestor_sem_permissao_negado(self, client_gestor):
-        resp = client_gestor.post(USERS_WITH_ROLE_URL, self._payload("cwr03"), format="json")
+        resp = client_gestor.post(
+            USERS_WITH_ROLE_URL, self._payload("cwr03"), format="json"
+        )
         assert resp.status_code in (400, 403)
 
     def test_role_nao_pertence_a_app_retorna_400(self, client_portal_admin):
@@ -596,6 +652,7 @@ class TestUserCreateWithRoleView:
 # ════════════════════════════════════════════════════════════════════════════
 # UserProfileViewSet
 # ════════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.django_db
 class TestUserProfileViewSet:
@@ -635,6 +692,7 @@ class TestUserProfileViewSet:
 # RoleViewSet
 # ════════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.django_db
 class TestRoleViewSet:
     def test_portal_admin_lista_roles(self, client_portal_admin):
@@ -666,7 +724,9 @@ class TestRoleViewSet:
         for role in results:
             assert role["aplicacao_id"] == 2
 
-    def test_filtro_aplicacao_id_invalido_retorna_lista_vazia(self, client_portal_admin):
+    def test_filtro_aplicacao_id_invalido_retorna_lista_vazia(
+        self, client_portal_admin
+    ):
         """
         Filtro com valor não-inteiro deve retornar lista vazia.
         Resposta paginada: verifica results == [] (ou count == 0).
@@ -684,6 +744,7 @@ class TestRoleViewSet:
 # ════════════════════════════════════════════════════════════════════════════
 # UserRoleViewSet
 # ════════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.django_db
 class TestUserRoleViewSet:
@@ -704,7 +765,9 @@ class TestUserRoleViewSet:
         assert resp.status_code == 201
         assert resp.data["role_codigo"] == "GESTOR_PNGI"
 
-    def test_unicidade_user_aplicacao_retorna_400(self, client_portal_admin, gestor_pngi):
+    def test_unicidade_user_aplicacao_retorna_400(
+        self, client_portal_admin, gestor_pngi
+    ):
         resp = client_portal_admin.post(
             USER_ROLES_URL,
             {"user": gestor_pngi.pk, "aplicacao": 2, "role": 2},
@@ -730,7 +793,9 @@ class TestUserRoleViewSet:
         resp = client_portal_admin.delete(f"{USER_ROLES_URL}{user_role.pk}/")
         assert resp.status_code == 204
 
-    def test_remover_role_sincroniza_permissoes(self, client_portal_admin, _ensure_base_data):
+    def test_remover_role_sincroniza_permissoes(
+        self, client_portal_admin, _ensure_base_data
+    ):
         """Após remover UserRole, permissões do usuário devem ser re-sincronizadas."""
         target = _make_user("target_sync_remove")
         user_role = UserRole.objects.create(
@@ -761,6 +826,7 @@ class TestUserRoleViewSet:
 # UserPermissionOverrideViewSet
 # ════════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.django_db
 class TestUserPermissionOverrideViewSet:
     def test_anonimo_retorna_401_ou_403(self, client_anonimo):
@@ -786,7 +852,9 @@ class TestUserPermissionOverrideViewSet:
         assert resp.status_code == 201
         assert resp.data["mode"] == "grant"
 
-    def test_criar_override_grant_sincroniza_permissoes(self, client_portal_admin, _ensure_base_data):
+    def test_criar_override_grant_sincroniza_permissoes(
+        self, client_portal_admin, _ensure_base_data
+    ):
         target = _make_user("ov_grant_sync_target")
         perm = _make_perm("ov_grant_sync_perm")
         client_portal_admin.post(
@@ -807,10 +875,14 @@ class TestUserPermissionOverrideViewSet:
         )
         assert resp.status_code == 201
 
-    def test_conflito_grant_revoke_retorna_400(self, client_portal_admin, _ensure_base_data):
+    def test_conflito_grant_revoke_retorna_400(
+        self, client_portal_admin, _ensure_base_data
+    ):
         target = _make_user("ov_conflict_target")
         perm = _make_perm("ov_conflict_perm")
-        UserPermissionOverride.objects.create(user=target, permission=perm, mode="grant")
+        UserPermissionOverride.objects.create(
+            user=target, permission=perm, mode="grant"
+        )
         resp = client_portal_admin.post(
             OVERRIDES_URL,
             {"user": target.pk, "permission": perm.pk, "mode": "revoke"},
@@ -821,7 +893,9 @@ class TestUserPermissionOverrideViewSet:
     def test_atualizar_override_via_patch(self, client_portal_admin, _ensure_base_data):
         target = _make_user("ov_patch_target")
         perm = _make_perm("ov_patch_perm")
-        override = UserPermissionOverride.objects.create(user=target, permission=perm, mode="grant")
+        override = UserPermissionOverride.objects.create(
+            user=target, permission=perm, mode="grant"
+        )
         resp = client_portal_admin.patch(
             f"{OVERRIDES_URL}{override.pk}/",
             {"source": "atualizado via patch"},
@@ -829,10 +903,14 @@ class TestUserPermissionOverrideViewSet:
         )
         assert resp.status_code == 200
 
-    def test_deletar_override_remove_permissao(self, client_portal_admin, _ensure_base_data):
+    def test_deletar_override_remove_permissao(
+        self, client_portal_admin, _ensure_base_data
+    ):
         target = _make_user("ov_delete_target")
         perm = _make_perm("ov_delete_perm")
-        override = UserPermissionOverride.objects.create(user=target, permission=perm, mode="grant")
+        override = UserPermissionOverride.objects.create(
+            user=target, permission=perm, mode="grant"
+        )
         sync_user_permissions(target)
         assert target.user_permissions.filter(pk=perm.pk).exists()
 
@@ -845,10 +923,17 @@ class TestUserPermissionOverrideViewSet:
     def test_update_completo_via_put(self, client_portal_admin, _ensure_base_data):
         target = _make_user("ov_put_target")
         perm = _make_perm("ov_put_perm")
-        override = UserPermissionOverride.objects.create(user=target, permission=perm, mode="grant")
+        override = UserPermissionOverride.objects.create(
+            user=target, permission=perm, mode="grant"
+        )
         resp = client_portal_admin.put(
             f"{OVERRIDES_URL}{override.pk}/",
-            {"user": target.pk, "permission": perm.pk, "mode": "grant", "source": "put test"},
+            {
+                "user": target.pk,
+                "permission": perm.pk,
+                "mode": "grant",
+                "source": "put test",
+            },
             format="json",
         )
         assert resp.status_code == 200
@@ -857,7 +942,9 @@ class TestUserPermissionOverrideViewSet:
     def test_detalhe_override(self, client_portal_admin, _ensure_base_data):
         target = _make_user("ov_detail_target")
         perm = _make_perm("ov_detail_perm")
-        override = UserPermissionOverride.objects.create(user=target, permission=perm, mode="grant")
+        override = UserPermissionOverride.objects.create(
+            user=target, permission=perm, mode="grant"
+        )
         resp = client_portal_admin.get(f"{OVERRIDES_URL}{override.pk}/")
         assert resp.status_code == 200
         assert resp.data["mode"] == "grant"

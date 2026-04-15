@@ -14,6 +14,7 @@ Estratégia:
   - Cada teste verifica o comportamento positivo E o negativo quando
     relevança (ex: sem override a permissão NÃO aparece; com override, aparece).
 """
+
 import pytest
 from django.contrib.auth.models import Permission, User
 from django.contrib.contenttypes.models import ContentType
@@ -100,14 +101,17 @@ class TestOverrideRevoke:
     def _grant_perm_to_group(self, user, codename: str) -> Permission:
         perm = _make_permission(codename)
         from apps.accounts.models import UserRole
-        user_role = UserRole.objects.filter(user=user).select_related("role__group").first()
+
+        user_role = (
+            UserRole.objects.filter(user=user).select_related("role__group").first()
+        )
         assert user_role is not None, "usuário precisa ter ao menos uma role"
         assert user_role.role.group is not None, "role precisa ter grupo"
         user_role.role.group.permissions.add(perm)
         return perm
 
     def test_sem_revoke_permissao_herdada_presente(self, gestor_pngi):
-        perm = self._grant_perm_to_group(gestor_pngi, "perm_herdada_revoke_test")
+        # perm = self._grant_perm_to_group(gestor_pngi, "perm_herdada_revoke_test")
         cache.clear()
         service = AuthorizationService(gestor_pngi)
         perms = service._load_permissions()
@@ -141,7 +145,12 @@ class TestOverrideRevoke:
     def test_revoke_nao_afeta_outro_usuario(self, gestor_pngi, operador_acao):
         perm = self._grant_perm_to_group(gestor_pngi, "perm_revoke_isolamento")
         from apps.accounts.models import UserRole
-        op_role = UserRole.objects.filter(user=operador_acao).select_related("role__group").first()
+
+        op_role = (
+            UserRole.objects.filter(user=operador_acao)
+            .select_related("role__group")
+            .first()
+        )
         if op_role and op_role.role.group:
             op_role.role.group.permissions.add(perm)
 
@@ -186,7 +195,9 @@ class TestUserPermissoesDiretas:
         service = AuthorizationService(operador_acao)
         assert service.can("perm_can_direta_test") is True
 
-    def test_user_permission_direta_nao_afeta_outro_usuario(self, operador_acao, gestor_carga):
+    def test_user_permission_direta_nao_afeta_outro_usuario(
+        self, operador_acao, gestor_carga
+    ):
         perm = _make_permission("perm_direta_isolada")
         operador_acao.user_permissions.add(perm)
         cache.clear()
@@ -221,7 +232,12 @@ class TestInteracaoFontes:
         perm_grant = _make_permission("perm_grant_union")
 
         from apps.accounts.models import UserRole
-        ur = UserRole.objects.filter(user=gestor_pngi).select_related("role__group").first()
+
+        ur = (
+            UserRole.objects.filter(user=gestor_pngi)
+            .select_related("role__group")
+            .first()
+        )
         ur.role.group.permissions.add(perm_grupo)
 
         UserPermissionOverride.objects.get_or_create(
@@ -240,7 +256,12 @@ class TestInteracaoFontes:
         perm = _make_permission("perm_revoke_vence_grupo")
 
         from apps.accounts.models import UserRole
-        ur = UserRole.objects.filter(user=gestor_pngi).select_related("role__group").first()
+
+        ur = (
+            UserRole.objects.filter(user=gestor_pngi)
+            .select_related("role__group")
+            .first()
+        )
         ur.role.group.permissions.add(perm)
 
         UserPermissionOverride.objects.get_or_create(

@@ -9,15 +9,7 @@ portanto funcionam tanto com quanto sem fixtures pre-carregadas.
 import pytest
 from django.contrib.auth.models import User
 
-from apps.accounts.models import (
-    Aplicacao,
-    ClassificacaoUsuario,
-    StatusUsuario,
-    TipoUsuario,
-    UserProfile,
-    UserRole,
-    Role,
-)
+from apps.accounts.models import Aplicacao, ClassificacaoUsuario, UserProfile
 from apps.accounts.services.authorization_service import AuthorizationService
 
 pytestmark = pytest.mark.django_db
@@ -26,6 +18,7 @@ pytestmark = pytest.mark.django_db
 def _make_user_with_classificacao(username, pode_criar=False, pode_editar=False):
     """Cria usuario com ClassificacaoUsuario customizada usando get_or_create."""
     from apps.accounts.tests.conftest import _get_status_usuario, _get_tipo_usuario
+
     # pk 90+ para nao colidir com dados do initial_data
     pk = 90 + (abs(hash(username)) % 9)
     classificacao, _ = ClassificacaoUsuario.objects.get_or_create(
@@ -49,6 +42,7 @@ def _make_user_with_classificacao(username, pode_criar=False, pode_editar=False)
 
 # --- can_create_user ---------------------------------------------------------
 
+
 class TestCanCreateUser:
 
     def test_classificacao_sem_permissao_retorna_false(self, usuario_sem_role):
@@ -66,8 +60,9 @@ class TestCanCreateUser:
 
 # --- can_edit_user -----------------------------------------------------------
 
+
 class TestCanEditUser:
-    
+
     def test_classificacao_sem_permissao_editar_retorna_false(self, usuario_sem_role):
         service = AuthorizationService(usuario_sem_role)
         assert service.can_edit_user() is False
@@ -80,7 +75,9 @@ class TestCanEditUser:
         service = AuthorizationService(portal_admin)
         assert service.can_edit_user() is True
 
+
 # --- user_can_manage_target_user ---------------------------------------------
+
 
 class TestUserCanManageTargetUser:
 
@@ -92,20 +89,17 @@ class TestUserCanManageTargetUser:
         service = AuthorizationService(gestor_pngi)
         assert service.user_can_manage_target_user(gestor_carga) is False
 
-    def test_superuser_pode_gerenciar_qualquer_usuario(
-        self, superuser, gestor_pngi
-    ):
+    def test_superuser_pode_gerenciar_qualquer_usuario(self, superuser, gestor_pngi):
         service = AuthorizationService(superuser)
         assert service.user_can_manage_target_user(gestor_pngi) is True
 
-    def test_usuario_sem_role_nao_gerencia_ninguem(
-        self, usuario_sem_role, gestor_pngi
-    ):
+    def test_usuario_sem_role_nao_gerencia_ninguem(self, usuario_sem_role, gestor_pngi):
         service = AuthorizationService(usuario_sem_role)
         assert service.user_can_manage_target_user(gestor_pngi) is False
 
 
 # --- user_can_create_user_in_application ------------------------------------
+
 
 class TestUserCanCreateUserInApplication:
 
@@ -124,9 +118,7 @@ class TestUserCanCreateUserInApplication:
         service = AuthorizationService(superuser)
         assert service.user_can_create_user_in_application(app) is True
 
-    def test_usuario_sem_role_nao_pode_criar_em_nenhuma_app(
-        self, usuario_sem_role
-    ):
+    def test_usuario_sem_role_nao_pode_criar_em_nenhuma_app(self, usuario_sem_role):
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         service = AuthorizationService(usuario_sem_role)
         assert service.user_can_create_user_in_application(app) is False

@@ -10,9 +10,8 @@ Estratégia:
 PATCH_TARGET aponta para o import tardio dentro do módulo da policy,
 identicamente ao padrão de test_user_policy.py.
 """
-from unittest.mock import MagicMock, patch
 
-import pytest
+from unittest.mock import MagicMock, patch
 
 from apps.accounts.policies import ApplicationPolicy
 from apps.accounts.tests.policies.conftest import (
@@ -25,6 +24,7 @@ PATCH_TARGET = "apps.accounts.models.UserRole"
 
 
 # ── Helpers de configuração do mock ORM ────────────────────────────────
+
 
 def _setup_portal_admin(MockUserRole, is_admin=True):
     """
@@ -68,6 +68,7 @@ def _setup_call_sequence(MockUserRole, responses):
 # can_view_application
 # ═════════════════════════════════════════════════════════════════════════════════
 
+
 class TestCanViewApplication:
 
     @patch(PATCH_TARGET)
@@ -101,10 +102,13 @@ class TestCanViewApplication:
     def test_regular_user_with_role_can_view_ready_app(self, MockUserRole):
         """Usuário comum com role em app pronta e não bloqueada pode ver."""
         role_mock = make_user_role()
-        _setup_call_sequence(MockUserRole, [
-            {"exists": False},        # _is_portal_admin
-            {"first": role_mock},     # _get_user_role_in_app
-        ])
+        _setup_call_sequence(
+            MockUserRole,
+            [
+                {"exists": False},  # _is_portal_admin
+                {"first": role_mock},  # _get_user_role_in_app
+            ],
+        )
         user = make_user(is_superuser=False)
         app = make_aplicacao(isappbloqueada=False, isappproductionready=True)
         policy = ApplicationPolicy(user, app)
@@ -114,6 +118,7 @@ class TestCanViewApplication:
     def test_regular_user_cannot_view_blocked_app(self, MockUserRole, caplog):
         """App bloqueada → deny, log reason=app_blocked."""
         import logging
+
         _setup_portal_admin(MockUserRole, is_admin=False)
         user = make_user(is_superuser=False)
         app = make_aplicacao(isappbloqueada=True, isappproductionready=True)
@@ -127,6 +132,7 @@ class TestCanViewApplication:
     def test_regular_user_cannot_view_not_ready_app(self, MockUserRole, caplog):
         """App não production-ready → deny, log reason=app_not_production_ready."""
         import logging
+
         _setup_portal_admin(MockUserRole, is_admin=False)
         user = make_user(is_superuser=False)
         app = make_aplicacao(isappbloqueada=False, isappproductionready=False)
@@ -140,10 +146,14 @@ class TestCanViewApplication:
     def test_regular_user_without_role_cannot_view_app(self, MockUserRole, caplog):
         """Usuário sem role na app → deny, log reason=no_role_in_app."""
         import logging
-        _setup_call_sequence(MockUserRole, [
-            {"exists": False},   # _is_portal_admin
-            {"first": None},     # _get_user_role_in_app → None
-        ])
+
+        _setup_call_sequence(
+            MockUserRole,
+            [
+                {"exists": False},  # _is_portal_admin
+                {"first": None},  # _get_user_role_in_app → None
+            ],
+        )
         user = make_user(is_superuser=False)
         app = make_aplicacao(isappbloqueada=False, isappproductionready=True)
         with caplog.at_level(logging.WARNING, logger="gpp.security"):
@@ -156,6 +166,7 @@ class TestCanViewApplication:
 # ═════════════════════════════════════════════════════════════════════════════════
 # can_manage_application
 # ═════════════════════════════════════════════════════════════════════════════════
+
 
 class TestCanManageApplication:
 
@@ -178,6 +189,7 @@ class TestCanManageApplication:
     @patch(PATCH_TARGET)
     def test_regular_user_cannot_manage(self, MockUserRole, caplog):
         import logging
+
         _setup_portal_admin(MockUserRole, is_admin=False)
         user = make_user(is_superuser=False)
         app = make_aplicacao()
@@ -191,6 +203,7 @@ class TestCanManageApplication:
 # ═════════════════════════════════════════════════════════════════════════════════
 # can_block_application
 # ═════════════════════════════════════════════════════════════════════════════════
+
 
 class TestCanBlockApplication:
 
@@ -214,6 +227,7 @@ class TestCanBlockApplication:
     def test_cannot_block_portal_app(self, MockUserRole, caplog):
         """Bloqueio da app PORTAL vetado mesmo para admin — reason=cannot_block_portal_app."""
         import logging
+
         _setup_portal_admin(MockUserRole, is_admin=True)
         user = make_user()
         app = make_aplicacao(codigointerno="PORTAL")
@@ -226,6 +240,7 @@ class TestCanBlockApplication:
     @patch(PATCH_TARGET)
     def test_regular_user_cannot_block(self, MockUserRole, caplog):
         import logging
+
         _setup_portal_admin(MockUserRole, is_admin=False)
         user = make_user(is_superuser=False)
         app = make_aplicacao(codigointerno="SIGEF")
@@ -239,6 +254,7 @@ class TestCanBlockApplication:
 # ═════════════════════════════════════════════════════════════════════════════════
 # can_set_production_ready
 # ═════════════════════════════════════════════════════════════════════════════════
+
 
 class TestCanSetProductionReady:
 
@@ -270,6 +286,7 @@ class TestCanSetProductionReady:
         Cobre o caminho False (deny) das linhas 171–177 de application_policy.py.
         """
         import logging
+
         _setup_portal_admin(MockUserRole, is_admin=False)
         user = make_user(is_superuser=False)
         app = make_aplicacao(isappbloqueada=False, isappproductionready=False)
@@ -284,6 +301,7 @@ class TestCanSetProductionReady:
 # can_assign_role_in_application
 # ═════════════════════════════════════════════════════════════════════════════════
 
+
 class TestCanAssignRole:
 
     @patch(PATCH_TARGET)
@@ -295,11 +313,10 @@ class TestCanAssignRole:
         assert policy.can_assign_role_in_application() is True
 
     @patch(PATCH_TARGET)
-    def test_portal_admin_cannot_assign_role_in_blocked_app(
-        self, MockUserRole, caplog
-    ):
+    def test_portal_admin_cannot_assign_role_in_blocked_app(self, MockUserRole, caplog):
         """Admin privilegiado, mas app bloqueada → reason=app_blocked."""
         import logging
+
         _setup_portal_admin(MockUserRole, is_admin=True)
         user = make_user()
         app = make_aplicacao(isappbloqueada=True, isappproductionready=True)
@@ -315,6 +332,7 @@ class TestCanAssignRole:
     ):
         """Admin privilegiado, mas app não production-ready → reason=app_not_production_ready."""
         import logging
+
         _setup_portal_admin(MockUserRole, is_admin=True)
         user = make_user()
         app = make_aplicacao(isappbloqueada=False, isappproductionready=False)
@@ -327,6 +345,7 @@ class TestCanAssignRole:
     @patch(PATCH_TARGET)
     def test_regular_user_cannot_assign_role(self, MockUserRole, caplog):
         import logging
+
         _setup_portal_admin(MockUserRole, is_admin=False)
         user = make_user(is_superuser=False)
         app = make_aplicacao(isappbloqueada=False, isappproductionready=True)
@@ -341,12 +360,11 @@ class TestCanAssignRole:
 # can_remove_role_from_application
 # ═════════════════════════════════════════════════════════════════════════════════
 
+
 class TestCanRemoveRole:
 
     @patch(PATCH_TARGET)
-    def test_portal_admin_can_remove_role_even_from_blocked_app(
-        self, MockUserRole
-    ):
+    def test_portal_admin_can_remove_role_even_from_blocked_app(self, MockUserRole):
         """Remoção de acesso possível mesmo com app bloqueada."""
         _setup_portal_admin(MockUserRole, is_admin=True)
         user = make_user()
@@ -357,6 +375,7 @@ class TestCanRemoveRole:
     @patch(PATCH_TARGET)
     def test_regular_user_cannot_remove_role(self, MockUserRole, caplog):
         import logging
+
         _setup_portal_admin(MockUserRole, is_admin=False)
         user = make_user(is_superuser=False)
         app = make_aplicacao()
@@ -371,6 +390,7 @@ class TestCanRemoveRole:
 # Cache de instância
 # ═════════════════════════════════════════════════════════════════════════════════
 
+
 class TestInstanceCache:
 
     @patch(PATCH_TARGET)
@@ -384,9 +404,9 @@ class TestInstanceCache:
         app = make_aplicacao(isappbloqueada=True)  # early-return antes de role
         policy = ApplicationPolicy(user, app)
 
-        policy.can_view_application()     # dispara _is_portal_admin
-        policy.can_manage_application()   # deve usar cache
-        policy.can_block_application()    # deve usar cache
+        policy.can_view_application()  # dispara _is_portal_admin
+        policy.can_manage_application()  # deve usar cache
+        policy.can_block_application()  # deve usar cache
 
         assert MockUserRole.objects.filter.call_count == 1
 
@@ -396,10 +416,13 @@ class TestInstanceCache:
         _get_user_role_in_app deve consultar ORM apenas 1x por instância.
         """
         role_mock = make_user_role()
-        _setup_call_sequence(MockUserRole, [
-            {"exists": False},      # _is_portal_admin (1ª call)
-            {"first": role_mock},   # _get_user_role_in_app (2ª call)
-        ])
+        _setup_call_sequence(
+            MockUserRole,
+            [
+                {"exists": False},  # _is_portal_admin (1ª call)
+                {"first": role_mock},  # _get_user_role_in_app (2ª call)
+            ],
+        )
         user = make_user(is_superuser=False)
         app = make_aplicacao(isappbloqueada=False, isappproductionready=True)
         policy = ApplicationPolicy(user, app)

@@ -17,21 +17,11 @@ Linhas-alvo por serializer:
 
 Todos usam banco real (pytest.mark.django_db) e as factories make_*.
 """
+
 import pytest
-from django.contrib.auth.models import User, Permission
-from django.contrib.contenttypes.models import ContentType
 from rest_framework.test import APIRequestFactory
 
-from apps.accounts.models import (
-    Aplicacao,
-    ClassificacaoUsuario,
-    Role,
-    StatusUsuario,
-    TipoUsuario,
-    UserPermissionOverride,
-    UserProfile,
-    UserRole,
-)
+from apps.accounts.models import Role, UserPermissionOverride, UserProfile, UserRole
 from apps.accounts.serializers import (
     MePermissionSerializer,
     MeSerializer,
@@ -48,10 +38,10 @@ from apps.accounts.tests.factories import (
     make_user_role,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_request(user=None):
     factory = APIRequestFactory()
@@ -65,57 +55,66 @@ def _make_request(user=None):
 # UserCreateSerializer
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestUserCreateSerializer:
 
     def test_validate_username_duplicado(self):
         """linha 74 — username já existente levanta ValidationError."""
         make_user(username="joao_dup")
-        s = UserCreateSerializer(data={
-            "username": "joao_dup",
-            "email": "novo@test.br",
-            "password": "TestPass@2026",
-            "name": "Joao",
-            "orgao": "SEGER",
-        })
+        s = UserCreateSerializer(
+            data={
+                "username": "joao_dup",
+                "email": "novo@test.br",
+                "password": "TestPass@2026",
+                "name": "Joao",
+                "orgao": "SEGER",
+            }
+        )
         assert not s.is_valid()
         assert "username" in s.errors
 
     def test_validate_email_duplicado(self):
         """linha 191 — e-mail já existente levanta ValidationError."""
         make_user(username="maria_orig", email="maria@test.br")
-        s = UserCreateSerializer(data={
-            "username": "maria_nova",
-            "email": "maria@test.br",
-            "password": "TestPass@2026",
-            "name": "Maria",
-            "orgao": "SEGER",
-        })
+        s = UserCreateSerializer(
+            data={
+                "username": "maria_nova",
+                "email": "maria@test.br",
+                "password": "TestPass@2026",
+                "name": "Maria",
+                "orgao": "SEGER",
+            }
+        )
         assert not s.is_valid()
         assert "email" in s.errors
 
     def test_validate_password_fraca(self):
         """linha 191 — senha fraca lança ValidationError via validate_password."""
-        s = UserCreateSerializer(data={
-            "username": "user_fraco",
-            "email": "fraco@test.br",
-            "password": "123",
-            "name": "Fraco",
-            "orgao": "SEGER",
-        })
+        s = UserCreateSerializer(
+            data={
+                "username": "user_fraco",
+                "email": "fraco@test.br",
+                "password": "123",
+                "name": "Fraco",
+                "orgao": "SEGER",
+            }
+        )
         assert not s.is_valid()
         assert "password" in s.errors
 
     def test_validate_fk_status_inexistente(self):
         """linha 282 — FK status_usuario inexistente levanta ValidationError."""
-        s = UserCreateSerializer(data={
-            "username": "fk_test",
-            "email": "fk@test.br",
-            "password": "TestPass@2026",
-            "name": "FK Test",
-            "orgao": "SEGER",
-            "status_usuario": 9999,
-        })
+        s = UserCreateSerializer(
+            data={
+                "username": "fk_test",
+                "email": "fk@test.br",
+                "password": "TestPass@2026",
+                "name": "FK Test",
+                "orgao": "SEGER",
+                "status_usuario": 9999,
+            }
+        )
         assert not s.is_valid()
         assert "status_usuario" in s.errors
 
@@ -144,6 +143,7 @@ class TestUserCreateSerializer:
 # UserRoleSerializer
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestUserRoleSerializer:
 
@@ -152,22 +152,26 @@ class TestUserRoleSerializer:
         user = make_user()
         role_a = make_role()
         role_b = make_role()  # role_b pertence a outra aplicacao
-        s = UserRoleSerializer(data={
-            "user": user.pk,
-            "aplicacao": role_a.aplicacao.pk,
-            "role": role_b.pk,  # role de outra app
-        })
+        s = UserRoleSerializer(
+            data={
+                "user": user.pk,
+                "aplicacao": role_a.aplicacao.pk,
+                "role": role_b.pk,  # role de outra app
+            }
+        )
         assert not s.is_valid()
         assert "role" in s.errors
 
     def test_validate_unicidade_user_aplicacao(self):
         """valida que (user, aplicacao) duplicado levanta erro."""
         ur = make_user_role()
-        s = UserRoleSerializer(data={
-            "user": ur.user.pk,
-            "aplicacao": ur.aplicacao.pk,
-            "role": ur.role.pk,
-        })
+        s = UserRoleSerializer(
+            data={
+                "user": ur.user.pk,
+                "aplicacao": ur.aplicacao.pk,
+                "role": ur.role.pk,
+            }
+        )
         assert not s.is_valid()
         assert "non_field_errors" in s.errors
 
@@ -175,6 +179,7 @@ class TestUserRoleSerializer:
 # ---------------------------------------------------------------------------
 # UserCreateWithRoleSerializer
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestUserCreateWithRoleSerializer:
@@ -283,6 +288,7 @@ class TestUserCreateWithRoleSerializer:
 # UserPermissionOverrideSerializer
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestUserPermissionOverrideSerializer:
 
@@ -296,11 +302,13 @@ class TestUserPermissionOverrideSerializer:
             permission=perm,
             mode=UserPermissionOverride.MODE_GRANT,
         )
-        s = UserPermissionOverrideSerializer(data={
-            "user": user.pk,
-            "permission": perm.pk,
-            "mode": UserPermissionOverride.MODE_REVOKE,
-        })
+        s = UserPermissionOverrideSerializer(
+            data={
+                "user": user.pk,
+                "permission": perm.pk,
+                "mode": UserPermissionOverride.MODE_REVOKE,
+            }
+        )
         assert not s.is_valid()
         assert "mode" in s.errors
 
@@ -313,11 +321,13 @@ class TestUserPermissionOverrideSerializer:
             permission=perm,
             mode=UserPermissionOverride.MODE_REVOKE,
         )
-        s = UserPermissionOverrideSerializer(data={
-            "user": user.pk,
-            "permission": perm.pk,
-            "mode": UserPermissionOverride.MODE_GRANT,
-        })
+        s = UserPermissionOverrideSerializer(
+            data={
+                "user": user.pk,
+                "permission": perm.pk,
+                "mode": UserPermissionOverride.MODE_GRANT,
+            }
+        )
         assert not s.is_valid()
         assert "mode" in s.errors
 
@@ -325,24 +335,28 @@ class TestUserPermissionOverrideSerializer:
         """sem conflito o serializer é válido."""
         user = make_user()
         perm = make_permission()
-        s = UserPermissionOverrideSerializer(data={
-            "user": user.pk,
-            "permission": perm.pk,
-            "mode": UserPermissionOverride.MODE_GRANT,
-            "source": "manual",
-            "reason": "teste",
-        })
+        s = UserPermissionOverrideSerializer(
+            data={
+                "user": user.pk,
+                "permission": perm.pk,
+                "mode": UserPermissionOverride.MODE_GRANT,
+                "source": "manual",
+                "reason": "teste",
+            }
+        )
         assert s.is_valid(), s.errors
 
     def test_create_com_audit_fields_nome_descartados(self):
         """create() descarta created_by_name/updated_by_name do AuditableMixin."""
         user = make_user()
         perm = make_permission()
-        s = UserPermissionOverrideSerializer(data={
-            "user": user.pk,
-            "permission": perm.pk,
-            "mode": UserPermissionOverride.MODE_GRANT,
-        })
+        s = UserPermissionOverrideSerializer(
+            data={
+                "user": user.pk,
+                "permission": perm.pk,
+                "mode": UserPermissionOverride.MODE_GRANT,
+            }
+        )
         assert s.is_valid(), s.errors
         # Injecta campos de auditoria como se fossem do AuditableMixin
         s.validated_data["created_by_name"] = "usuario_nome"
@@ -405,6 +419,7 @@ class TestUserPermissionOverrideSerializer:
 # MePermissionSerializer
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestMePermissionSerializer:
 
@@ -431,7 +446,7 @@ class TestMePermissionSerializer:
         role.group.permissions.add(perm_base)
 
         user = make_user()
-        ur = make_user_role(user=user, role=role)
+        # ur = make_user_role(user=user, role=role)
 
         perm_extra = make_permission(codename="perm_extra_grant")
         make_user_permission_override(user=user, permission=perm_extra, mode="grant")
@@ -464,6 +479,7 @@ class TestMePermissionSerializer:
 # ---------------------------------------------------------------------------
 # MeSerializer
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestMeSerializer:

@@ -4,7 +4,6 @@ Testes para ResolveUserView — POST /api/accounts/auth/resolve-user/
 Cobre views.py linhas 196–243 (endpoint público de resolução de identificador).
 """
 import pytest
-from django.contrib.auth.models import User
 
 pytestmark = pytest.mark.django_db
 
@@ -40,7 +39,9 @@ class TestResolveUserView:
         assert resp.status_code in (404, 400)
         if resp.status_code == 400:
             # Se 400, deve ser por outro motivo, não tamanho
-            assert resp.data.get("code") != "invalid_request" or len(identifier_254) <= 254
+            assert (
+                resp.data.get("code") != "invalid_request" or len(identifier_254) <= 254
+            )
 
     def test_username_valido_ativo_retorna_200(self, client_anonimo, gestor_pngi):
         resp = client_anonimo.post(
@@ -84,7 +85,9 @@ class TestResolveUserView:
         assert resp.status_code == 404
         assert resp.data["code"] == "user_not_found"
 
-    def test_identifier_sem_arroba_usa_branch_username(self, client_anonimo, portal_admin):
+    def test_identifier_sem_arroba_usa_branch_username(
+        self, client_anonimo, portal_admin
+    ):
         """Identifier sem '@' deve cair na branch de lookup por username."""
         resp = client_anonimo.post(
             URL, {"identifier": portal_admin.username}, format="json"
@@ -92,7 +95,9 @@ class TestResolveUserView:
         assert resp.status_code == 200
         assert resp.data["username"] == portal_admin.username
 
-    def test_identifier_com_arroba_usa_branch_email(self, client_anonimo, coordenador_pngi):
+    def test_identifier_com_arroba_usa_branch_email(
+        self, client_anonimo, coordenador_pngi
+    ):
         """Identifier com '@' deve cair na branch de lookup por email."""
         coordenador_pngi.email = "coordenador_resolve@teste.gov.br"
         coordenador_pngi.save(update_fields=["email"])

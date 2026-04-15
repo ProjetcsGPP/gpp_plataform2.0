@@ -9,17 +9,19 @@ Endpoints cobertos:
   POST  /api/accounts/users/create-with-role/
   PATCH /api/accounts/profiles/{id}/
 """
-import pytest
-from django.contrib.auth.models import User
 from unittest.mock import patch
 
-from apps.accounts.models import ClassificacaoUsuario, UserProfile, UserRole
+import pytest
+from django.contrib.auth.models import User
+
+from apps.accounts.models import UserProfile, UserRole
 
 pytestmark = pytest.mark.django_db
 
-USERS_URL       = "/api/accounts/users/"
+USERS_URL = "/api/accounts/users/"
 CREATE_ROLE_URL = "/api/accounts/users/create-with-role/"
-PROFILES_URL    = "/api/accounts/profiles/"
+PROFILES_URL = "/api/accounts/profiles/"
+
 
 def _payload_usuario(suffix):
     return {
@@ -30,14 +32,14 @@ def _payload_usuario(suffix):
         "orgao": "ORGAO_TESTE",
     }
 
+
 # --- UserCreateView ----------------------------------------------------------
+
 
 class TestUserCreate:
 
     def test_portal_admin_cria_usuario_retorna_201(self, client_portal_admin):
-        resp = client_portal_admin.post(
-            USERS_URL, _payload_usuario("a"), format="json"
-        )
+        resp = client_portal_admin.post(USERS_URL, _payload_usuario("a"), format="json")
         assert resp.status_code == 201
 
     def test_criacao_gera_user_no_banco(self, client_portal_admin):
@@ -55,11 +57,11 @@ class TestUserCreate:
         resp = client_portal_admin.post(USERS_URL, payload, format="json")
         assert resp.status_code == 400
 
-#    def test_gestor_sem_permissao_criar_retorna_403(self, client_gestor):
-#        resp = client_gestor.post(
-#            USERS_URL, _payload_usuario("forbidden"), format="json"
-#        )
-#        assert resp.status_code == 403
+    #    def test_gestor_sem_permissao_criar_retorna_403(self, client_gestor):
+    #        resp = client_gestor.post(
+    #            USERS_URL, _payload_usuario("forbidden"), format="json"
+    #        )
+    #        assert resp.status_code == 403
 
     def test_operador_sem_permissao_criar_retorna_403(self, client_operador):
         """
@@ -71,33 +73,30 @@ class TestUserCreate:
             USERS_URL, _payload_usuario("forbidden"), format="json"
         )
         assert resp.status_code == 403
-        
+
     def test_nao_autenticado_retorna_401_ou_403(self, client_anonimo):
-        resp = client_anonimo.post(
-            USERS_URL, _payload_usuario("anon"), format="json"
-        )
+        resp = client_anonimo.post(USERS_URL, _payload_usuario("anon"), format="json")
         assert resp.status_code in (401, 403)
 
 
 # --- UserCreateView — edge cases de coverage --------------------------------
 
+
 class TestUserCreateViewEdgeCases:
 
-#    def test_nao_portal_admin_sem_permissao_na_app_retorna_403(
-#        self, client_gestor, gestor_pngi
-#    ):
-#        """
-#        views.py 348→358: gestor_pngi (não-portal-admin) tenta criar usuário
-#        numa aplicação para a qual não tem permissão de gestão → 403.
-#        """
-#        resp = client_gestor.post(
-#            USERS_URL, _payload_usuario("edge_np"), format="json"
-#        )
-#        assert resp.status_code == 403
+    #    def test_nao_portal_admin_sem_permissao_na_app_retorna_403(
+    #        self, client_gestor, gestor_pngi
+    #    ):
+    #        """
+    #        views.py 348→358: gestor_pngi (não-portal-admin) tenta criar usuário
+    #        numa aplicação para a qual não tem permissão de gestão → 403.
+    #        """
+    #        resp = client_gestor.post(
+    #            USERS_URL, _payload_usuario("edge_np"), format="json"
+    #        )
+    #        assert resp.status_code == 403
 
-    def test_nao_portal_admin_sem_permissao_criar_retorna_403(
-        self, client_operador
-    ):
+    def test_nao_portal_admin_sem_permissao_criar_retorna_403(self, client_operador):
         """
         views.py 348→358: operador (não-portal-admin) não tem add_user
         → can_create_user() retorna False → 403.
@@ -132,10 +131,12 @@ class TestUserCreateViewEdgeCases:
 
 # --- UserCreateWithRoleView —  edge cases de coverage -----------------------
 
+
 class TestUserCreateWithRoleEdgeCases:
 
     def _payload_com_role(self, suffix):
         from apps.accounts.models import Aplicacao, Role
+
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         role = Role.objects.get(codigoperfil="OPERADOR_ACAO")
         return {
@@ -158,9 +159,7 @@ class TestUserCreateWithRoleEdgeCases:
         )
         assert resp.status_code == 403
 
-    def test_portal_admin_sem_escopo_na_app_retorna_403(
-        self, client_portal_admin
-    ):
+    def test_portal_admin_sem_escopo_na_app_retorna_403(self, client_portal_admin):
         """
         views.py 411–417: portal_admin tenta criar em app onde a policy
         retorna False para user_can_create_user_in_application.
@@ -200,10 +199,12 @@ class TestUserCreateWithRoleEdgeCases:
 
 # --- UserCreateWithRoleView --------------------------------------------------
 
+
 class TestUserCreateWithRole:
 
     def _payload_com_role(self, suffix):
         from apps.accounts.models import Aplicacao, Role
+
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         role = Role.objects.get(codigoperfil="OPERADOR_ACAO")
         return {
@@ -211,15 +212,12 @@ class TestUserCreateWithRole:
             "password": "NovaSenha@2026",
             "name": f"Novo CR {suffix}",
             "email": f"novo_cr_{suffix}@teste.gov.br",  # ← adicionar
-            "orgao": "ORGAO_TESTE",                      # ← adicionar
+            "orgao": "ORGAO_TESTE",  # ← adicionar
             "aplicacao_id": app.pk,
             "role_id": role.pk,
         }
 
-
-    def test_portal_admin_cria_user_com_role_retorna_201(
-        self, client_portal_admin
-    ):
+    def test_portal_admin_cria_user_com_role_retorna_201(self, client_portal_admin):
         resp = client_portal_admin.post(
             CREATE_ROLE_URL, self._payload_com_role("1"), format="json"
         )
@@ -244,9 +242,7 @@ class TestUserCreateWithRole:
         assert resp.status_code == 201
         assert "permissions_added" in resp.data
 
-    def test_payload_invalido_nao_cria_objeto_parcial(
-        self, client_portal_admin
-    ):
+    def test_payload_invalido_nao_cria_objeto_parcial(self, client_portal_admin):
         resp = client_portal_admin.post(
             CREATE_ROLE_URL,
             {"username": "", "password": "", "name": ""},
@@ -257,6 +253,7 @@ class TestUserCreateWithRole:
 
     def test_app_bloqueada_retorna_400_ou_403(self, client_portal_admin):
         from apps.accounts.models import Aplicacao, Role
+
         try:
             app_blk = Aplicacao.objects.get(codigointerno="APP_BLOQUEADA")
             role_blk = Role.objects.filter(aplicacao=app_blk).first()
@@ -285,6 +282,7 @@ class TestUserCreateWithRole:
 
 
 # --- Validações do UserCreateSerializer (serializers.py) --------------------
+
 
 class TestUserCreateSerializerValidations:
 
@@ -318,6 +316,7 @@ class TestUserCreateSerializerValidations:
         Disparado via UserCreateWithRoleSerializer com status_usuario=9999.
         """
         from apps.accounts.models import Aplicacao, Role
+
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         role = Role.objects.get(codigoperfil="OPERADOR_ACAO")
 
@@ -338,10 +337,12 @@ class TestUserCreateSerializerValidations:
 
 # --- Validações do UserCreateWithRoleSerializer (serializers.py) ------------
 
+
 class TestUserCreateWithRoleSerializerValidations:
 
     def _base_payload(self, suffix):
         from apps.accounts.models import Aplicacao, Role
+
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         role = Role.objects.get(codigoperfil="OPERADOR_ACAO")
         return {
@@ -354,9 +355,7 @@ class TestUserCreateWithRoleSerializerValidations:
             "role_id": role.pk,
         }
 
-    def test_serializers_317_username_duplicado_retorna_400(
-        self, client_portal_admin
-    ):
+    def test_serializers_317_username_duplicado_retorna_400(self, client_portal_admin):
         """
         serializers.py 317: validate_username duplicado → 400.
         """
@@ -368,9 +367,7 @@ class TestUserCreateWithRoleSerializerValidations:
         resp = client_portal_admin.post(CREATE_ROLE_URL, payload2, format="json")
         assert resp.status_code == 400
 
-    def test_serializers_322_email_duplicado_retorna_400(
-        self, client_portal_admin
-    ):
+    def test_serializers_322_email_duplicado_retorna_400(self, client_portal_admin):
         """
         serializers.py 322: validate_email duplicado → 400.
         """
@@ -382,9 +379,7 @@ class TestUserCreateWithRoleSerializerValidations:
         resp = client_portal_admin.post(CREATE_ROLE_URL, payload2, format="json")
         assert resp.status_code == 400
 
-    def test_serializers_328_329_password_fraca_retorna_400(
-        self, client_portal_admin
-    ):
+    def test_serializers_328_329_password_fraca_retorna_400(self, client_portal_admin):
         """
         serializers.py 328–329: validate_password fraca → 400.
         """
@@ -400,6 +395,7 @@ class TestUserCreateWithRoleSerializerValidations:
         serializers.py 337: role não pertence à aplicacao → 400 com 'role_id'.
         """
         from apps.accounts.models import Aplicacao, Role
+
         app_carga = Aplicacao.objects.get(codigointerno="CARGA_ORG_LOT")
         role_pngi = Role.objects.get(codigoperfil="GESTOR_PNGI")
 
@@ -419,6 +415,7 @@ class TestUserCreateWithRoleSerializerValidations:
         a criação deve ser bem-sucedida (pk=1 existe no conftest).
         """
         from apps.accounts.models import Aplicacao, Role
+
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         role = Role.objects.get(codigoperfil="OPERADOR_ACAO")
 
@@ -438,6 +435,7 @@ class TestUserCreateWithRoleSerializerValidations:
 
 # --- UserProfileViewSet: partial_update --------------------------------------
 
+
 class TestUserProfilePatch:
 
     def test_usuario_edita_proprio_profile(self, client_gestor, gestor_pngi):
@@ -448,9 +446,7 @@ class TestUserProfilePatch:
         )
         assert resp.status_code == 200
 
-    def test_usuario_nao_edita_profile_alheio(
-        self, client_operador, gestor_pngi
-    ):
+    def test_usuario_nao_edita_profile_alheio(self, client_operador, gestor_pngi):
         resp = client_operador.patch(
             f"{PROFILES_URL}{gestor_pngi.pk}/",
             {"name": "Invasao"},
@@ -458,9 +454,7 @@ class TestUserProfilePatch:
         )
         assert resp.status_code in (403, 404)
 
-    def test_usuario_comum_nao_altera_classificacao(
-        self, client_gestor, gestor_pngi
-    ):
+    def test_usuario_comum_nao_altera_classificacao(self, client_gestor, gestor_pngi):
         resp = client_gestor.patch(
             f"{PROFILES_URL}{gestor_pngi.pk}/",
             {"classificacao_usuario": 2},
@@ -468,9 +462,7 @@ class TestUserProfilePatch:
         )
         assert resp.status_code == 403
 
-    def test_portal_admin_altera_classificacao(
-        self, client_portal_admin, gestor_pngi
-    ):
+    def test_portal_admin_altera_classificacao(self, client_portal_admin, gestor_pngi):
         resp = client_portal_admin.patch(
             f"{PROFILES_URL}{gestor_pngi.pk}/",
             {"classificacao_usuario": 2},
@@ -478,9 +470,7 @@ class TestUserProfilePatch:
         )
         assert resp.status_code == 200
 
-    def test_usuario_comum_nao_altera_status(
-        self, client_gestor, gestor_pngi
-    ):
+    def test_usuario_comum_nao_altera_status(self, client_gestor, gestor_pngi):
         resp = client_gestor.patch(
             f"{PROFILES_URL}{gestor_pngi.pk}/",
             {"status_usuario": 2},
@@ -488,9 +478,7 @@ class TestUserProfilePatch:
         )
         assert resp.status_code == 403
 
-    def test_portal_admin_altera_status(
-        self, client_portal_admin, gestor_pngi
-    ):
+    def test_portal_admin_altera_status(self, client_portal_admin, gestor_pngi):
         resp = client_portal_admin.patch(
             f"{PROFILES_URL}{gestor_pngi.pk}/",
             {"status_usuario": 2},  # ← referencia idstatususuario=2
@@ -498,9 +486,7 @@ class TestUserProfilePatch:
         )
         assert resp.status_code == 200
 
-    def test_nao_autenticado_retorna_401_ou_403(
-        self, client_anonimo, gestor_pngi
-    ):
+    def test_nao_autenticado_retorna_401_ou_403(self, client_anonimo, gestor_pngi):
         resp = client_anonimo.patch(
             f"{PROFILES_URL}{gestor_pngi.pk}/",
             {"name": "Anon"},
