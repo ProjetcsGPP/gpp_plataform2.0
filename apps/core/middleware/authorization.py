@@ -15,15 +15,17 @@ Depende de:
 Regras:
   1. Rotas isentas (AUTHORIZATION_EXEMPT_PATHS) → passa sempre
   2. PORTAL_ADMIN → passa sempre
-  3. Usuário não autenticado → 401
-  4. Usuário sem nenhuma role para a app atual → 403
-  5. Path bate com AUTHORIZATION_REQUIRED_ROLES e usuário não tem
+  3. Rotas autenticadas sem role (AUTHORIZATION_AUTHENTICATED_ONLY_PATHS)
+     → exige apenas autenticação, não exige role de aplicação
+  4. Usuário não autenticado → 401
+  5. Usuário sem nenhuma role para a app atual → 403
+  6. Path bate com AUTHORIZATION_REQUIRED_ROLES e usuário não tem
      nenhuma das roles requeridas → 403 permission_denied
 
-FIX: EXEMPT_PATHS e REQUIRED_ROLES_MAP são lidos de settings a cada
-     request (via `django.conf.settings`) em vez de no __init__ (load time).
-     Isso garante que @override_settings nos testes funcione corretamente
-     sem precisar de workarounds ou recriação do middleware.
+FIX: EXEMPT_PATHS, AUTHENTICATED_ONLY_PATHS e REQUIRED_ROLES_MAP são lidos
+     de settings a cada request (via `django.conf.settings`) em vez de no
+     __init__ (load time). Isso garante que @override_settings nos testes
+     funcione corretamente sem precisar de workarounds ou recriação do middleware.
 """
 import logging
 
@@ -59,6 +61,11 @@ class AuthorizationMiddleware:
                 code="not_authenticated",
                 detail="Autenticação necessária.",
             )
+
+        # Rotas autenticadas sem exigência de role de app
+        # Ex: /api/core/frontendlog/ — qualquer usuário logado pode gravar logs do frontend
+        if self._is_authenticated_only(request.path):
+            return self.get_response(request)
 
         # Usuário autenticado mas sem role para esta aplicação
         user_roles = getattr(request, "user_roles", [])
@@ -110,6 +117,20 @@ class AuthorizationMiddleware:
             ["/api/accounts/login/", "/api/accounts/logout/", "/admin/", "/api/health/"],
         )
         return any(path.startswith(p) for p in exempt_paths)
+
+    @staticmethod
+    def _is_authenticated_only(path):
+        """
+        Verifica se o path exige apenas autenticação, sem necessidade de role de app.
+        Usado para endpoints transversais como o log de erros do frontend.
+        Lido de settings a cada chamada para respeitar @override_settings nos testes.
+        """
+        authenticated_only_paths = getattr(
+            settings,
+            "AUTHORIZATION_AUTHENTICATED_ONLY_PATHS",
+            [],
+        )
+        return any(path.startswith(p) for p in authenticated_only_paths)
 
     @staticmethod
     def _get_required_roles(path):

@@ -8,6 +8,8 @@ FASE-0: JWT/simplejwt removidos; SessionAuthentication como padrão DRF;
         CSP no formato django-csp >= 4.0 (CONTENT_SECURITY_POLICY dict).
 FIX: AUTHORIZATION_EXEMPT_PATHS expandido para incluir /api/accounts/auth/
      (AplicacaoPublicaViewSet — AllowAny) e /api/accounts/logout/.
+FIX: AUTHORIZATION_AUTHENTICATED_ONLY_PATHS adicionado para endpoints que
+     exigem autenticação mas não exigem role de aplicação (ex: frontendlog).
 """
 import os
 from pathlib import Path
@@ -355,6 +357,15 @@ AUTHORIZATION_EXEMPT_PATHS = [
     "/api/schema/",   # ← schema JSON
     "/api/docs/",     # ← Swagger UI
     "/api/redoc/",    # ← ReDoc UI
+]
+
+# ─── Rotas autenticadas sem exigência de role de aplicação ────────────────────────
+# Prefixos: qualquer path que COMECE com estes valores é liberado pelo
+# AuthorizationMiddleware após confirmação de autenticação, SEM checar user_roles.
+# Use para endpoints transversais que qualquer usuário logado pode acessar,
+# independente de ter role em alguma aplicação específica.
+AUTHORIZATION_AUTHENTICATED_ONLY_PATHS = [
+    "/api/core/frontendlog/",  # log de erros do frontend — qualquer usuário autenticado
 ]
 
 # ─── Logging de Segurança ──────────────────────────────────────────────────────────
