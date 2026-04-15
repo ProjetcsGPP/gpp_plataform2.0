@@ -11,7 +11,6 @@ FIX: AUTHORIZATION_EXEMPT_PATHS expandido para incluir /api/accounts/auth/
 FIX: AUTHORIZATION_AUTHENTICATED_ONLY_PATHS adicionado para endpoints que
      exigem autenticação mas não exigem role de aplicação (ex: frontendlog).
 """
-import os
 from pathlib import Path
 
 import environ
@@ -180,7 +179,7 @@ CSRF_TRUSTED_ORIGINS = env.list(
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         # FASE-0: JWT removido — sessão Django como único mecanismo
-        #"rest_framework.authentication.SessionAuthentication",
+        # "rest_framework.authentication.SessionAuthentication",
         "apps.accounts.authentication.AppContextAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
@@ -209,16 +208,16 @@ REST_FRAMEWORK = {
 # Em dev, liberamos cdn.jsdelivr.net para o Swagger UI funcionar.
 CONTENT_SECURITY_POLICY = {
     "DIRECTIVES": {
-        "default-src":   ("'self'",),
-        "script-src":    ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
+        "default-src": ("'self'",),
+        "script-src": ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
         "script-src-elem": ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
-        "style-src":     ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
-        "style-src-elem":  ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
-        "img-src":       ("'self'", "data:", "cdn.jsdelivr.net"),
-        "font-src":      ("'self'", "cdn.jsdelivr.net"),
-        "worker-src":    ("blob:",),
-        "object-src":    ("'none'",),
-        "base-uri":      ("'self'",),
+        "style-src": ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
+        "style-src-elem": ("'self'", "'unsafe-inline'", "cdn.jsdelivr.net"),
+        "img-src": ("'self'", "data:", "cdn.jsdelivr.net"),
+        "font-src": ("'self'", "cdn.jsdelivr.net"),
+        "worker-src": ("blob:",),
+        "object-src": ("'none'",),
+        "base-uri": ("'self'",),
         "frame-ancestors": ("'none'",),
     }
 }
@@ -299,18 +298,18 @@ SPECTACULAR_SETTINGS = {
     },
 
     "EXTENSIONS_INFO": {},
-        "EXTENSIONS": [
-            "apps.accounts.openapi.AppContextAuthenticationExtension",
-        ],
-        
+    "EXTENSIONS": [
+        "apps.accounts.openapi.AppContextAuthenticationExtension",
+    ],
+
     # ── Ordem das seções no Swagger UI ────────────────────────────────────────
     "TAGS": [
-        {"name": "0 - Autenticação",  "description": "Login, logout e sessão do usuário"},
-        {"name": "1 - Usuários",      "description": "Perfis, roles e permissões"},
-        {"name": "2 - Portal",        "description": "Dashboard e aplicações do portal"},
-        {"name": "3 - Ações PNGI",    "description": "Ações, prazos, anotações e destaques"},
+        {"name": "0 - Autenticação", "description": "Login, logout e sessão do usuário"},
+        {"name": "1 - Usuários", "description": "Perfis, roles e permissões"},
+        {"name": "2 - Portal", "description": "Dashboard e aplicações do portal"},
+        {"name": "3 - Ações PNGI", "description": "Ações, prazos, anotações e destaques"},
         {"name": "4 - Carga Org/Lot", "description": "Carga de organogramas e loteamentos"},
-        {"name": "5 - Utilitários",   "description": "Health check e logs de frontend"},
+        {"name": "5 - Utilitários", "description": "Health check e logs de frontend"},
     ],
 
     # Filtra paths que não devem aparecer na documentação

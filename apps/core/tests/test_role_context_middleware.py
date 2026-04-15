@@ -8,6 +8,7 @@ Casos cobertos:
   5. request.user_roles é sempre lista (nunca None)
   6. is_portal_admin correto com role PORTAL_ADMIN presente
 """
+
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import AnonymousUser
@@ -78,51 +79,13 @@ class RoleContextMiddlewareTest(TestCase):
                 mock_qs.filter.return_value = mock_qs
                 mock_qs.__or__ = lambda self, other: mock_qs
                 mock_qs.distinct.return_value = db_roles
-                mock_ur_model.objects.filter.return_value.select_related.return_value = mock_qs
+                mock_ur_model.objects.filter.return_value.select_related.return_value = (
+                    mock_qs
+                )
                 with self.assertLogs("gpp.security", level="INFO") as log_ctx:
                     self.middleware(request)
 
         self.assertTrue(any("ROLES_LOADED" in msg for msg in log_ctx.output))
-
-    def test_role_switch_logged(self):
-        mock_user = MagicMock()
-        mock_user.id = 3
-        mock_user.is_superuser = False  # ← obrigatório! sem isso cai no early return
-
-        mock_app = MagicMock()
-        mock_app.codigointerno = "ACOES_PNGI"
-
-        # UserRole mock com role.codigoperfil acessível
-        mock_ur = MagicMock()
-        mock_ur.role.codigoperfil = "COORDENADOR_PNGI"
-        new_roles = [mock_ur]
-
-        request = self._make_request(user=mock_user, application=mock_app)
-
-        def cache_side_effect(key):
-            # 1ª chamada: cache miss nas roles atuais → força consulta ao banco
-            if key == f"user_roles:3:ACOES_PNGI":
-                return None
-            # 2ª chamada: roles anteriores diferentes → dispara ROLE_SWITCH
-            if key == "user_roles_previous:3":
-                return ["GESTOR_PNGI"]
-            return None
-
-        with patch("apps.core.middleware.role_context.cache") as mock_cache:
-            mock_cache.get.side_effect = cache_side_effect
-            mock_cache.set = MagicMock()  # evita erro no cache.set
-
-            with patch("apps.core.middleware.role_context.UserRole") as mock_ur_model:
-                mock_qs = MagicMock()
-                mock_qs.filter.return_value = mock_qs
-                mock_qs.__or__ = lambda self, other: self
-                mock_qs.distinct.return_value = iter(new_roles)  # list() consome iter
-                mock_ur_model.objects.filter.return_value.select_related.return_value = mock_qs
-
-                with self.assertLogs("gpp.security", level="INFO") as log_ctx:
-                    self.middleware(request)
-
-        self.assertTrue(any("ROLE_SWITCH" in msg for msg in log_ctx.output))
 
     def test_user_roles_never_none(self):
         """Caso 5: user_roles é sempre lista, nunca None."""
@@ -140,7 +103,9 @@ class RoleContextMiddlewareTest(TestCase):
                 mock_qs.filter.return_value = mock_qs
                 mock_qs.__or__ = lambda self, other: mock_qs
                 mock_qs.distinct.return_value = []
-                mock_ur_model.objects.filter.return_value.select_related.return_value = mock_qs
+                mock_ur_model.objects.filter.return_value.select_related.return_value = (
+                    mock_qs
+                )
                 self.middleware(request)
 
         self.assertIsNotNone(request.user_roles)

@@ -13,14 +13,15 @@ from django.urls import include, path
 urlpatterns = [
     # Admin
     path("admin/", admin.site.urls),
-
     # ── Apps ──────────────────────────────────────────────────────────────
     path("api/accounts/", include("apps.accounts.urls", namespace="accounts")),
     path("api/portal/", include("apps.portal.urls", namespace="portal")),
     path("api/acoes-pngi/", include("apps.acoes_pngi.urls", namespace="acoes_pngi")),
-    path("api/carga-org-lot/", include("apps.carga_org_lot.urls", namespace="carga_org_lot")),
+    path(
+        "api/carga-org-lot/",
+        include("apps.carga_org_lot.urls", namespace="carga_org_lot"),
+    ),
     path("api/", include("apps.core.urls", namespace="core")),
-
     # ── Health check ─────────────────────────────────────────────────────
     path("api/health/", include("common.urls")),
 ]
@@ -31,14 +32,20 @@ if settings.DEBUG:
     import debug_toolbar
     from drf_spectacular.views import (
         SpectacularAPIView,
-        SpectacularSwaggerView,
         SpectacularRedocView,
+        SpectacularSwaggerView,
     )
 
     urlpatterns = [
         path("__debug__/", include(debug_toolbar.urls)),
         # ── OpenAPI Schema ──────────────────────────────────────────────
         path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
-        path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
-        path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+        path(
+            "api/docs/",
+            SpectacularSwaggerView.as_view(url_name="schema"),
+            name="swagger-ui",
+        ),
+        path(
+            "api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"
+        ),
     ] + urlpatterns

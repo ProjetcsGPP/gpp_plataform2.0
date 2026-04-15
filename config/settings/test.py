@@ -27,6 +27,7 @@ Diferencas em relacao a development.py:
      level=DEBUG para capturar logs de nivel INFO emitidos pelos
      loggers de seguranca (AUTHZ_APP_VIEW_DENY, etc.).
 """
+
 from .development import *  # noqa: F401, F403
 
 # ---------------------------------------------------------------------------
@@ -45,8 +46,8 @@ CACHES = {
 REST_FRAMEWORK = {
     **REST_FRAMEWORK,  # noqa: F405
     "DEFAULT_THROTTLE_RATES": {
-        "anon":  "999999/min",
-        "user":  "999999/min",
+        "anon": "999999/min",
+        "user": "999999/min",
         "login": "999999/min",
     },
 }

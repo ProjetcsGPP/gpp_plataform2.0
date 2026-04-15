@@ -8,34 +8,32 @@ Objetivo: atingir ≥80% de cobertura em views.py, cobrindo:
   - ViewSets nested: AcaoPrazo, AcaoDestaque, AcaoAnotacao
   - Roles: GESTOR, COORDENADOR, OPERADOR, CONSULTOR
 """
-import pytest
+
 from unittest.mock import MagicMock
-from rest_framework.exceptions import PermissionDenied
+
+import pytest
 from django.utils import timezone
+from rest_framework.exceptions import PermissionDenied
 
 from apps.accounts.models import Aplicacao, Role, UserRole
-from apps.accounts.tests.conftest import (
-    _assign_role,
-    _make_authenticated_client,
-    _make_user,
-)
+from apps.accounts.tests.conftest import _make_authenticated_client, _make_user
 from apps.acoes_pngi.models import (
-    Acoes,
     AcaoAnotacaoAlinhamento,
     AcaoDestaque,
     AcaoPrazo,
+    Acoes,
     Eixo,
     SituacaoAcao,
     TipoAnotacaoAlinhamento,
     VigenciaPNGI,
 )
 from apps.acoes_pngi.views import (
+    _LEVEL_DELETE,
+    _LEVEL_READ,
+    _LEVEL_WRITE,
     _check_roles,
     _load_role_matrix,
     _load_vigencia_role_matrix,
-    _LEVEL_READ,
-    _LEVEL_WRITE,
-    _LEVEL_DELETE,
 )
 
 # URLs base
@@ -59,15 +57,22 @@ def _clear_lru_cache():
 # Fixtures de usuários/roles
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def consultor_pngi(db):
     from apps.accounts.models import ClassificacaoUsuario
+
     ClassificacaoUsuario.objects.get_or_create(
         pk=1,
-        defaults={"strdescricao": "Usuario Padrao", "pode_criar_usuario": False, "pode_editar_usuario": False},
+        defaults={
+            "strdescricao": "Usuario Padrao",
+            "pode_criar_usuario": False,
+            "pode_editar_usuario": False,
+        },
     )
     app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
     from django.contrib.auth.models import Group
+
     group, _ = Group.objects.get_or_create(name="consultor_pngi_group")
     role, _ = Role.objects.get_or_create(
         codigoperfil="CONSULTOR_PNGI",
@@ -90,6 +95,7 @@ def client_consultor(db, consultor_pngi):
 # ---------------------------------------------------------------------------
 # Fixtures de dados
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def vigencia(db):
@@ -155,6 +161,7 @@ def anotacao(db, acao, tipo_anotacao):
 # TestCheckRolesDirect — cobre _check_roles() diretamente (sem HTTP)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestCheckRolesDirect:
     """Cobre todos os branches de _check_roles()."""
@@ -213,7 +220,9 @@ class TestCheckRolesDirect:
         req = MagicMock()
         req.is_portal_admin = False
         req.user_roles = [role_mock]
-        _check_roles(req, _LEVEL_WRITE, matrix_fn=_load_vigencia_role_matrix)  # não deve lançar
+        _check_roles(
+            req, _LEVEL_WRITE, matrix_fn=_load_vigencia_role_matrix
+        )  # não deve lançar
 
     def test_operador_nao_passa_vigencia_write(self):
         """OPERADOR_ACAO não pode escrever vigencias."""
@@ -231,6 +240,7 @@ class TestCheckRolesDirect:
 # ---------------------------------------------------------------------------
 # TestLoadMatrices — cobre _load_role_matrix e _load_vigencia_role_matrix
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestLoadMatrices:
@@ -272,6 +282,7 @@ class TestLoadMatrices:
 # TestCoordenadorPermissions
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestCoordenadorPermissions:
 
@@ -279,46 +290,64 @@ class TestCoordenadorPermissions:
         assert client_coordenador.get(ACOES_URL).status_code == 200
 
     def test_coordenador_pode_criar_acao(self, client_coordenador, vigencia):
-        resp = client_coordenador.post(ACOES_URL, {
-            "strapelido": "ACAO-COORD-001",
-            "strdescricaoacao": "Nova Acao Coordenador",
-            "strdescricaoentrega": "Entrega coordenador",
-            "idvigenciapngi_id": vigencia.pk,
-        }, format="json")
+        resp = client_coordenador.post(
+            ACOES_URL,
+            {
+                "strapelido": "ACAO-COORD-001",
+                "strdescricaoacao": "Nova Acao Coordenador",
+                "strdescricaoentrega": "Entrega coordenador",
+                "idvigenciapngi_id": vigencia.pk,
+            },
+            format="json",
+        )
         assert resp.status_code == 201
 
     def test_coordenador_pode_retrieve_acao(self, client_coordenador, acao):
         assert client_coordenador.get(f"{ACOES_URL}{acao.pk}/").status_code == 200
 
     def test_coordenador_pode_update_acao(self, client_coordenador, acao, vigencia):
-        resp = client_coordenador.put(f"{ACOES_URL}{acao.pk}/", {
-            "strapelido": "ACAO-UPDATED",
-            "strdescricaoacao": "Atualizada",
-            "strdescricaoentrega": "Entrega",
-            "idvigenciapngi_id": vigencia.pk,
-        }, format="json")
+        resp = client_coordenador.put(
+            f"{ACOES_URL}{acao.pk}/",
+            {
+                "strapelido": "ACAO-UPDATED",
+                "strdescricaoacao": "Atualizada",
+                "strdescricaoentrega": "Entrega",
+                "idvigenciapngi_id": vigencia.pk,
+            },
+            format="json",
+        )
         assert resp.status_code == 200
 
     def test_coordenador_nao_pode_deletar_acao(self, client_coordenador, acao):
         assert client_coordenador.delete(f"{ACOES_URL}{acao.pk}/").status_code == 403
 
     def test_coordenador_pode_criar_vigencia(self, client_coordenador):
-        resp = client_coordenador.post(VIGENCIAS_URL, {
-            "strdescricao": "Vigencia Coordenador",
-            "datiniciovigencia": "2026-01-01",
-        }, format="json")
+        resp = client_coordenador.post(
+            VIGENCIAS_URL,
+            {
+                "strdescricao": "Vigencia Coordenador",
+                "datiniciovigencia": "2026-01-01",
+            },
+            format="json",
+        )
         assert resp.status_code == 201
 
     def test_coordenador_pode_retrieve_vigencia(self, client_coordenador, vigencia):
-        assert client_coordenador.get(f"{VIGENCIAS_URL}{vigencia.pk}/").status_code == 200
+        assert (
+            client_coordenador.get(f"{VIGENCIAS_URL}{vigencia.pk}/").status_code == 200
+        )
 
     def test_coordenador_nao_pode_deletar_vigencia(self, client_coordenador, vigencia):
-        assert client_coordenador.delete(f"{VIGENCIAS_URL}{vigencia.pk}/").status_code == 403
+        assert (
+            client_coordenador.delete(f"{VIGENCIAS_URL}{vigencia.pk}/").status_code
+            == 403
+        )
 
 
 # ---------------------------------------------------------------------------
 # TestOperadorPermissions
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestOperadorPermissions:
@@ -327,12 +356,16 @@ class TestOperadorPermissions:
         assert client_operador.get(ACOES_URL).status_code == 200
 
     def test_operador_pode_criar_acao(self, client_operador, vigencia):
-        resp = client_operador.post(ACOES_URL, {
-            "strapelido": "ACAO-OPER-001",
-            "strdescricaoacao": "Nova Acao Operador",
-            "strdescricaoentrega": "Entrega operador",
-            "idvigenciapngi_id": vigencia.pk,
-        }, format="json")
+        resp = client_operador.post(
+            ACOES_URL,
+            {
+                "strapelido": "ACAO-OPER-001",
+                "strdescricaoacao": "Nova Acao Operador",
+                "strdescricaoentrega": "Entrega operador",
+                "idvigenciapngi_id": vigencia.pk,
+            },
+            format="json",
+        )
         assert resp.status_code == 201
 
     def test_operador_pode_retrieve_acao(self, client_operador, acao):
@@ -342,14 +375,20 @@ class TestOperadorPermissions:
         assert client_operador.delete(f"{ACOES_URL}{acao.pk}/").status_code == 403
 
     def test_operador_nao_pode_criar_vigencia(self, client_operador):
-        resp = client_operador.post(VIGENCIAS_URL, {
-            "strdescricao": "Vigencia Operador",
-            "datiniciovigencia": "2026-01-01",
-        }, format="json")
+        resp = client_operador.post(
+            VIGENCIAS_URL,
+            {
+                "strdescricao": "Vigencia Operador",
+                "datiniciovigencia": "2026-01-01",
+            },
+            format="json",
+        )
         assert resp.status_code == 403
 
     def test_operador_nao_pode_deletar_vigencia(self, client_operador, vigencia):
-        assert client_operador.delete(f"{VIGENCIAS_URL}{vigencia.pk}/").status_code == 403
+        assert (
+            client_operador.delete(f"{VIGENCIAS_URL}{vigencia.pk}/").status_code == 403
+        )
 
     def test_operador_pode_listar_vigencias(self, client_operador):
         assert client_operador.get(VIGENCIAS_URL).status_code == 200
@@ -358,13 +397,18 @@ class TestOperadorPermissions:
         assert client_operador.get(f"{VIGENCIAS_URL}{vigencia.pk}/").status_code == 200
 
     def test_operador_nao_pode_patch_vigencia(self, client_operador, vigencia):
-        assert client_operador.patch(f"{VIGENCIAS_URL}{vigencia.pk}/",
-                                     {"strdescricao": "X"}, format="json").status_code == 403
+        assert (
+            client_operador.patch(
+                f"{VIGENCIAS_URL}{vigencia.pk}/", {"strdescricao": "X"}, format="json"
+            ).status_code
+            == 403
+        )
 
 
 # ---------------------------------------------------------------------------
 # TestConsultorPermissions
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestConsultorPermissions:
@@ -373,12 +417,16 @@ class TestConsultorPermissions:
         assert client_consultor.get(ACOES_URL).status_code == 200
 
     def test_consultor_nao_pode_criar_acao(self, client_consultor, vigencia):
-        resp = client_consultor.post(ACOES_URL, {
-            "strapelido": "ACAO-BLOCK",
-            "strdescricaoacao": "Acao Bloqueada",
-            "strdescricaoentrega": "Bloqueada",
-            "idvigenciapngi_id": vigencia.pk,
-        }, format="json")
+        resp = client_consultor.post(
+            ACOES_URL,
+            {
+                "strapelido": "ACAO-BLOCK",
+                "strdescricaoacao": "Acao Bloqueada",
+                "strdescricaoentrega": "Bloqueada",
+                "idvigenciapngi_id": vigencia.pk,
+            },
+            format="json",
+        )
         assert resp.status_code == 403
 
     def test_consultor_pode_retrieve_acao(self, client_consultor, acao):
@@ -388,9 +436,11 @@ class TestConsultorPermissions:
         assert client_consultor.delete(f"{ACOES_URL}{acao.pk}/").status_code == 403
 
     def test_consultor_nao_pode_criar_vigencia(self, client_consultor):
-        resp = client_consultor.post(VIGENCIAS_URL,
-                                     {"strdescricao": "Blocked", "datiniciovigencia": "2026-01-01"},
-                                     format="json")
+        resp = client_consultor.post(
+            VIGENCIAS_URL,
+            {"strdescricao": "Blocked", "datiniciovigencia": "2026-01-01"},
+            format="json",
+        )
         assert resp.status_code == 403
 
     def test_consultor_pode_listar_vigencias(self, client_consultor):
@@ -400,6 +450,7 @@ class TestConsultorPermissions:
 # ---------------------------------------------------------------------------
 # TestEixoSituacaoViewSets
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestEixoSituacaoViewSets:
@@ -427,6 +478,7 @@ class TestEixoSituacaoViewSets:
 # TestVigenciaFullCRUD — GESTOR faz ciclo completo
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestVigenciaFullCRUD:
 
@@ -434,25 +486,34 @@ class TestVigenciaFullCRUD:
         assert client_gestor.get(VIGENCIAS_URL).status_code == 200
 
     def test_gestor_pode_criar(self, client_gestor):
-        resp = client_gestor.post(VIGENCIAS_URL, {
-            "strdescricao": "Vigencia GESTOR",
-            "datiniciovigencia": "2026-01-01",
-        }, format="json")
+        resp = client_gestor.post(
+            VIGENCIAS_URL,
+            {
+                "strdescricao": "Vigencia GESTOR",
+                "datiniciovigencia": "2026-01-01",
+            },
+            format="json",
+        )
         assert resp.status_code == 201
 
     def test_gestor_pode_retrieve(self, client_gestor, vigencia):
         assert client_gestor.get(f"{VIGENCIAS_URL}{vigencia.pk}/").status_code == 200
 
     def test_gestor_pode_update(self, client_gestor, vigencia):
-        resp = client_gestor.put(f"{VIGENCIAS_URL}{vigencia.pk}/", {
-            "strdescricao": "Atualizada",
-            "datiniciovigencia": "2026-06-01",
-        }, format="json")
+        resp = client_gestor.put(
+            f"{VIGENCIAS_URL}{vigencia.pk}/",
+            {
+                "strdescricao": "Atualizada",
+                "datiniciovigencia": "2026-06-01",
+            },
+            format="json",
+        )
         assert resp.status_code == 200
 
     def test_gestor_pode_patch(self, client_gestor, vigencia):
-        resp = client_gestor.patch(f"{VIGENCIAS_URL}{vigencia.pk}/",
-                                   {"strdescricao": "Patched"}, format="json")
+        resp = client_gestor.patch(
+            f"{VIGENCIAS_URL}{vigencia.pk}/", {"strdescricao": "Patched"}, format="json"
+        )
         assert resp.status_code == 200
 
     def test_gestor_pode_deletar(self, client_gestor, vigencia):
@@ -463,6 +524,7 @@ class TestVigenciaFullCRUD:
 # TestAcaoFullCRUD — GESTOR faz ciclo completo
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestAcaoFullCRUD:
 
@@ -470,29 +532,38 @@ class TestAcaoFullCRUD:
         assert client_gestor.get(ACOES_URL).status_code == 200
 
     def test_gestor_pode_criar(self, client_gestor, vigencia):
-        resp = client_gestor.post(ACOES_URL, {
-            "strapelido": "ACAO-GESTOR",
-            "strdescricaoacao": "Acao Gestor",
-            "strdescricaoentrega": "Entrega",
-            "idvigenciapngi_id": vigencia.pk,
-        }, format="json")
+        resp = client_gestor.post(
+            ACOES_URL,
+            {
+                "strapelido": "ACAO-GESTOR",
+                "strdescricaoacao": "Acao Gestor",
+                "strdescricaoentrega": "Entrega",
+                "idvigenciapngi_id": vigencia.pk,
+            },
+            format="json",
+        )
         assert resp.status_code == 201
 
     def test_gestor_pode_retrieve(self, client_gestor, acao):
         assert client_gestor.get(f"{ACOES_URL}{acao.pk}/").status_code == 200
 
     def test_gestor_pode_update(self, client_gestor, acao, vigencia):
-        resp = client_gestor.put(f"{ACOES_URL}{acao.pk}/", {
-            "strapelido": "UPDATED",
-            "strdescricaoacao": "Atualizada",
-            "strdescricaoentrega": "Entrega",
-            "idvigenciapngi_id": vigencia.pk,
-        }, format="json")
+        resp = client_gestor.put(
+            f"{ACOES_URL}{acao.pk}/",
+            {
+                "strapelido": "UPDATED",
+                "strdescricaoacao": "Atualizada",
+                "strdescricaoentrega": "Entrega",
+                "idvigenciapngi_id": vigencia.pk,
+            },
+            format="json",
+        )
         assert resp.status_code == 200
 
     def test_gestor_pode_patch(self, client_gestor, acao):
-        resp = client_gestor.patch(f"{ACOES_URL}{acao.pk}/",
-                                   {"strdescricaoacao": "Patched"}, format="json")
+        resp = client_gestor.patch(
+            f"{ACOES_URL}{acao.pk}/", {"strdescricaoacao": "Patched"}, format="json"
+        )
         assert resp.status_code == 200
 
     def test_gestor_pode_deletar(self, client_gestor, acao):
@@ -503,22 +574,32 @@ class TestAcaoFullCRUD:
 # TestVigenciaPartialUpdate
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestVigenciaPartialUpdate:
 
     def test_gestor_pode_patch_vigencia(self, client_gestor, vigencia):
-        resp = client_gestor.patch(f"{VIGENCIAS_URL}{vigencia.pk}/",
-                                   {"strdescricao": "Vigencia Atualizada"}, format="json")
+        resp = client_gestor.patch(
+            f"{VIGENCIAS_URL}{vigencia.pk}/",
+            {"strdescricao": "Vigencia Atualizada"},
+            format="json",
+        )
         assert resp.status_code == 200
 
     def test_coordenador_pode_patch_vigencia(self, client_coordenador, vigencia):
-        resp = client_coordenador.patch(f"{VIGENCIAS_URL}{vigencia.pk}/",
-                                        {"strdescricao": "Atualizado Coord"}, format="json")
+        resp = client_coordenador.patch(
+            f"{VIGENCIAS_URL}{vigencia.pk}/",
+            {"strdescricao": "Atualizado Coord"},
+            format="json",
+        )
         assert resp.status_code == 200
 
     def test_operador_nao_pode_patch_vigencia(self, client_operador, vigencia):
-        resp = client_operador.patch(f"{VIGENCIAS_URL}{vigencia.pk}/",
-                                     {"strdescricao": "Tentativa Operador"}, format="json")
+        resp = client_operador.patch(
+            f"{VIGENCIAS_URL}{vigencia.pk}/",
+            {"strdescricao": "Tentativa Operador"},
+            format="json",
+        )
         assert resp.status_code == 403
 
 
@@ -526,23 +607,31 @@ class TestVigenciaPartialUpdate:
 # TestAcaoPartialUpdate
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestAcaoPartialUpdate:
 
     def test_operador_pode_patch_acao(self, client_operador, acao):
-        resp = client_operador.patch(f"{ACOES_URL}{acao.pk}/",
-                                     {"strdescricaoacao": "Acao Patched"}, format="json")
+        resp = client_operador.patch(
+            f"{ACOES_URL}{acao.pk}/",
+            {"strdescricaoacao": "Acao Patched"},
+            format="json",
+        )
         assert resp.status_code == 200
 
     def test_consultor_nao_pode_patch_acao(self, client_consultor, acao):
-        resp = client_consultor.patch(f"{ACOES_URL}{acao.pk}/",
-                                      {"strdescricaoacao": "Tentativa Consultor"}, format="json")
+        resp = client_consultor.patch(
+            f"{ACOES_URL}{acao.pk}/",
+            {"strdescricaoacao": "Tentativa Consultor"},
+            format="json",
+        )
         assert resp.status_code == 403
 
 
 # ---------------------------------------------------------------------------
 # TestNestedViewSets — CRUD completo em Prazo, Destaque, Anotacao
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestNestedViewSets:
@@ -552,29 +641,46 @@ class TestNestedViewSets:
         assert client_gestor.get(f"{ACOES_URL}{acao.pk}/prazos/").status_code == 200
 
     def test_gestor_cria_prazo(self, client_gestor, acao):
-        resp = client_gestor.post(f"{ACOES_URL}{acao.pk}/prazos/",
-                                  {"idacao_id": acao.pk, "strprazo": "Prazo Teste"},
-                                  format="json")
+        resp = client_gestor.post(
+            f"{ACOES_URL}{acao.pk}/prazos/",
+            {"idacao_id": acao.pk, "strprazo": "Prazo Teste"},
+            format="json",
+        )
         assert resp.status_code in (201, 400)
 
     def test_gestor_retrieve_prazo(self, client_gestor, acao, prazo):
-        assert client_gestor.get(f"{ACOES_URL}{acao.pk}/prazos/{prazo.pk}/").status_code == 200
+        assert (
+            client_gestor.get(f"{ACOES_URL}{acao.pk}/prazos/{prazo.pk}/").status_code
+            == 200
+        )
 
     def test_gestor_update_prazo(self, client_gestor, acao, prazo):
-        resp = client_gestor.patch(f"{ACOES_URL}{acao.pk}/prazos/{prazo.pk}/",
-                                   {"strprazo": "Prazo Atualizado"}, format="json")
+        resp = client_gestor.patch(
+            f"{ACOES_URL}{acao.pk}/prazos/{prazo.pk}/",
+            {"strprazo": "Prazo Atualizado"},
+            format="json",
+        )
         assert resp.status_code == 200
 
     def test_gestor_pode_deletar_prazo(self, client_gestor, acao, prazo):
-        assert client_gestor.delete(f"{ACOES_URL}{acao.pk}/prazos/{prazo.pk}/").status_code == 204
+        assert (
+            client_gestor.delete(f"{ACOES_URL}{acao.pk}/prazos/{prazo.pk}/").status_code
+            == 204
+        )
 
     def test_operador_nao_pode_deletar_prazo(self, client_operador, acao):
         prazo = AcaoPrazo.objects.create(idacao=acao, strprazo="prazo a deletar")
-        assert client_operador.delete(f"{ACOES_URL}{acao.pk}/prazos/{prazo.pk}/").status_code == 403
+        assert (
+            client_operador.delete(
+                f"{ACOES_URL}{acao.pk}/prazos/{prazo.pk}/"
+            ).status_code
+            == 403
+        )
 
     def test_consultor_nao_pode_criar_prazo(self, client_consultor, acao):
-        resp = client_consultor.post(f"{ACOES_URL}{acao.pk}/prazos/",
-                                     {"strprazo": "blocked"}, format="json")
+        resp = client_consultor.post(
+            f"{ACOES_URL}{acao.pk}/prazos/", {"strprazo": "blocked"}, format="json"
+        )
         assert resp.status_code == 403
 
     # Destaque
@@ -582,20 +688,34 @@ class TestNestedViewSets:
         assert client_gestor.get(f"{ACOES_URL}{acao.pk}/destaques/").status_code == 200
 
     def test_gestor_retrieve_destaque(self, client_gestor, acao, destaque):
-        assert client_gestor.get(f"{ACOES_URL}{acao.pk}/destaques/{destaque.pk}/").status_code == 200
+        assert (
+            client_gestor.get(
+                f"{ACOES_URL}{acao.pk}/destaques/{destaque.pk}/"
+            ).status_code
+            == 200
+        )
 
     def test_gestor_pode_deletar_destaque(self, client_gestor, acao):
         d = AcaoDestaque.objects.create(idacao=acao, datdatadestaque=timezone.now())
-        assert client_gestor.delete(f"{ACOES_URL}{acao.pk}/destaques/{d.pk}/").status_code == 204
+        assert (
+            client_gestor.delete(f"{ACOES_URL}{acao.pk}/destaques/{d.pk}/").status_code
+            == 204
+        )
 
     def test_gestor_patch_destaque(self, client_gestor, acao, destaque):
-        resp = client_gestor.patch(f"{ACOES_URL}{acao.pk}/destaques/{destaque.pk}/",
-                                   {"datdatadestaque": "2026-06-01T10:00:00Z"}, format="json")
+        resp = client_gestor.patch(
+            f"{ACOES_URL}{acao.pk}/destaques/{destaque.pk}/",
+            {"datdatadestaque": "2026-06-01T10:00:00Z"},
+            format="json",
+        )
         assert resp.status_code == 200
 
     def test_consultor_nao_pode_criar_destaque(self, client_consultor, acao):
-        resp = client_consultor.post(f"{ACOES_URL}{acao.pk}/destaques/",
-                                     {"datdatadestaque": "2026-01-01T00:00:00Z"}, format="json")
+        resp = client_consultor.post(
+            f"{ACOES_URL}{acao.pk}/destaques/",
+            {"datdatadestaque": "2026-01-01T00:00:00Z"},
+            format="json",
+        )
         assert resp.status_code == 403
 
     # Anotacao
@@ -603,17 +723,33 @@ class TestNestedViewSets:
         assert client_gestor.get(f"{ACOES_URL}{acao.pk}/anotacoes/").status_code == 200
 
     def test_gestor_retrieve_anotacao(self, client_gestor, acao, anotacao):
-        assert client_gestor.get(f"{ACOES_URL}{acao.pk}/anotacoes/{anotacao.pk}/").status_code == 200
+        assert (
+            client_gestor.get(
+                f"{ACOES_URL}{acao.pk}/anotacoes/{anotacao.pk}/"
+            ).status_code
+            == 200
+        )
 
     def test_gestor_patch_anotacao(self, client_gestor, acao, anotacao):
-        resp = client_gestor.patch(f"{ACOES_URL}{acao.pk}/anotacoes/{anotacao.pk}/",
-                                   {"strdescricao": "Atualizada"}, format="json")
+        resp = client_gestor.patch(
+            f"{ACOES_URL}{acao.pk}/anotacoes/{anotacao.pk}/",
+            {"strdescricao": "Atualizada"},
+            format="json",
+        )
         assert resp.status_code == 200
 
     def test_gestor_pode_deletar_anotacao(self, client_gestor, acao, anotacao):
-        assert client_gestor.delete(f"{ACOES_URL}{acao.pk}/anotacoes/{anotacao.pk}/").status_code == 204
+        assert (
+            client_gestor.delete(
+                f"{ACOES_URL}{acao.pk}/anotacoes/{anotacao.pk}/"
+            ).status_code
+            == 204
+        )
 
     def test_consultor_nao_pode_criar_anotacao(self, client_consultor, acao):
-        resp = client_consultor.post(f"{ACOES_URL}{acao.pk}/anotacoes/",
-                                     {"strdescricao": "blocked"}, format="json")
+        resp = client_consultor.post(
+            f"{ACOES_URL}{acao.pk}/anotacoes/",
+            {"strdescricao": "blocked"},
+            format="json",
+        )
         assert resp.status_code == 403

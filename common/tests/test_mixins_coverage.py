@@ -24,15 +24,15 @@ Estratégia:
   - Para AuditableMixin: usar um serializer falso e verificar os campos
     de auditoria passados pelo save()
 """
-import pytest
+
 from unittest.mock import MagicMock, PropertyMock, patch
 
 from common.mixins import AuditableMixin, SecureQuerysetMixin
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_viewset_instance(scope_field="orgao", scope_source="orgao"):
     """
@@ -40,6 +40,7 @@ def _make_viewset_instance(scope_field="orgao", scope_source="orgao"):
     Não precisa de URL nem router — exercitamos filter_queryset_by_scope
     diretamente.
     """
+
     class FakeViewSet(SecureQuerysetMixin):
         pass
 
@@ -58,6 +59,7 @@ def _mock_request(user):
 # ---------------------------------------------------------------------------
 # TestSecureQuerysetMixinScopeNone
 # ---------------------------------------------------------------------------
+
 
 class TestSecureQuerysetMixinScopeNone:
     """
@@ -117,7 +119,6 @@ class TestSecureQuerysetMixinScopeNone:
         vs = _make_viewset_instance()
         vs.request = _mock_request(user)
 
-        result = vs.filter_queryset_by_scope(qs)
         qs.none.assert_called_once()
 
     def test_scope_missing_gera_log_warning(self):
@@ -142,6 +143,7 @@ class TestSecureQuerysetMixinScopeNone:
 # ---------------------------------------------------------------------------
 # TestSecureQuerysetMixinScopePreenchido
 # ---------------------------------------------------------------------------
+
 
 class TestSecureQuerysetMixinScopePreenchido:
     """
@@ -200,6 +202,7 @@ class TestSecureQuerysetMixinScopePreenchido:
 # TestSecureQuerysetMixinGetQueryset
 # ---------------------------------------------------------------------------
 
+
 class TestSecureQuerysetMixinGetQueryset:
     """Cobre a linha 30-32: get_queryset() chama super().get_queryset() e filtra."""
 
@@ -224,7 +227,10 @@ class TestSecureQuerysetMixinGetQueryset:
         vs.request = _mock_request(user)
 
         with patch.object(ConcreteViewSet, "get_queryset", wraps=vs.get_queryset):
-            with patch("common.mixins.SecureQuerysetMixin.filter_queryset_by_scope", return_value=parent_qs) as mock_filter:
+            with patch(
+                "common.mixins.SecureQuerysetMixin.filter_queryset_by_scope",
+                return_value=parent_qs,
+            ):
                 # Chama diretamente o filter que é o que nos interessa
                 result = vs.filter_queryset_by_scope(parent_qs)
                 assert result is parent_qs
@@ -233,6 +239,7 @@ class TestSecureQuerysetMixinGetQueryset:
 # ---------------------------------------------------------------------------
 # TestAuditableMixin
 # ---------------------------------------------------------------------------
+
 
 class TestAuditableMixin:
     """

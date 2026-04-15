@@ -18,6 +18,7 @@ NOTA: /api/accounts/ é uma rota transversal — o AppContextMiddleware
       A etapa 0 garante que request.application fique sincronizado
       com request.app_context nesses casos, evitando o fallback portal.
 """
+
 import logging
 
 from django.conf import settings
@@ -30,9 +31,9 @@ security_logger = logging.getLogger("gpp.security")
 # Não inclui "accounts" — rota transversal cujo contexto é resolvido
 # via cookie pelo AppContextMiddleware (etapa 0 abaixo).
 URL_PREFIX_MAP = {
-    "acoes-pngi":    "ACOES_PNGI",
+    "acoes-pngi": "ACOES_PNGI",
     "carga-org-lot": "CARGA_ORG_LOT",
-    "portal":        "PORTAL",
+    "portal": "PORTAL",
 }
 
 

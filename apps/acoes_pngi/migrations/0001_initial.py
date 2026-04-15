@@ -10,168 +10,463 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('auth', '0012_alter_user_first_name_max_length'),
+        ("auth", "0012_alter_user_first_name_max_length"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ('accounts', '0002_create_schemas'),
+        ("accounts", "0002_create_schemas"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='SituacaoAcao',
+            name="SituacaoAcao",
             fields=[
-                ('idsituacaoacao', models.AutoField(db_column='idsituacaoacao', primary_key=True, serialize=False)),
-                ('strdescricaosituacao', models.CharField(db_column='strdescricaosituacao', max_length=50, unique=True)),
+                (
+                    "idsituacaoacao",
+                    models.AutoField(
+                        db_column="idsituacaoacao", primary_key=True, serialize=False
+                    ),
+                ),
+                (
+                    "strdescricaosituacao",
+                    models.CharField(
+                        db_column="strdescricaosituacao", max_length=50, unique=True
+                    ),
+                ),
             ],
             options={
-                'db_table': '"acoes_pngi"."tblsituacaoacao"',
-                'ordering': ['strdescricaosituacao'],
+                "db_table": '"acoes_pngi"."tblsituacaoacao"',
+                "ordering": ["strdescricaosituacao"],
             },
         ),
         migrations.CreateModel(
-            name='TipoAnotacaoAlinhamento',
+            name="TipoAnotacaoAlinhamento",
             fields=[
-                ('idtipoanotacaoalinhamento', models.AutoField(db_column='idtipoanotacaoalinhamento', primary_key=True, serialize=False)),
-                ('strdescricaotipoanotacaoalinhamento', models.CharField(db_column='strdescricaotipoanotacaoalinhamento', max_length=100)),
+                (
+                    "idtipoanotacaoalinhamento",
+                    models.AutoField(
+                        db_column="idtipoanotacaoalinhamento",
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "strdescricaotipoanotacaoalinhamento",
+                    models.CharField(
+                        db_column="strdescricaotipoanotacaoalinhamento", max_length=100
+                    ),
+                ),
             ],
             options={
-                'db_table': '"acoes_pngi"."tbltipoanotacaoalinhamento"',
+                "db_table": '"acoes_pngi"."tbltipoanotacaoalinhamento"',
             },
         ),
         migrations.CreateModel(
-            name='TipoEntraveAlerta',
+            name="TipoEntraveAlerta",
             fields=[
-                ('idtipoentravealerta', models.AutoField(db_column='idtipoentravealerta', primary_key=True, serialize=False)),
-                ('strdescricaotipoentravealerta', models.CharField(db_column='strdescricaotipoentravealerta', max_length=50)),
+                (
+                    "idtipoentravealerta",
+                    models.AutoField(
+                        db_column="idtipoentravealerta",
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "strdescricaotipoentravealerta",
+                    models.CharField(
+                        db_column="strdescricaotipoentravealerta", max_length=50
+                    ),
+                ),
             ],
             options={
-                'db_table': '"acoes_pngi"."tbltipoentravealerta"',
+                "db_table": '"acoes_pngi"."tbltipoentravealerta"',
             },
         ),
         migrations.CreateModel(
-            name='UsuarioResponsavel',
+            name="UsuarioResponsavel",
             fields=[
-                ('idusuario', models.OneToOneField(db_column='idusuario', on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='usuario_responsavel_pngi', serialize=False, to=settings.AUTH_USER_MODEL)),
-                ('strtelefone', models.CharField(db_column='strtelefone', max_length=20)),
-                ('strorgao', models.CharField(db_column='strorgao', max_length=50)),
+                (
+                    "idusuario",
+                    models.OneToOneField(
+                        db_column="idusuario",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        primary_key=True,
+                        related_name="usuario_responsavel_pngi",
+                        serialize=False,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "strtelefone",
+                    models.CharField(db_column="strtelefone", max_length=20),
+                ),
+                ("strorgao", models.CharField(db_column="strorgao", max_length=50)),
             ],
             options={
-                'db_table': '"acoes_pngi"."tblusuarioresponsavel"',
+                "db_table": '"acoes_pngi"."tblusuarioresponsavel"',
             },
         ),
         migrations.CreateModel(
-            name='Acoes',
+            name="Acoes",
             fields=[
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('idacao', models.AutoField(db_column='idacao', primary_key=True, serialize=False)),
-                ('strapelido', models.CharField(db_column='strapelido', max_length=50)),
-                ('strdescricaoacao', models.CharField(db_column='strdescricaoacao', max_length=350)),
-                ('strdescricaoentrega', models.CharField(db_column='strdescricaoentrega', max_length=100)),
-                ('datdataentrega', models.DateTimeField(blank=True, db_column='datdataentrega', null=True)),
-                ('created_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_created', to=settings.AUTH_USER_MODEL)),
-                ('updated_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_updated', to=settings.AUTH_USER_MODEL)),
-                ('idtipoentravealerta', models.ForeignKey(blank=True, db_column='idtipoentravealerta', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='acoes', to='acoes_pngi.tipoentravealerta')),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "idacao",
+                    models.AutoField(
+                        db_column="idacao", primary_key=True, serialize=False
+                    ),
+                ),
+                ("strapelido", models.CharField(db_column="strapelido", max_length=50)),
+                (
+                    "strdescricaoacao",
+                    models.CharField(db_column="strdescricaoacao", max_length=350),
+                ),
+                (
+                    "strdescricaoentrega",
+                    models.CharField(db_column="strdescricaoentrega", max_length=100),
+                ),
+                (
+                    "datdataentrega",
+                    models.DateTimeField(
+                        blank=True, db_column="datdataentrega", null=True
+                    ),
+                ),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_created",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "updated_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_updated",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "idtipoentravealerta",
+                    models.ForeignKey(
+                        blank=True,
+                        db_column="idtipoentravealerta",
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="acoes",
+                        to="acoes_pngi.tipoentravealerta",
+                    ),
+                ),
             ],
             options={
-                'db_table': '"acoes_pngi"."tblacoes"',
-                'ordering': ['strapelido'],
+                "db_table": '"acoes_pngi"."tblacoes"',
+                "ordering": ["strapelido"],
             },
         ),
         migrations.CreateModel(
-            name='AcaoPrazo',
+            name="AcaoPrazo",
             fields=[
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('idacaoprazo', models.AutoField(db_column='idacaoprazo', primary_key=True, serialize=False)),
-                ('isacaoprazoativo', models.BooleanField(db_column='isacaoprazoativo', default=True)),
-                ('strprazo', models.CharField(db_column='strprazo', max_length=50)),
-                ('created_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_created', to=settings.AUTH_USER_MODEL)),
-                ('updated_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_updated', to=settings.AUTH_USER_MODEL)),
-                ('idacao', models.ForeignKey(db_column='idacao', on_delete=django.db.models.deletion.CASCADE, related_name='prazos', to='acoes_pngi.acoes')),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "idacaoprazo",
+                    models.AutoField(
+                        db_column="idacaoprazo", primary_key=True, serialize=False
+                    ),
+                ),
+                (
+                    "isacaoprazoativo",
+                    models.BooleanField(db_column="isacaoprazoativo", default=True),
+                ),
+                ("strprazo", models.CharField(db_column="strprazo", max_length=50)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_created",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "updated_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_updated",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "idacao",
+                    models.ForeignKey(
+                        db_column="idacao",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="prazos",
+                        to="acoes_pngi.acoes",
+                    ),
+                ),
             ],
             options={
-                'db_table': '"acoes_pngi"."tblacaoprazo"',
+                "db_table": '"acoes_pngi"."tblacaoprazo"',
             },
         ),
         migrations.CreateModel(
-            name='AcaoDestaque',
+            name="AcaoDestaque",
             fields=[
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('idacaodestaque', models.AutoField(db_column='idacaodestaque', primary_key=True, serialize=False)),
-                ('datdatadestaque', models.DateTimeField(db_column='datdatadestaque')),
-                ('created_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_created', to=settings.AUTH_USER_MODEL)),
-                ('updated_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_updated', to=settings.AUTH_USER_MODEL)),
-                ('idacao', models.ForeignKey(db_column='idacao', on_delete=django.db.models.deletion.CASCADE, related_name='destaques', to='acoes_pngi.acoes')),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "idacaodestaque",
+                    models.AutoField(
+                        db_column="idacaodestaque", primary_key=True, serialize=False
+                    ),
+                ),
+                ("datdatadestaque", models.DateTimeField(db_column="datdatadestaque")),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_created",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "updated_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_updated",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "idacao",
+                    models.ForeignKey(
+                        db_column="idacao",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="destaques",
+                        to="acoes_pngi.acoes",
+                    ),
+                ),
             ],
             options={
-                'db_table': '"acoes_pngi"."tblacaodestaque"',
+                "db_table": '"acoes_pngi"."tblacaodestaque"',
             },
         ),
         migrations.CreateModel(
-            name='Eixo',
+            name="Eixo",
             fields=[
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('ideixo', models.AutoField(db_column='ideixo', primary_key=True, serialize=False)),
-                ('strdescricaoeixo', models.CharField(db_column='strdescricaoeixo', max_length=100)),
-                ('stralias', models.CharField(db_column='stralias', max_length=5, unique=True)),
-                ('created_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_created', to=settings.AUTH_USER_MODEL)),
-                ('updated_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_updated', to=settings.AUTH_USER_MODEL)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "ideixo",
+                    models.AutoField(
+                        db_column="ideixo", primary_key=True, serialize=False
+                    ),
+                ),
+                (
+                    "strdescricaoeixo",
+                    models.CharField(db_column="strdescricaoeixo", max_length=100),
+                ),
+                (
+                    "stralias",
+                    models.CharField(db_column="stralias", max_length=5, unique=True),
+                ),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_created",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "updated_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_updated",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'db_table': '"acoes_pngi"."tbleixos"',
-                'ordering': ['stralias'],
+                "db_table": '"acoes_pngi"."tbleixos"',
+                "ordering": ["stralias"],
             },
         ),
         migrations.CreateModel(
-            name='AcaoAnotacaoAlinhamento',
+            name="AcaoAnotacaoAlinhamento",
             fields=[
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('idacaoanotacaoalinhamento', models.AutoField(db_column='idacaoanotacaoalinhamento', primary_key=True, serialize=False)),
-                ('strdescricao', models.TextField(db_column='strdescricao')),
-                ('created_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_created', to=settings.AUTH_USER_MODEL)),
-                ('updated_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_updated', to=settings.AUTH_USER_MODEL)),
-                ('idacao', models.ForeignKey(db_column='idacao', on_delete=django.db.models.deletion.CASCADE, related_name='anotacoes', to='acoes_pngi.acoes')),
-                ('idtipoanotacaoalinhamento', models.ForeignKey(db_column='idtipoanotacaoalinhamento', on_delete=django.db.models.deletion.PROTECT, to='acoes_pngi.tipoanotacaoalinhamento')),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "idacaoanotacaoalinhamento",
+                    models.AutoField(
+                        db_column="idacaoanotacaoalinhamento",
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                ("strdescricao", models.TextField(db_column="strdescricao")),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_created",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "updated_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_updated",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "idacao",
+                    models.ForeignKey(
+                        db_column="idacao",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="anotacoes",
+                        to="acoes_pngi.acoes",
+                    ),
+                ),
+                (
+                    "idtipoanotacaoalinhamento",
+                    models.ForeignKey(
+                        db_column="idtipoanotacaoalinhamento",
+                        on_delete=django.db.models.deletion.PROTECT,
+                        to="acoes_pngi.tipoanotacaoalinhamento",
+                    ),
+                ),
             ],
             options={
-                'db_table': '"acoes_pngi"."tblacaoanotacaoalinhamento"',
+                "db_table": '"acoes_pngi"."tblacaoanotacaoalinhamento"',
             },
         ),
         migrations.CreateModel(
-            name='VigenciaPNGI',
+            name="VigenciaPNGI",
             fields=[
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('idvigenciapngi', models.AutoField(db_column='idvigenciapngi', primary_key=True, serialize=False)),
-                ('strdescricao', models.CharField(db_column='strdescricao', max_length=200)),
-                ('datiniciovigencia', models.DateField(db_column='datiniciovigencia')),
-                ('datfinalvigencia', models.DateField(blank=True, db_column='datfinalvigencia', null=True)),
-                ('created_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_created', to=settings.AUTH_USER_MODEL)),
-                ('updated_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_updated', to=settings.AUTH_USER_MODEL)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "idvigenciapngi",
+                    models.AutoField(
+                        db_column="idvigenciapngi", primary_key=True, serialize=False
+                    ),
+                ),
+                (
+                    "strdescricao",
+                    models.CharField(db_column="strdescricao", max_length=200),
+                ),
+                ("datiniciovigencia", models.DateField(db_column="datiniciovigencia")),
+                (
+                    "datfinalvigencia",
+                    models.DateField(
+                        blank=True, db_column="datfinalvigencia", null=True
+                    ),
+                ),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_created",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "updated_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_updated",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'db_table': '"acoes_pngi"."tblvigenciapngi"',
-                'ordering': ['-datiniciovigencia'],
+                "db_table": '"acoes_pngi"."tblvigenciapngi"',
+                "ordering": ["-datiniciovigencia"],
             },
         ),
         migrations.AddField(
-            model_name='acoes',
-            name='idvigenciapngi',
-            field=models.ForeignKey(db_column='idvigenciapngi', on_delete=django.db.models.deletion.PROTECT, related_name='acoes', to='acoes_pngi.vigenciapngi'),
+            model_name="acoes",
+            name="idvigenciapngi",
+            field=models.ForeignKey(
+                db_column="idvigenciapngi",
+                on_delete=django.db.models.deletion.PROTECT,
+                related_name="acoes",
+                to="acoes_pngi.vigenciapngi",
+            ),
         ),
         migrations.CreateModel(
-            name='RelacaoAcaoUsuarioResponsavel',
+            name="RelacaoAcaoUsuarioResponsavel",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('idacao', models.ForeignKey(db_column='idacao', on_delete=django.db.models.deletion.CASCADE, to='acoes_pngi.acoes')),
-                ('idusuarioresponsavel', models.ForeignKey(db_column='idusuarioresponsavel', on_delete=django.db.models.deletion.CASCADE, to='acoes_pngi.usuarioresponsavel')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "idacao",
+                    models.ForeignKey(
+                        db_column="idacao",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="acoes_pngi.acoes",
+                    ),
+                ),
+                (
+                    "idusuarioresponsavel",
+                    models.ForeignKey(
+                        db_column="idusuarioresponsavel",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="acoes_pngi.usuarioresponsavel",
+                    ),
+                ),
             ],
             options={
-                'db_table': '"acoes_pngi"."tblrelacaoacaousuarioresponsavel"',
-                'unique_together': {('idacao', 'idusuarioresponsavel')},
+                "db_table": '"acoes_pngi"."tblrelacaoacaousuarioresponsavel"',
+                "unique_together": {("idacao", "idusuarioresponsavel")},
             },
         ),
     ]

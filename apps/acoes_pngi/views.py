@@ -26,24 +26,25 @@ Matriz de permissões por ViewSet:
     WRITE  = GESTOR_PNGI, COORDENADOR_PNGI   ← OPERADOR_ACAO nao pode escrever vigencias
     DELETE = GESTOR_PNGI
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
 
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
-from drf_spectacular.utils import extend_schema_view, extend_schema, OpenApiParameter
-from common.schema import tag_all_actions
 
 from common.mixins import AuditableMixin
 from common.permissions import HasRolePermission
+from common.schema import tag_all_actions
 
 from .models import (
-    Acoes,
     AcaoAnotacaoAlinhamento,
     AcaoDestaque,
     AcaoPrazo,
+    Acoes,
     Eixo,
     SituacaoAcao,
     VigenciaPNGI,
@@ -74,6 +75,7 @@ _ACAO_PK_PARAM = OpenApiParameter(
     description="ID (idacao) da Ação PNGI pai",
 )
 
+
 @lru_cache(maxsize=1)
 def _load_role_matrix() -> dict[str, frozenset[str]]:
     """
@@ -92,19 +94,19 @@ def _load_role_matrix() -> dict[str, frozenset[str]]:
     """
     from apps.accounts.models import Role
 
-    roles_qs = Role.objects.filter(
-        aplicacao__codigointerno=_APP_CODE
-    ).values_list("codigoperfil", flat=True)
+    roles_qs = Role.objects.filter(aplicacao__codigointerno=_APP_CODE).values_list(
+        "codigoperfil", flat=True
+    )
 
     all_roles: frozenset[str] = frozenset(roles_qs)
 
-    read_codes   = {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO", "CONSULTOR_PNGI"}
-    write_codes  = {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO"}
+    read_codes = {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO", "CONSULTOR_PNGI"}
+    write_codes = {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO"}
     delete_codes = {"GESTOR_PNGI"}
 
     return {
-        _LEVEL_READ:   all_roles.intersection(read_codes),
-        _LEVEL_WRITE:  all_roles.intersection(write_codes),
+        _LEVEL_READ: all_roles.intersection(read_codes),
+        _LEVEL_WRITE: all_roles.intersection(write_codes),
         _LEVEL_DELETE: all_roles.intersection(delete_codes),
     }
 
@@ -126,19 +128,22 @@ def _load_vigencia_role_matrix() -> dict[str, frozenset[str]]:
     """
     from apps.accounts.models import Role
 
-    roles_qs = Role.objects.filter(
-        aplicacao__codigointerno=_APP_CODE
-    ).values_list("codigoperfil", flat=True)
+    roles_qs = Role.objects.filter(aplicacao__codigointerno=_APP_CODE).values_list(
+        "codigoperfil", flat=True
+    )
 
     all_roles: frozenset[str] = frozenset(roles_qs)
 
-    read_codes   = {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO", "CONSULTOR_PNGI"}
-    write_codes  = {"GESTOR_PNGI", "COORDENADOR_PNGI"}  # OPERADOR_ACAO nao pode criar/editar vigencias
+    read_codes = {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO", "CONSULTOR_PNGI"}
+    write_codes = {
+        "GESTOR_PNGI",
+        "COORDENADOR_PNGI",
+    }  # OPERADOR_ACAO nao pode criar/editar vigencias
     delete_codes = {"GESTOR_PNGI"}
 
     return {
-        _LEVEL_READ:   all_roles.intersection(read_codes),
-        _LEVEL_WRITE:  all_roles.intersection(write_codes),
+        _LEVEL_READ: all_roles.intersection(read_codes),
+        _LEVEL_WRITE: all_roles.intersection(write_codes),
         _LEVEL_DELETE: all_roles.intersection(delete_codes),
     }
 
@@ -173,12 +178,14 @@ def _check_roles(request, level: str, matrix_fn=None) -> None:
 # ViewSets de referência (somente leitura)
 # ---------------------------------------------------------------------------
 
+
 @tag_all_actions("3 - Ações PNGI")
 class EixoViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Eixos temáticos do programa PNGI.
     Somente leitura para todos os usuários autenticados.
     """
+
     queryset = Eixo.objects.all()
     serializer_class = EixoSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
@@ -198,6 +205,7 @@ class SituacaoAcaoViewSet(viewsets.ReadOnlyModelViewSet):
     Situações possíveis de uma Ação PNGI.
     Somente leitura para todos os usuários autenticados.
     """
+
     queryset = SituacaoAcao.objects.all()
     serializer_class = SituacaoAcaoSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
@@ -215,6 +223,7 @@ class SituacaoAcaoViewSet(viewsets.ReadOnlyModelViewSet):
 # VigenciaPNGIViewSet (CRUD completo — apenas GESTOR/COORDENADOR escrevem)
 # ---------------------------------------------------------------------------
 
+
 @tag_all_actions("3 - Ações PNGI")
 class VigenciaPNGIViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
@@ -227,6 +236,7 @@ class VigenciaPNGIViewSet(AuditableMixin, viewsets.ModelViewSet):
     Usa _load_vigencia_role_matrix() — matriz separada de _load_role_matrix()
     para garantir que OPERADOR_ACAO nao herde permissao de escrita de Acoes.
     """
+
     queryset = VigenciaPNGI.objects.all()
     serializer_class = VigenciaPNGISerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
@@ -260,6 +270,7 @@ class VigenciaPNGIViewSet(AuditableMixin, viewsets.ModelViewSet):
 # AcaoViewSet (CRUD completo com matrix de roles)
 # ---------------------------------------------------------------------------
 
+
 @tag_all_actions("3 - Ações PNGI")
 class AcaoViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
@@ -270,6 +281,7 @@ class AcaoViewSet(AuditableMixin, viewsets.ModelViewSet):
     Controle de acesso exclusivamente por roles via _load_role_matrix().
     AuditableMixin preenche created_by_id/name e updated_by_id/name.
     """
+
     queryset = Acoes.objects.select_related(
         "idvigenciapngi",
         "idtipoentravealerta",
@@ -321,14 +333,15 @@ class AcaoPrazoViewSet(AuditableMixin, viewsets.ModelViewSet):
     Prazos de uma Ação PNGI.
     Filtrado pelo idacao passado na URL.
     """
+
     serializer_class = AcaoPrazoSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
-    queryset = AcaoPrazo.objects.all()  # ← usado apenas pelo drf-spectacular para introspecção
+    queryset = (
+        AcaoPrazo.objects.all()
+    )  # ← usado apenas pelo drf-spectacular para introspecção
 
     def get_queryset(self):
-        return AcaoPrazo.objects.filter(
-            idacao_id=self.kwargs["acao_pk"]
-        )
+        return AcaoPrazo.objects.filter(idacao_id=self.kwargs["acao_pk"])
 
     def list(self, request, *args, **kwargs):
         _check_roles(request, _LEVEL_READ)
@@ -354,6 +367,7 @@ class AcaoPrazoViewSet(AuditableMixin, viewsets.ModelViewSet):
         _check_roles(request, _LEVEL_DELETE)
         return super().destroy(request, *args, **kwargs)
 
+
 @extend_schema_view(
     list=extend_schema(parameters=[_ACAO_PK_PARAM]),
     create=extend_schema(parameters=[_ACAO_PK_PARAM]),
@@ -368,14 +382,13 @@ class AcaoDestaqueViewSet(AuditableMixin, viewsets.ModelViewSet):
     Destaques de uma Ação PNGI.
     Filtrado pelo idacao passado na URL.
     """
+
     serializer_class = AcaoDestaqueSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
     queryset = AcaoDestaque.objects.all()  # ← adicionar
 
     def get_queryset(self):
-        return AcaoDestaque.objects.filter(
-            idacao_id=self.kwargs["acao_pk"]
-        )
+        return AcaoDestaque.objects.filter(idacao_id=self.kwargs["acao_pk"])
 
     def list(self, request, *args, **kwargs):
         _check_roles(request, _LEVEL_READ)
@@ -416,14 +429,13 @@ class AcaoAnotacaoViewSet(AuditableMixin, viewsets.ModelViewSet):
     Anotações de alinhamento de uma Ação PNGI.
     Filtrado pelo idacao passado na URL.
     """
+
     serializer_class = AcaoAnotacaoAlinhamentoSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
     queryset = AcaoAnotacaoAlinhamento.objects.all()
 
     def get_queryset(self):
-        return AcaoAnotacaoAlinhamento.objects.filter(
-            idacao_id=self.kwargs["acao_pk"]
-        )
+        return AcaoAnotacaoAlinhamento.objects.filter(idacao_id=self.kwargs["acao_pk"])
 
     def list(self, request, *args, **kwargs):
         _check_roles(request, _LEVEL_READ)
