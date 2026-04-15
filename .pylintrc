@@ -1,0 +1,45 @@
+[MASTER]
+ignore=migrations,venv,.venv,**pycache**
+jobs=0
+load-plugins=pylint_django
+
+[MESSAGES CONTROL]
+disable=
+C0114,  # missing-module-docstring
+C0115,  # missing-class-docstring
+C0116,  # missing-function-docstring
+R0903,  # too-few-public-methods
+R0801,  # duplicate-code (muito agressivo em Django)
+W0703,  # broad-except (aceitável em algumas camadas)
+C0301,  # line-too-long (delegado ao flake8)
+W0511,  # TODO/FIXME
+E0401,  # import-error (problema comum com Django settings)
+E1101   # no-member (falso positivo com ORM Django)
+
+[FORMAT]
+max-line-length=120
+
+[BASIC]
+good-names=i,j,k,ex,pk,id,qs
+
+[DESIGN]
+max-args=10
+max-attributes=12
+max-public-methods=25
+max-locals=20
+max-branches=15
+
+[TYPECHECK]
+ignored-modules=rest_framework
+ignored-classes=QuerySet,Manager
+
+[LOGGING]
+logging-format-style=new
+
+[SIMILARITIES]
+ignore-imports=yes
+ignore-comments=yes
+
+[REPORTS]
+output-format=colorized
+score=yes
