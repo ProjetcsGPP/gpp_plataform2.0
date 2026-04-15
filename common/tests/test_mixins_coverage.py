@@ -118,6 +118,7 @@ class TestSecureQuerysetMixinScopeNone:
 
         vs = _make_viewset_instance()
         vs.request = _mock_request(user)
+        vs.get_queryset()
 
         qs.none.assert_called_once()
         result_qs = vs.get_queryset()  # ou o método correto
