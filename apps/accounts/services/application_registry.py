@@ -13,8 +13,14 @@ Estratégia de cache:
 
 Uso:
     registry = ApplicationRegistry()
-    app = registry.get("acoes_pngi")   # retorna Aplicacao ou None
+    app = registry.get("acoes_pngi")   # retorna Aplicacao ou None (case-insensitive)
+    app = registry.get("ACOES_PNGI")   # equivalente
     apps = registry.all()               # retorna list[Aplicacao]
+
+NORMALIZAÇÃO:
+  O dict interno usa chaves sempre em maiúsculas.
+  get() normaliza o argumento para maiúsculas antes da busca,
+  tornando a pesquisa case-insensitive sem custo adicional.
 """
 import logging
 
@@ -30,9 +36,10 @@ class ApplicationRegistry:
     def get(self, codigo_interno: str):
         """
         Retorna a Aplicacao com o codigointerno fornecido, ou None.
+        Case-insensitive — normaliza para maiúsculas internamente.
         """
         apps = self._load()
-        return apps.get(codigo_interno)
+        return apps.get(codigo_interno.upper())
 
     def all(self):
         """
@@ -50,7 +57,7 @@ class ApplicationRegistry:
     def _load(self) -> dict:
         """
         Carrega do cache ou banco.
-        Retorna dict { codigointerno: Aplicacao }.
+        Retorna dict { codigointerno.upper(): Aplicacao } — chaves sempre maiúsculas.
         """
         cached = cache.get(CACHE_KEY)
         if cached is not None:
@@ -58,7 +65,8 @@ class ApplicationRegistry:
 
         from apps.accounts.models import Aplicacao
 
-        apps = {a.codigointerno: a for a in Aplicacao.objects.all()}
+        # Normaliza chaves para maiúsculas para garantir lookup case-insensitive
+        apps = {a.codigointerno.upper(): a for a in Aplicacao.objects.all()}
         cache.set(CACHE_KEY, apps, CACHE_TTL)
 
         logger.info("APP_REGISTRY_LOADED count=%s", len(apps))

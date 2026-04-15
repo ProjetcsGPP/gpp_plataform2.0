@@ -16,6 +16,7 @@ Estrutura:
 FASE-0: AccountsSession refatorada — jti removido; session_key + app_context adicionados.
 FASE-3: UserPermissionOverride adicionado — camada explícita de exceções individuais
         sem edição direta de auth_user_user_permissions.
+FIX: Aplicacao.save() normaliza codigointerno para maiúsculas antes de persistir.
 """
 from django.conf import settings
 from django.contrib.auth.models import Group, User
@@ -75,6 +76,13 @@ class Aplicacao(models.Model):
         managed = True
         verbose_name = "Aplicação"
         verbose_name_plural = "Aplicações"
+
+    def save(self, *args, **kwargs):
+        # Garante que codigointerno seja sempre persistido em maiúsculas,
+        # independentemente do casing informado pelo usuário/admin.
+        if self.codigointerno:
+            self.codigointerno = self.codigointerno.upper()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.codigointerno} - {self.nomeaplicacao}"
