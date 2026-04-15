@@ -118,11 +118,14 @@ class TestSecureQuerysetMixinScopeNone:
 
         vs = _make_viewset_instance()
         vs.request = _mock_request(user)
-        vs.get_queryset()
+
+        # filter_queryset_by_scope é o método correto: não depende de
+        # super().get_queryset() (GenericAPIView), consistente com os
+        # demais testes deste grupo.
+        result = vs.filter_queryset_by_scope(qs)
 
         qs.none.assert_called_once()
-        result_qs = vs.get_queryset()  # ou o método correto
-        assert result_qs.none.called or len(result_qs) == 0  # Queryset vazio
+        assert result is qs
 
     def test_scope_missing_gera_log_warning(self):
         """Verifica que o security_logger.warning é chamado quando scope é None."""
