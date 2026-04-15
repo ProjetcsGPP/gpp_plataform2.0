@@ -87,8 +87,12 @@ from .serializers import (
 from .services.permission_sync import sync_user_permissions
 from .utils import get_client_ip
 
+from apps.accounts.services.application_registry import ApplicationRegistry
+
 security_logger = logging.getLogger("gpp.security")
 
+def build_cookie_name(codigo_interno: str) -> str:
+    return f"gpp_session_{codigo_interno.upper()}"
 
 # ─── Auth Views (Sessão) ──────────────────────────────────────────────────
 class LoginView(APIView):
@@ -109,7 +113,8 @@ class LoginView(APIView):
     @extend_schema(
         summary="Login via sessão",
         description=(
-            "Autentica o usuário e cria uma sessão por aplicação (cookie `gpp_session_{APP}`). "
+            "Autentica o usuário e cria uma sessão por aplicação `gpp_session_<app_context>` "
+            "(ex: `gpp_session_PORTAL`). "
             "Requer `username`, `password` e `app_context`."
         ),
         request={
@@ -197,7 +202,7 @@ class LoginView(APIView):
         request.session["app_context"] = app_context
         rotate_token(request)
 
-        cookie_name = f"gpp_session_{app_context}"
+        cookie_name = build_cookie_name(app_context)
         session_key = request.session.session_key
 
         # FIX(Issue #22): cycle_key() já rotacionou o session_key antes deste ponto,
@@ -387,10 +392,17 @@ class LogoutAppView(APIView):
     )
     
     def post(self, request, app_slug):
-        app_context = app_slug.upper()
-        cookie_name = f"gpp_session_{app_context}"
-        session_key = request.COOKIES.get(cookie_name)
+        registry = ApplicationRegistry()
 
+        app = registry.get(app_slug)
+
+        if not app:
+            return Response("App inválida", status=400)
+        
+        app_context = app_slug.upper()
+        cookie_name = build_cookie_name(app_context)
+        session_key = request.COOKIES.get(cookie_name)
+        
         if session_key:
             AccountsSession.objects.filter(
                 session_key=session_key,
@@ -398,6 +410,7 @@ class LogoutAppView(APIView):
             ).update(revoked=True, revoked_at=dj_timezone.now())
 
             response = Response(f"Logout de {app_context} realizado com sucesso")
+            # safe: app_slug validated via ApplicationRegistry (trusted source)
             response.delete_cookie(cookie_name)
         else:
             response = Response("Nenhuma sessão ativa para esta app")
