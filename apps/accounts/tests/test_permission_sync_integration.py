@@ -201,9 +201,7 @@ class TestL2PermissionOverrideTriggersResync:
         ), "Pré-condição: permissão NÃO deve existir antes do override"
 
         # Evento: cria override grant — ViewSet chama sync após salvar
-        override = UserPermissionOverride.objects.create(
-            user=user, permission=perm, mode="grant"
-        )
+        UserPermissionOverride.objects.create(user=user, permission=perm, mode="grant")
         # Simula o que o ViewSet faz após o save
         sync_user_permissions(user)
 
