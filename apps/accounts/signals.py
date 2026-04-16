@@ -46,7 +46,7 @@ from django.dispatch import receiver
 
 # Importação explícita de bump_authz_version para patchabilidade em testes.
 # Segue o mesmo padrão de sync_user_permissions (Issue #19).
-from apps.accounts.models import bump_authz_version  # noqa: E402
+from apps.accounts.authz_versioning import bump_authz_version  # noqa: E402
 
 # Importação explícita no topo do módulo — obrigatória para que mocker.patch
 # funcione em test_permission_sync_triggers.py (Issue #19).
