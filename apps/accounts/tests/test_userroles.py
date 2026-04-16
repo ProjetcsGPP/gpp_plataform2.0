@@ -16,7 +16,7 @@ Dados base: initial_data.json
   Role pk=4  -> OPERADOR_ACAO
 """
 import pytest
-from django.contrib.auth.models import Group, Permission
+from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 
 from apps.accounts.models import Aplicacao, Role, UserRole
@@ -38,6 +38,7 @@ def _get_or_create_test_perm(codename):
 
 # --- Atribuicao (POST) -------------------------------------------------------
 
+
 class TestUserRoleAssign:
 
     def test_portal_admin_atribui_role_retorna_201(
@@ -52,9 +53,7 @@ class TestUserRoleAssign:
         )
         assert resp.status_code == 201
 
-    def test_assign_cria_userrole_no_banco(
-        self, client_portal_admin, usuario_alvo
-    ):
+    def test_assign_cria_userrole_no_banco(self, client_portal_admin, usuario_alvo):
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         role = Role.objects.get(codigoperfil="COORDENADOR_PNGI")
         client_portal_admin.post(
@@ -109,11 +108,10 @@ class TestUserRoleAssign:
 
 # --- Acesso negado (POST) ----------------------------------------------------
 
+
 class TestUserRoleAssignAcessoNegado:
 
-    def test_gestor_nao_pode_atribuir_role(
-        self, client_gestor, usuario_alvo
-    ):
+    def test_gestor_nao_pode_atribuir_role(self, client_gestor, usuario_alvo):
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         role = Role.objects.get(codigoperfil="OPERADOR_ACAO")
         resp = client_gestor.post(
@@ -123,9 +121,7 @@ class TestUserRoleAssignAcessoNegado:
         )
         assert resp.status_code == 403
 
-    def test_coordenador_nao_pode_atribuir_role(
-        self, client_coordenador, usuario_alvo
-    ):
+    def test_coordenador_nao_pode_atribuir_role(self, client_coordenador, usuario_alvo):
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         role = Role.objects.get(codigoperfil="OPERADOR_ACAO")
         resp = client_coordenador.post(
@@ -135,9 +131,7 @@ class TestUserRoleAssignAcessoNegado:
         )
         assert resp.status_code == 403
 
-    def test_operador_nao_pode_atribuir_role(
-        self, client_operador, usuario_alvo
-    ):
+    def test_operador_nao_pode_atribuir_role(self, client_operador, usuario_alvo):
         app = Aplicacao.objects.get(codigointerno="ACOES_PNGI")
         role = Role.objects.get(codigoperfil="OPERADOR_ACAO")
         resp = client_operador.post(
@@ -160,6 +154,7 @@ class TestUserRoleAssignAcessoNegado:
 
 # --- Revogacao (DELETE) -------------------------------------------------------
 
+
 class TestUserRoleRevoke:
 
     def test_portal_admin_revoga_role_retorna_204(
@@ -169,9 +164,7 @@ class TestUserRoleRevoke:
         resp = client_portal_admin.delete(f"{URL}{userrole.pk}/")
         assert resp.status_code == 204
 
-    def test_revoke_remove_userrole_do_banco(
-        self, client_portal_admin, operador_acao
-    ):
+    def test_revoke_remove_userrole_do_banco(self, client_portal_admin, operador_acao):
         userrole = UserRole.objects.get(user=operador_acao)
         pk = userrole.pk
         client_portal_admin.delete(f"{URL}{pk}/")
@@ -191,16 +184,12 @@ class TestUserRoleRevoke:
             codename="test_revoke_userrole"
         ).exists()
 
-    def test_gestor_nao_pode_revogar_role(
-        self, client_gestor, operador_acao
-    ):
+    def test_gestor_nao_pode_revogar_role(self, client_gestor, operador_acao):
         userrole = UserRole.objects.get(user=operador_acao)
         resp = client_gestor.delete(f"{URL}{userrole.pk}/")
         assert resp.status_code == 403
 
-    def test_coordenador_nao_pode_revogar_role(
-        self, client_coordenador, operador_acao
-    ):
+    def test_coordenador_nao_pode_revogar_role(self, client_coordenador, operador_acao):
         userrole = UserRole.objects.get(user=operador_acao)
         resp = client_coordenador.delete(f"{URL}{userrole.pk}/")
         assert resp.status_code == 403
@@ -212,6 +201,7 @@ class TestUserRoleRevoke:
 
 
 # --- Edge Cases de Destroy e Serializer (novos — cobrindo gaps) --------------
+
 
 class TestUserRoleDestroyEdgeCases:
 

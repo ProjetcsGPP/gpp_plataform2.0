@@ -36,9 +36,9 @@ class AppContextMiddleware:
     """
 
     APP_COOKIE_MAP = {
-        "acoes-pngi":    "ACOES_PNGI",
+        "acoes-pngi": "ACOES_PNGI",
         "carga-org-lot": "CARGA_ORG_LOT",
-        "portal":        "PORTAL",
+        "portal": "PORTAL",
     }
 
     def __init__(self, get_response):
@@ -84,8 +84,7 @@ class AppContextMiddleware:
         if session_key:
             # Caminho normal: cookie da app está presente
             session = (
-                AccountsSession.objects
-                .filter(
+                AccountsSession.objects.filter(
                     session_key=session_key,
                     session_cookie_name=cookie_name,
                     revoked=False,
@@ -95,7 +94,10 @@ class AppContextMiddleware:
             )
             if not session:
                 response = JsonResponse(
-                    {"detail": f"Sessão {app_context} inválida.", "code": "session_invalid"},
+                    {
+                        "detail": f"Sessão {app_context} inválida.",
+                        "code": "session_invalid",
+                    },
                     status=401,
                 )
                 response.delete_cookie(cookie_name)
@@ -118,8 +120,7 @@ class AppContextMiddleware:
             # A verificação de portal_admin é feita abaixo com query separada.
             # ORDER BY -created_at garante resultado determinístico.
             session = (
-                AccountsSession.objects
-                .filter(
+                AccountsSession.objects.filter(
                     session_key__in=list(all_gpp_cookies.values()),
                     session_cookie_name__in=list(all_gpp_cookies.keys()),
                     revoked=False,
@@ -132,6 +133,7 @@ class AppContextMiddleware:
             if session:
                 user = session.user
                 from apps.accounts.models import UserRole
+
                 is_portal_admin = (
                     user.is_superuser
                     or UserRole.objects.filter(
@@ -171,15 +173,14 @@ class AppContextMiddleware:
             return self.get_response(request)
 
         session = (
-            AccountsSession.objects
-            .filter(
+            AccountsSession.objects.filter(
                 session_key__in=list(gpp_cookies.values()),
                 session_cookie_name__in=list(gpp_cookies.keys()),
                 revoked=False,
-                app_context__isnull=False,   # FIX: exclui sessões sem contexto
+                app_context__isnull=False,  # FIX: exclui sessões sem contexto
             )
             .select_related("user")
-            .order_by("-created_at")          # FIX: determinístico — sessão mais recente
+            .order_by("-created_at")  # FIX: determinístico — sessão mais recente
             .first()
         )
 

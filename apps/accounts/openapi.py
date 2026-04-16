@@ -2,6 +2,7 @@
 Extensões OpenAPI para o drf-spectacular.
 Registra o AppContextAuthentication como esquema de segurança via cookie.
 """
+
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 
 

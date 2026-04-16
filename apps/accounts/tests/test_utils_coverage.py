@@ -10,8 +10,8 @@ Linhas alvo: 13-35, 45
 
 Meta: cobertura de utils.py de 50% → >= 80%
 """
+
 import json
-import pytest
 from unittest.mock import MagicMock
 
 from apps.accounts.utils import get_client_ip, log_frontend_error
@@ -59,14 +59,16 @@ class TestLogFrontendError:
 
     def test_caminho_feliz_retorna_logged(self):
         """Linhas 13-25: JSON válido com todos os campos."""
-        payload = json.dumps({
-            "timestamp": "2026-04-09T10:00:00Z",
-            "level": "ERROR",
-            "message": "Uncaught TypeError",
-            "context": "ACOES_PNGI",
-            "url": "https://app.gpp.br/acoes",
-            "userAgent": "Mozilla/5.0",
-        })
+        payload = json.dumps(
+            {
+                "timestamp": "2026-04-09T10:00:00Z",
+                "level": "ERROR",
+                "message": "Uncaught TypeError",
+                "context": "ACOES_PNGI",
+                "url": "https://app.gpp.br/acoes",
+                "userAgent": "Mozilla/5.0",
+            }
+        )
         result = log_frontend_error(payload)
         assert result["status"] == "logged"
 

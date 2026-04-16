@@ -2,9 +2,8 @@
 GPP Plataform 2.0 — Mixins de Segurança e Auditoria
 Uso obrigatório em todas as ViewSets que retornam recursos de usuário.
 """
-import logging
 
-from rest_framework.exceptions import PermissionDenied
+import logging
 
 security_logger = logging.getLogger("gpp.security")
 
@@ -23,8 +22,8 @@ class SecureQuerysetMixin:
             scope_source = "orgao"  # atributo do profile do usuário
     """
 
-    scope_field = "orgao"    # campo no model
-    scope_source = "orgao"   # atributo em request.user.profile
+    scope_field = "orgao"  # campo no model
+    scope_source = "orgao"  # atributo em request.user.profile
 
     def get_queryset(self):
         qs = super().get_queryset()

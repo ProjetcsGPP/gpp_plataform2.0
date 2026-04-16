@@ -13,16 +13,17 @@ Estratégia:
   - Cobrir user_can_create_user_in_application(), user_can_edit_target_user(),
     user_can_manage_target_user() e get_user_roles_for_app()
 """
+
 import pytest
 from django.core.cache import cache
 
-from apps.accounts.models import Aplicacao, Attribute, Role, UserRole
+from apps.accounts.models import Aplicacao, Attribute
 from apps.accounts.services.authorization_service import AuthorizationService
-
 
 # ---------------------------------------------------------------------------
 # TestCanUnauthenticated
 # ---------------------------------------------------------------------------
+
 
 class TestCanUnauthenticated:
     """can() retorna False para usuários não autenticados."""
@@ -33,6 +34,7 @@ class TestCanUnauthenticated:
 
     def test_can_returns_false_for_anonymous(self, db):
         from django.contrib.auth.models import AnonymousUser
+
         service = AuthorizationService(user=AnonymousUser())
         assert service.can("view_acao") is False
 
@@ -40,6 +42,7 @@ class TestCanUnauthenticated:
 # ---------------------------------------------------------------------------
 # TestCanPortalAdmin
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestCanPortalAdmin:
@@ -64,6 +67,7 @@ class TestCanPortalAdmin:
 # TestCanNoValidRole
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestCanNoValidRole:
     """can() retorna False quando o usuário não tem role para a aplicação."""
@@ -84,6 +88,7 @@ class TestCanNoValidRole:
 # TestCanNoPermission
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestCanNoPermission:
     """can() retorna False quando a permissão não está no grupo do usuário."""
@@ -99,6 +104,7 @@ class TestCanNoPermission:
 # ---------------------------------------------------------------------------
 # TestCanABAC
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestCanABAC:
@@ -140,6 +146,7 @@ class TestCanABAC:
 # ---------------------------------------------------------------------------
 # TestLoadPermissionsCacheHit
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestLoadPermissionsCacheHit:
@@ -183,6 +190,7 @@ class TestLoadPermissionsCacheHit:
 # TestLoadRoles
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestLoadRoles:
     """_load_roles() filtra por application quando fornecida."""
@@ -208,6 +216,7 @@ class TestLoadRoles:
 # ---------------------------------------------------------------------------
 # TestLoadAttributes
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestLoadAttributes:
@@ -242,6 +251,7 @@ class TestLoadAttributes:
 # TestGetUserRolesForApp
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestGetUserRolesForApp:
     """get_user_roles_for_app() retorna UserRoles reais do banco."""
@@ -263,6 +273,7 @@ class TestGetUserRolesForApp:
 # ---------------------------------------------------------------------------
 # TestUserCanAliases
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestUserCanAliases:
@@ -290,6 +301,7 @@ class TestUserCanAliases:
 # TestUserCanManageTarget
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestUserCanManageTarget:
     """user_can_edit_target_user() e user_can_manage_target_user() com objetos reais."""
@@ -302,7 +314,9 @@ class TestUserCanManageTarget:
         service = AuthorizationService(portal_admin)
         assert service.user_can_manage_target_user(usuario_alvo) is True
 
-    def test_user_without_edit_perm_cannot_edit_target(self, usuario_sem_role, usuario_alvo):
+    def test_user_without_edit_perm_cannot_edit_target(
+        self, usuario_sem_role, usuario_alvo
+    ):
         service = AuthorizationService(usuario_sem_role)
         assert service.user_can_edit_target_user(usuario_alvo) is False
 
@@ -320,6 +334,7 @@ class TestUserCanManageTarget:
 # ---------------------------------------------------------------------------
 # TestGetPermissions
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestGetPermissions:
@@ -348,6 +363,7 @@ class TestGetPermissions:
 # ---------------------------------------------------------------------------
 # TestPermissionsCacheKey
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestPermissionsCacheKey:

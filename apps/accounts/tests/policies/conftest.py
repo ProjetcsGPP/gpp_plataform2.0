@@ -17,16 +17,15 @@ ADR-PERM-01 (auth_user_user_permissions como fonte de verdade):
   can_create_user() e can_edit_user() retornam False mesmo com
   ClassificacaoUsuario.pode_criar/editar_usuario=True.
 """
-from unittest.mock import MagicMock
-import pytest
 
+from unittest.mock import MagicMock
+
+import pytest
 from django.contrib.auth.models import Permission, User
 from django.contrib.contenttypes.models import ContentType
-from django.utils import timezone
 
 from apps.accounts.models import (
     Aplicacao,
-    AccountsSession,
     ClassificacaoUsuario,
     Role,
     StatusUsuario,
@@ -35,8 +34,8 @@ from apps.accounts.models import (
     UserRole,
 )
 
-
 # ── Factories de objetos mock (mantidos para testes unitários) ────────────────
+
 
 def make_user(user_id=1, is_superuser=False):
     """Retorna um user MagicMock com id e is_superuser configurados."""
@@ -75,22 +74,29 @@ def make_role(codigoperfil="VIEWER", aplicacao=None):
 
 # ── Fixtures pytest unitárias (sem DB) ───────────────────────────────────────
 
+
 @pytest.fixture
 def app_ready():
     """Aplicação desbloqueada e em produção."""
-    return make_aplicacao(codigointerno="APP_READY", isappbloqueada=False, isappproductionready=True)
+    return make_aplicacao(
+        codigointerno="APP_READY", isappbloqueada=False, isappproductionready=True
+    )
 
 
 @pytest.fixture
 def app_blocked():
     """Aplicação bloqueada."""
-    return make_aplicacao(codigointerno="APP_BLOCKED", isappbloqueada=True, isappproductionready=True)
+    return make_aplicacao(
+        codigointerno="APP_BLOCKED", isappbloqueada=True, isappproductionready=True
+    )
 
 
 @pytest.fixture
 def app_not_ready():
     """Aplicação desbloqueada mas não em produção."""
-    return make_aplicacao(codigointerno="APP_NOT_READY", isappbloqueada=False, isappproductionready=False)
+    return make_aplicacao(
+        codigointerno="APP_NOT_READY", isappbloqueada=False, isappproductionready=False
+    )
 
 
 @pytest.fixture
@@ -124,6 +130,7 @@ def other_user():
 
 
 # ── Helpers para fixtures com DB real ─────────────────────────────────────────
+
 
 def _ensure_lookup_tables(db):
     """
@@ -210,6 +217,7 @@ def _grant_user_permissions(user, codenames):
 # Todas marcadas com @pytest.mark.django_db no nível do fixture via
 # scope="function" padrão; os testes que as usam devem declarar
 # @pytest.mark.django_db explicitamente.
+
 
 @pytest.fixture
 def db_app_ready(db):

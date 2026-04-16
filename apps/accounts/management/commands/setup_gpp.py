@@ -39,9 +39,9 @@ GROUP_PERMISSIONS = {
         "add_blacklistedtoken", "change_blacklistedtoken", "delete_blacklistedtoken", "view_blacklistedtoken",
         "add_outstandingtoken", "change_outstandingtoken", "delete_outstandingtoken", "view_outstandingtoken",
         "add_aplicacao", "change_aplicacao", "delete_aplicacao", "view_aplicacao",
-        "add_classificacaousuario", "change_classificacaousuario", "delete_classificacaousuario", "view_classificacaousuario",
-        "add_statususuario", "change_statususuario", "delete_statususuario", "view_statususuario",
-        "add_tipousuario", "change_tipousuario", "delete_tipousuario", "view_tipousuario",
+        "add_classificacaousuario", "change_classificacaousuario", "delete_classificacaousuario",
+        "view_classificacaousuario", "add_statususuario", "change_statususuario", "delete_statususuario",
+        "view_statususuario", "add_tipousuario", "change_tipousuario", "delete_tipousuario", "view_tipousuario",
         "add_role", "change_role", "delete_role", "view_role",
         "add_userprofile", "change_userprofile", "delete_userprofile", "view_userprofile",
         "add_userrole", "change_userrole", "delete_userrole", "view_userrole",
@@ -50,24 +50,25 @@ GROUP_PERMISSIONS = {
     ],
     "GESTOR_PNGI": [
         "add_situacaoacao", "change_situacaoacao", "delete_situacaoacao", "view_situacaoacao",
-        "add_tipoanotacaoalinhamento", "change_tipoanotacaoalinhamento", "delete_tipoanotacaoalinhamento", "view_tipoanotacaoalinhamento",
-        "add_tipoentravealerta", "change_tipoentravealerta", "delete_tipoentravealerta", "view_tipoentravealerta",
-        "add_usuarioresponsavel", "change_usuarioresponsavel", "delete_usuarioresponsavel", "view_usuarioresponsavel",
+        "add_tipoanotacaoalinhamento", "change_tipoanotacaoalinhamento", "delete_tipoanotacaoalinhamento",
+        "view_tipoanotacaoalinhamento", "add_tipoentravealerta", "change_tipoentravealerta",
+        "delete_tipoentravealerta", "view_tipoentravealerta", "add_usuarioresponsavel",
+        "change_usuarioresponsavel", "delete_usuarioresponsavel", "view_usuarioresponsavel",
         "add_acoes", "change_acoes", "delete_acoes", "view_acoes",
-        "add_anotacaoalinhamento", "change_anotacaoalinhamento", "delete_anotacaoalinhamento", "view_anotacaoalinhamento",
-        "add_entravealerta", "change_entravealerta", "delete_entravealerta", "view_entravealerta",
-        "add_marcoacoes", "change_marcoacoes", "delete_marcoacoes", "view_marcoacoes",
+        "add_anotacaoalinhamento", "change_anotacaoalinhamento", "delete_anotacaoalinhamento",
+        "view_anotacaoalinhamento", "add_entravealerta", "change_entravealerta", "delete_entravealerta",
+        "view_entravealerta", "add_marcoacoes", "change_marcoacoes", "delete_marcoacoes", "view_marcoacoes",
         "add_marcohistorico", "change_marcohistorico", "delete_marcohistorico", "view_marcohistorico",
         "add_produto", "change_produto", "delete_produto", "view_produto",
         "add_produtohistorico", "change_produtohistorico", "delete_produtohistorico", "view_produtohistorico",
     ],
     "COORDENADOR_PNGI": [
         "view_situacaoacao",
-        "add_tipoanotacaoalinhamento", "change_tipoanotacaoalinhamento", "delete_tipoanotacaoalinhamento", "view_tipoanotacaoalinhamento",
-        "add_tipoentravealerta", "change_tipoentravealerta", "delete_tipoentravealerta", "view_tipoentravealerta",
-        "add_usuarioresponsavel", "change_usuarioresponsavel", "delete_usuarioresponsavel", "view_usuarioresponsavel",
-        "add_acoes", "change_acoes", "delete_acoes", "view_acoes",
-        "add_anotacaoalinhamento", "change_anotacaoalinhamento", "delete_anotacaoalinhamento", "view_anotacaoalinhamento",
+        "add_tipoanotacaoalinhamento", "change_tipoanotacaoalinhamento", "delete_tipoanotacaoalinhamento",
+        "view_tipoanotacaoalinhamento", "add_tipoentravealerta", "change_tipoentravealerta", "delete_tipoentravealerta",
+        "view_tipoentravealerta", "add_usuarioresponsavel", "change_usuarioresponsavel", "delete_usuarioresponsavel",
+        "view_usuarioresponsavel", "add_acoes", "change_acoes", "delete_acoes", "view_acoes", "add_anotacaoalinhamento",
+        "change_anotacaoalinhamento", "delete_anotacaoalinhamento", "view_anotacaoalinhamento",
         "add_entravealerta", "change_entravealerta", "delete_entravealerta", "view_entravealerta",
         "view_marcoacoes",
         "add_marcohistorico", "change_marcohistorico", "delete_marcohistorico", "view_marcohistorico",
@@ -168,7 +169,6 @@ class Command(BaseCommand):
         from django.contrib.auth.models import Group, Permission
 
         total_atribuidas = 0
-        total_ignoradas = 0
 
         for group_name, codenames in GROUP_PERMISSIONS.items():
             try:

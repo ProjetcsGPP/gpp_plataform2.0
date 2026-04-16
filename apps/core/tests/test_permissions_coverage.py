@@ -14,12 +14,13 @@ Estratégia:
   - Cobrir require_permission() decorator
   - Cobrir CanPermission sem required_permission definido na view
 """
+
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
+from django.contrib.auth.models import AnonymousUser
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIRequestFactory
-
-from django.contrib.auth.models import AnonymousUser
 
 from apps.accounts.models import Aplicacao
 from apps.core.permissions import (
@@ -48,6 +49,7 @@ def _make_request(user, application=None, path="/api/test/"):
 # ---------------------------------------------------------------------------
 # TestHasRolePermission
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestHasRolePermissionDirect:
@@ -80,6 +82,7 @@ class TestHasRolePermissionDirect:
 # ---------------------------------------------------------------------------
 # TestCanPermission
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestCanPermissionDirect:
@@ -122,6 +125,7 @@ class TestCanPermissionDirect:
 # TestIsPortalAdmin
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestIsPortalAdminDirect:
     """Testa IsPortalAdmin.has_permission() diretamente."""
@@ -145,6 +149,7 @@ class TestIsPortalAdminDirect:
 # ---------------------------------------------------------------------------
 # TestObjectPermission
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestObjectPermissionDirect:
@@ -209,6 +214,7 @@ class TestObjectPermissionDirect:
 # TestCanCreateUser / TestCanEditUser
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestCanCreateUserDirect:
     """Testa CanCreateUser.has_permission() diretamente."""
@@ -255,6 +261,7 @@ class TestCanEditUserDirect:
 # ---------------------------------------------------------------------------
 # TestRequirePermissionDecorator
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestRequirePermissionDecorator:

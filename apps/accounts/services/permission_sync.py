@@ -74,6 +74,7 @@ logger = logging.getLogger("gpp.permission_sync")
 # Funções de cálculo (puras — não gravam no banco)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def calculate_inherited_permissions(user) -> set:
     """
     Calcula o conjunto de permissões herdadas das roles ativas do usuário
@@ -92,8 +93,7 @@ def calculate_inherited_permissions(user) -> set:
     from apps.accounts.models import UserRole
 
     group_ids = (
-        UserRole.objects
-        .filter(user=user)
+        UserRole.objects.filter(user=user)
         .select_related("role__group")
         .exclude(role__group=None)
         .values_list("role__group_id", flat=True)
@@ -107,15 +107,12 @@ def calculate_inherited_permissions(user) -> set:
         )
         return set()
 
-    perms = set(
-        Permission.objects
-        .filter(group__id__in=list(group_ids))
-        .distinct()
-    )
+    perms = set(Permission.objects.filter(group__id__in=list(group_ids)).distinct())
 
     logger.debug(
         "PERM_INHERIT_CALC user_id=%s inherited=%d",
-        user.pk, len(perms),
+        user.pk,
+        len(perms),
     )
     return perms
 
@@ -142,10 +139,8 @@ def calculate_effective_permissions(user) -> set:
 
     effective = calculate_inherited_permissions(user)
 
-    overrides = (
-        UserPermissionOverride.objects
-        .filter(user=user)
-        .select_related("permission")
+    overrides = UserPermissionOverride.objects.filter(user=user).select_related(
+        "permission"
     )
 
     grants = {o.permission for o in overrides if o.mode == "grant"}
@@ -167,6 +162,7 @@ def calculate_effective_permissions(user) -> set:
 # ──────────────────────────────────────────────────────────────────────────────
 # Funções de materialização (escrevem em auth_user_user_permissions)
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def sync_user_permissions(user) -> None:
     """
@@ -204,7 +200,8 @@ def sync_user_permissions(user) -> None:
         if current_pks == new_pks:
             logger.debug(
                 "PERM_SYNC_NOOP user_id=%s reason=already_in_sync count=%d",
-                user.pk, len(new_pks),
+                user.pk,
+                len(new_pks),
             )
             return
 
@@ -215,7 +212,10 @@ def sync_user_permissions(user) -> None:
 
         logger.info(
             "PERM_SYNC user_id=%s total=%d added=%d removed=%d",
-            user.pk, len(new_pks), len(added), len(removed),
+            user.pk,
+            len(new_pks),
+            len(added),
+            len(removed),
         )
 
 
@@ -230,6 +230,7 @@ def sync_users_permissions(user_ids: list) -> None:
         user_ids (list[int]): lista de PKs de usuários a re-sincronizar.
     """
     from django.contrib.auth import get_user_model
+
     User = get_user_model()
 
     if not user_ids:
@@ -261,14 +262,8 @@ def sync_all_users_permissions() -> None:
     para re-syncs pontuais.
     """
     from apps.accounts.models import UserRole
-    from django.contrib.auth import get_user_model
-    User = get_user_model()
 
-    user_ids = (
-        UserRole.objects
-        .values_list("user_id", flat=True)
-        .distinct()
-    )
+    user_ids = UserRole.objects.values_list("user_id", flat=True).distinct()
     total = user_ids.count()
 
     logger.info("PERM_SYNC_ALL_START total_users=%d", total)
@@ -281,6 +276,7 @@ def sync_all_users_permissions() -> None:
 # ──────────────────────────────────────────────────────────────────────────────
 # Aliases deprecados — retro-compatibilidade
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def sync_user_permissions_from_group(user, group) -> None:
     """

@@ -1,5 +1,6 @@
 from drf_spectacular.utils import extend_schema, extend_schema_view
 
+
 def tag_all_actions(tag: str):
     """
     Decorator que aplica uma tag OpenAPI a todas as actions existentes no ViewSet.

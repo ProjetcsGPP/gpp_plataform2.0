@@ -20,7 +20,8 @@ Como funciona:
     user_roles e is_portal_admin. Isso garante que qualquer instância do
     middleware criada pelo Django usa a versão patchada.
 """
-from unittest.mock import patch, MagicMock
+
+from unittest.mock import patch
 
 from apps.accounts.models import UserRole
 

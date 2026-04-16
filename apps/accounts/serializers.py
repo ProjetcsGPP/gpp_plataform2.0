@@ -35,20 +35,17 @@ FIX (Issue #22 Falha 3): MePermissionSerializer.get_granted() corrigido para inc
              excluindo silenciosamente grants extras materializados pelo sync.
              Nova lógica: all_user_perms - revoked_overrides, preservando escopo da app.
 """
+
 import logging
 
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.utils import timezone as dj_timezone
 from rest_framework import serializers
-
-from .services.permission_sync import sync_user_permissions, calculate_effective_permissions
 
 from .models import (
     Aplicacao,
-    Attribute,
     ClassificacaoUsuario,
     Role,
     StatusUsuario,
@@ -57,11 +54,16 @@ from .models import (
     UserProfile,
     UserRole,
 )
+from .services.permission_sync import (
+    calculate_effective_permissions,
+    sync_user_permissions,
+)
 
 security_logger = logging.getLogger("gpp.security")
 
 
 # ─── Helpers internos ────────────────────────────────────────────────────────────────────
+
 
 def _get_fk_or_400(model, pk, field_name):
     """
@@ -78,6 +80,7 @@ def _get_fk_or_400(model, pk, field_name):
 
 
 # ─── Aplicacao Publica (login) ────────────────────────────────────────────────────
+
 
 class AplicacaoPublicaSerializer(serializers.ModelSerializer):
     """
@@ -98,6 +101,7 @@ class AplicacaoPublicaSerializer(serializers.ModelSerializer):
 
 
 # ─── Aplicacao (autenticado) ──────────────────────────────────────────────────────
+
 
 class AplicacaoSerializer(serializers.ModelSerializer):
     """
@@ -124,6 +128,7 @@ class AplicacaoSerializer(serializers.ModelSerializer):
 
 # ─── UserProfile ────────────────────────────────────────────────────────────────────────
 
+
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
     email = serializers.CharField(source="user.email", read_only=True)
@@ -131,20 +136,29 @@ class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
         fields = [
-            "user_id", "username", "email", "name",
-            "status_usuario", "tipo_usuario", "classificacao_usuario",
-            "orgao", "datacriacao", "data_alteracao",
+            "user_id",
+            "username",
+            "email",
+            "name",
+            "status_usuario",
+            "tipo_usuario",
+            "classificacao_usuario",
+            "orgao",
+            "datacriacao",
+            "data_alteracao",
         ]
         read_only_fields = ["user_id", "datacriacao", "data_alteracao"]
 
 
 # ─── UserCreate ─────────────────────────────────────────────────────────────────────────
 
+
 class UserCreateSerializer(serializers.Serializer):
     """
     GAP-01 — Criação atômica de auth.User + UserProfile.
     Apenas PORTAL_ADMIN pode acionar este serializer (garantido na view).
     """
+
     # ── Campos auth.User ──────────────────────────────────────────────────
     username = serializers.CharField(max_length=150)
     email = serializers.EmailField()
@@ -230,15 +244,27 @@ class UserCreateSerializer(serializers.Serializer):
 
 # ─── Role ───────────────────────────────────────────────────────────────────────────────
 
+
 class RoleSerializer(serializers.ModelSerializer):
     """
     GAP-03 — Serializer enriquecido de Role.
     """
-    aplicacao_id     = serializers.IntegerField(source="aplicacao.idaplicacao", read_only=True)
-    aplicacao_codigo = serializers.CharField(source="aplicacao.codigointerno", read_only=True)
-    aplicacao_nome   = serializers.CharField(source="aplicacao.nomeaplicacao", read_only=True)
-    group_id         = serializers.IntegerField(source="group.id", read_only=True, allow_null=True)
-    group_name       = serializers.CharField(source="group.name", read_only=True, allow_null=True)
+
+    aplicacao_id = serializers.IntegerField(
+        source="aplicacao.idaplicacao", read_only=True
+    )
+    aplicacao_codigo = serializers.CharField(
+        source="aplicacao.codigointerno", read_only=True
+    )
+    aplicacao_nome = serializers.CharField(
+        source="aplicacao.nomeaplicacao", read_only=True
+    )
+    group_id = serializers.IntegerField(
+        source="group.id", read_only=True, allow_null=True
+    )
+    group_name = serializers.CharField(
+        source="group.name", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = Role
@@ -256,14 +282,18 @@ class RoleSerializer(serializers.ModelSerializer):
 
 # ─── UserRole ─────────────────────────────────────────────────────────────────────────
 
+
 class UserRoleSerializer(serializers.ModelSerializer):
     """
     GAP-04 — Validações de negócio:
     R-01: unicidade por (user, aplicacao).
     R-02: a role atribuída deve pertencer à aplicacao informada.
     """
+
     role_codigo = serializers.CharField(source="role.codigoperfil", read_only=True)
-    aplicacao_codigo = serializers.CharField(source="aplicacao.codigointerno", read_only=True)
+    aplicacao_codigo = serializers.CharField(
+        source="aplicacao.codigointerno", read_only=True
+    )
 
     class Meta:
         model = UserRole
@@ -299,6 +329,7 @@ class UserRoleSerializer(serializers.ModelSerializer):
 
 # ─── UserCreateWithRole ───────────────────────────────────────────────────────────────
 
+
 class UserCreateWithRoleSerializer(serializers.Serializer):
     """
     FASE 6 — Criação atômica de auth.User + UserProfile + UserRole + sync de permissões.
@@ -309,14 +340,14 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
               antes do sync para evitar dupla chamada ao banco.
     """
 
-    username   = serializers.CharField(max_length=150)
-    email      = serializers.EmailField()
-    password   = serializers.CharField(write_only=True, style={"input_type": "password"})
+    username = serializers.CharField(max_length=150)
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, style={"input_type": "password"})
     first_name = serializers.CharField(max_length=150, required=False, default="")
-    last_name  = serializers.CharField(max_length=150, required=False, default="")
+    last_name = serializers.CharField(max_length=150, required=False, default="")
 
-    name     = serializers.CharField(max_length=200)
-    orgao    = serializers.CharField(max_length=100)
+    name = serializers.CharField(max_length=200)
+    orgao = serializers.CharField(max_length=100)
     status_usuario = serializers.PrimaryKeyRelatedField(
         queryset=StatusUsuario.objects.all(), required=False
     )
@@ -375,13 +406,19 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
         return data
 
     def create(self, validated_data):
-        request   = self.context["request"]
+        request = self.context["request"]
         aplicacao = validated_data["aplicacao"]
-        role      = validated_data["role"]
+        role = validated_data["role"]
 
-        status_usuario        = validated_data.get("status_usuario") or StatusUsuario.objects.get(pk=1)
-        tipo_usuario          = validated_data.get("tipo_usuario") or TipoUsuario.objects.get(pk=1)
-        classificacao_usuario = validated_data.get("classificacao_usuario") or ClassificacaoUsuario.objects.get(pk=1)
+        status_usuario = validated_data.get(
+            "status_usuario"
+        ) or StatusUsuario.objects.get(pk=1)
+        tipo_usuario = validated_data.get("tipo_usuario") or TipoUsuario.objects.get(
+            pk=1
+        )
+        classificacao_usuario = validated_data.get(
+            "classificacao_usuario"
+        ) or ClassificacaoUsuario.objects.get(pk=1)
 
         with transaction.atomic():
             user = User.objects.create_user(
@@ -417,19 +454,20 @@ class UserCreateWithRoleSerializer(serializers.Serializer):
             sync_user_permissions(user)
 
         return {
-            "user_id":            user.id,
-            "username":           user.username,
-            "email":              user.email,
-            "name":               profile.name,
-            "orgao":              profile.orgao,
-            "aplicacao":          aplicacao.codigointerno,
-            "role":               role.codigoperfil,
-            "datacriacao":        profile.datacriacao,
-            "permissions_added":  permissions_added,
+            "user_id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "name": profile.name,
+            "orgao": profile.orgao,
+            "aplicacao": aplicacao.codigointerno,
+            "role": role.codigoperfil,
+            "datacriacao": profile.datacriacao,
+            "permissions_added": permissions_added,
         }
 
 
 # ─── UserPermissionOverride ───────────────────────────────────────────────────────────
+
 
 class UserPermissionOverrideSerializer(serializers.ModelSerializer):
     """
@@ -478,11 +516,19 @@ class UserPermissionOverrideSerializer(serializers.ModelSerializer):
             "created_by",
             "updated_by",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "created_by", "updated_by"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "created_by",
+            "updated_by",
+        ]
 
     def validate(self, data):
         user = data.get("user") or (self.instance.user if self.instance else None)
-        permission = data.get("permission") or (self.instance.permission if self.instance else None)
+        permission = data.get("permission") or (
+            self.instance.permission if self.instance else None
+        )
         mode = data.get("mode") or (self.instance.mode if self.instance else None)
 
         if user and permission and mode:
@@ -555,15 +601,26 @@ class UserPermissionOverrideSerializer(serializers.ModelSerializer):
 
 # ─── Me Serializer ────────────────────────────────────────────────────────────────────
 
+
 class UserRoleNestedSerializer(serializers.ModelSerializer):
     role_codigo = serializers.CharField(source="role.codigoperfil", read_only=True)
     role_nome = serializers.CharField(source="role.nomeperfil", read_only=True)
-    aplicacao_codigo = serializers.CharField(source="aplicacao.codigointerno", read_only=True)
-    aplicacao_nome = serializers.CharField(source="aplicacao.nomeaplicacao", read_only=True)
+    aplicacao_codigo = serializers.CharField(
+        source="aplicacao.codigointerno", read_only=True
+    )
+    aplicacao_nome = serializers.CharField(
+        source="aplicacao.nomeaplicacao", read_only=True
+    )
 
     class Meta:
         model = UserRole
-        fields = ["id", "aplicacao_codigo", "aplicacao_nome", "role_codigo", "role_nome"]
+        fields = [
+            "id",
+            "aplicacao_codigo",
+            "aplicacao_nome",
+            "role_codigo",
+            "role_nome",
+        ]
 
 
 class MeSerializer(serializers.Serializer):
@@ -655,6 +712,7 @@ class MePermissionSerializer(serializers.Serializer):
     Referências: ADR-PERM-01, PERMISSIONS_ARCHITECTURE.md
       Fórmula: herdadas |= user_permissions |= grant -= revoke
     """
+
     role = serializers.SerializerMethodField()
     granted = serializers.SerializerMethodField()
 
@@ -677,9 +735,7 @@ class MePermissionSerializer(serializers.Serializer):
             return sorted(all_user_perm_codenames)
 
         # Escopo base: codenames que o grupo da role define (template da aplicação)
-        group_scope = set(
-            group.permissions.values_list("codename", flat=True)
-        )
+        group_scope = set(group.permissions.values_list("codename", flat=True))
 
         # Grants extras: overrides mode='grant' para este usuário nesta role.
         # São permissões fora do template do grupo, mas igualmente válidas.

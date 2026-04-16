@@ -10,14 +10,15 @@ Estrutura:
   TestEmptyQueryset       — _EmptyQueryset se comporta como queryset vazio
   TestCheckCargaRoleDirect — _check_carga_role() lança ou não PermissionDenied
 """
+
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
 from rest_framework.exceptions import PermissionDenied
 
 from apps.carga_org_lot.views import (
-    _APP_CODE,
-    _EmptyQueryset,
     _check_carga_role,
+    _EmptyQueryset,
     _load_carga_roles,
 )
 
@@ -36,6 +37,7 @@ def _clear_carga_cache():
 # ---------------------------------------------------------------------------
 # TestAutenticacaoBasica
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestAutenticacaoBasica:
@@ -69,6 +71,7 @@ class TestAutenticacaoBasica:
 # ---------------------------------------------------------------------------
 # TestSemRole
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestSemRole:
@@ -109,6 +112,7 @@ class TestSemRole:
 # TestGestorCarga
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestGestorCarga:
     """GESTOR_CARGA — list/retrieve retornam 200; write retorna 501."""
@@ -141,6 +145,7 @@ class TestGestorCarga:
 # ---------------------------------------------------------------------------
 # TestPortalAdminBypass
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestPortalAdminBypass:
@@ -175,6 +180,7 @@ class TestPortalAdminBypass:
 # TestLoadCargaRoles
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestLoadCargaRoles:
     """_load_carga_roles() deve retornar frozenset com a role do banco."""
@@ -203,6 +209,7 @@ class TestLoadCargaRoles:
 # TestEmptyQueryset
 # ---------------------------------------------------------------------------
 
+
 class TestEmptyQueryset:
     """_EmptyQueryset se comporta como queryset vazio."""
 
@@ -228,6 +235,7 @@ class TestEmptyQueryset:
 # ---------------------------------------------------------------------------
 # TestCheckCargaRoleDirect
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestCheckCargaRoleDirect:

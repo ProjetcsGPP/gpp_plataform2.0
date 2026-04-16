@@ -6,8 +6,9 @@ FASE-0: SESSION_COOKIE_SECURE e CSRF_COOKIE_SECURE explicitamente False
         para funcionar em HTTP (localhost). Não alterar para True em dev
         — quebra o fluxo de sessão sem HTTPS.
 """
+
 from .base import *  # noqa
-from .base import env
+from .base import INSTALLED_APPS, MIDDLEWARE  # noqa: F401
 
 DEBUG = True
 
@@ -26,8 +27,8 @@ CACHES = {
 
 # ─── Cookie / CSRF — HTTP local ──────────────────────────────────────────────────
 SECURE_SSL_REDIRECT = False
-SESSION_COOKIE_SECURE = False   # False obrigatório em HTTP
-CSRF_COOKIE_SECURE = False      # False obrigatório em HTTP
+SESSION_COOKIE_SECURE = False  # False obrigatório em HTTP
+CSRF_COOKIE_SECURE = False  # False obrigatório em HTTP
 
 # CSRF_TRUSTED_ORIGINS sobrescreve o default do base.py para dev
 CSRF_TRUSTED_ORIGINS = [

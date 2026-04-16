@@ -10,12 +10,13 @@ Classes testadas:
 Nota: common/permissions.py re-exporta CanCreateUser e CanEditUser de
 apps/core/permissions.py; essas classes já são cobertas em test_core_coverage.py.
 """
-import pytest
+
 from unittest.mock import MagicMock
+
+import pytest
 from django.contrib.auth.models import AnonymousUser
 
-from apps.accounts.tests.factories import make_user, make_role, make_user_role
-from apps.accounts.models import Role
+from apps.accounts.tests.factories import make_role, make_user
 from common.permissions import HasRolePermission, IsPortalAdmin
 
 

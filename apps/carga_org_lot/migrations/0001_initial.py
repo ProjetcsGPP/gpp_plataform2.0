@@ -12,90 +12,195 @@ class Migration(migrations.Migration):
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ("accounts", "0002_create_schemas"),
-
     ]
 
     operations = [
         migrations.CreateModel(
-            name='StatusCarga',
+            name="StatusCarga",
             fields=[
-                ('idstatuscarga', models.SmallIntegerField(primary_key=True, serialize=False)),
-                ('strdescricao', models.CharField(max_length=150)),
-                ('flgsucesso', models.IntegerField()),
+                (
+                    "idstatuscarga",
+                    models.SmallIntegerField(primary_key=True, serialize=False),
+                ),
+                ("strdescricao", models.CharField(max_length=150)),
+                ("flgsucesso", models.IntegerField()),
             ],
             options={
-                'db_table': '"carga_org_lot"."tblstatuscarga"',
+                "db_table": '"carga_org_lot"."tblstatuscarga"',
             },
         ),
         migrations.CreateModel(
-            name='StatusProgresso',
+            name="StatusProgresso",
             fields=[
-                ('idstatusprogresso', models.SmallIntegerField(primary_key=True, serialize=False)),
-                ('strdescricao', models.CharField(max_length=100)),
+                (
+                    "idstatusprogresso",
+                    models.SmallIntegerField(primary_key=True, serialize=False),
+                ),
+                ("strdescricao", models.CharField(max_length=100)),
             ],
             options={
-                'db_table': '"carga_org_lot"."tblstatusprogresso"',
+                "db_table": '"carga_org_lot"."tblstatusprogresso"',
             },
         ),
         migrations.CreateModel(
-            name='TipoCarga',
+            name="TipoCarga",
             fields=[
-                ('idtipocarga', models.SmallIntegerField(primary_key=True, serialize=False)),
-                ('strdescricao', models.CharField(max_length=100)),
+                (
+                    "idtipocarga",
+                    models.SmallIntegerField(primary_key=True, serialize=False),
+                ),
+                ("strdescricao", models.CharField(max_length=100)),
             ],
             options={
-                'db_table': '"carga_org_lot"."tbltipocarga"',
+                "db_table": '"carga_org_lot"."tbltipocarga"',
             },
         ),
         migrations.CreateModel(
-            name='Patriarca',
+            name="Patriarca",
             fields=[
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('idpatriarca', models.BigAutoField(primary_key=True, serialize=False)),
-                ('idexternopatriarca', models.UUIDField(unique=True)),
-                ('strsiglapatriarca', models.CharField(max_length=20)),
-                ('strnome', models.CharField(max_length=255)),
-                ('datcriacao', models.DateTimeField()),
-                ('datalteracao', models.DateTimeField(blank=True, null=True)),
-                ('created_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_created', to=settings.AUTH_USER_MODEL)),
-                ('updated_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_updated', to=settings.AUTH_USER_MODEL)),
-                ('idstatusprogresso', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, to='carga_org_lot.statusprogresso')),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                ("idpatriarca", models.BigAutoField(primary_key=True, serialize=False)),
+                ("idexternopatriarca", models.UUIDField(unique=True)),
+                ("strsiglapatriarca", models.CharField(max_length=20)),
+                ("strnome", models.CharField(max_length=255)),
+                ("datcriacao", models.DateTimeField()),
+                ("datalteracao", models.DateTimeField(blank=True, null=True)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_created",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "updated_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_updated",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "idstatusprogresso",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        to="carga_org_lot.statusprogresso",
+                    ),
+                ),
             ],
             options={
-                'db_table': '"carga_org_lot"."tblpatriarca"',
+                "db_table": '"carga_org_lot"."tblpatriarca"',
             },
         ),
         migrations.CreateModel(
-            name='TokenEnvioCarga',
+            name="TokenEnvioCarga",
             fields=[
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('idtokenenviocarga', models.BigAutoField(primary_key=True, serialize=False)),
-                ('strtoken', models.CharField(max_length=200)),
-                ('created_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_created', to=settings.AUTH_USER_MODEL)),
-                ('idstatusprogresso', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, to='carga_org_lot.statusprogresso')),
-                ('idtipocarga', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, to='carga_org_lot.tipocarga')),
-                ('updated_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_updated', to=settings.AUTH_USER_MODEL)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "idtokenenviocarga",
+                    models.BigAutoField(primary_key=True, serialize=False),
+                ),
+                ("strtoken", models.CharField(max_length=200)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_created",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "idstatusprogresso",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        to="carga_org_lot.statusprogresso",
+                    ),
+                ),
+                (
+                    "idtipocarga",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        to="carga_org_lot.tipocarga",
+                    ),
+                ),
+                (
+                    "updated_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_updated",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'db_table': '"carga_org_lot"."tbltokenenviocarga"',
+                "db_table": '"carga_org_lot"."tbltokenenviocarga"',
             },
         ),
         migrations.CreateModel(
-            name='DetalheStatusCarga',
+            name="DetalheStatusCarga",
             fields=[
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('iddetalhestatuscarga', models.BigAutoField(primary_key=True, serialize=False)),
-                ('strmensagem', models.TextField()),
-                ('created_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_created', to=settings.AUTH_USER_MODEL)),
-                ('updated_by', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='%(class)s_updated', to=settings.AUTH_USER_MODEL)),
-                ('idstatuscarga', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, to='carga_org_lot.statuscarga')),
-                ('idtokenenviocarga', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='detalhes', to='carga_org_lot.tokenenviocarga')),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "iddetalhestatuscarga",
+                    models.BigAutoField(primary_key=True, serialize=False),
+                ),
+                ("strmensagem", models.TextField()),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_created",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "updated_by",
+                    models.ForeignKey(
+                        blank=True,
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="%(class)s_updated",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "idstatuscarga",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        to="carga_org_lot.statuscarga",
+                    ),
+                ),
+                (
+                    "idtokenenviocarga",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="detalhes",
+                        to="carga_org_lot.tokenenviocarga",
+                    ),
+                ),
             ],
             options={
-                'db_table': '"carga_org_lot"."tbldetalhestatuscarga"',
+                "db_table": '"carga_org_lot"."tbldetalhestatuscarga"',
             },
         ),
     ]

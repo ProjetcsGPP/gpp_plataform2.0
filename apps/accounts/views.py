@@ -56,45 +56,43 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
-from django.db import DatabaseError, IntegrityError, OperationalError, transaction
+from django.db import (DatabaseError, IntegrityError, OperationalError,
+                       transaction)
 from django.middleware.csrf import rotate_token
 from django.utils import timezone as dj_timezone
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
-from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, PermissionDenied, ValidationError as DRFValidationError
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.exceptions import APIException, PermissionDenied
+from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.services.application_registry import ApplicationRegistry
 from common.mixins import AuditableMixin, SecureQuerysetMixin
-from common.permissions import CanCreateUser, CanEditUser, HasRolePermission, IsPortalAdmin
-from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample
+from common.permissions import (CanCreateUser, CanEditUser, HasRolePermission,
+                                IsPortalAdmin)
 from common.schema import tag_all_actions
 
-from .models import AccountsSession, Aplicacao, Role, UserPermissionOverride, UserProfile, UserRole
-from .serializers import (
-    AplicacaoPublicaSerializer,
-    AplicacaoSerializer,
-    RoleSerializer,
-    UserCreateSerializer,
-    UserCreateWithRoleSerializer,
-    UserPermissionOverrideSerializer,
-    UserProfileSerializer,
-    UserRoleSerializer,
-    MeSerializer,
-    MePermissionSerializer,
-)
+from .models import (AccountsSession, Aplicacao, Role, UserPermissionOverride,
+                     UserProfile, UserRole)
+from .serializers import (AplicacaoPublicaSerializer, AplicacaoSerializer,
+                          MePermissionSerializer, MeSerializer, RoleSerializer,
+                          UserCreateSerializer, UserCreateWithRoleSerializer,
+                          UserPermissionOverrideSerializer,
+                          UserProfileSerializer, UserRoleSerializer)
 from .services.permission_sync import sync_user_permissions
 from .utils import get_client_ip
 
-from apps.accounts.services.application_registry import ApplicationRegistry
-
 security_logger = logging.getLogger("gpp.security")
+
 
 def build_cookie_name(codigo_interno: str) -> str:
     return f"gpp_session_{codigo_interno.upper()}"
 
+
 # ─── Auth Views (Sessão) ──────────────────────────────────────────────────
+
 class LoginView(APIView):
     """
     POST /api/accounts/login/
@@ -105,10 +103,9 @@ class LoginView(APIView):
     Rate limit: controlado via DEFAULT_THROTTLE_CLASSES no settings.
     Em testes, o conftest raiz zera as classes — sem throttle_scope fixo aqui.
     """
-    
+
     authentication_classes = []
     permission_classes = [AllowAny]
-
 
     @extend_schema(
         summary="Login via sessão",
@@ -136,7 +133,6 @@ class LoginView(APIView):
         },
         tags=["0 - Autenticação"],
     )
-
     def post(self, request):
         username = request.data.get("username")
         password = request.data.get("password")
@@ -264,7 +260,7 @@ class ResolveUserView(APIView):
     R-04: Sem rate limit próprio — controlado via DEFAULT_THROTTLE_CLASSES.
     R-05: Log de tentativas para auditoria de segurança.
     """
-    
+
     authentication_classes = []
     permission_classes = [AllowAny]
 
@@ -289,7 +285,6 @@ class ResolveUserView(APIView):
         },
         tags=["0 - Autenticação"],
     )
-
     def post(self, request):
         from django.contrib.auth import get_user_model
         User = get_user_model()
@@ -349,14 +344,13 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        operation_id="accounts_logout_session", 
+        operation_id="accounts_logout_session",
         summary="Logout da sessão atual",
         description="Encerra a sessão ativa e revoga o registro em AccountsSession.",
         request=None,
         responses={200: OpenApiResponse(description="Logout realizado")},
         tags=["0 - Autenticação"],
     )
-
     def post(self, request):
         session_key = request.session.session_key
 
@@ -377,7 +371,6 @@ class LogoutView(APIView):
         return Response({"detail": "Logout realizado"})
 
 
-
 class LogoutAppView(APIView):
     authentication_classes = []
     permission_classes = []
@@ -390,7 +383,6 @@ class LogoutAppView(APIView):
         responses={200: OpenApiResponse(description="Logout realizado")},
         tags=["0 - Autenticação"],
     )
-    
     def post(self, request, app_slug):
         registry = ApplicationRegistry()
 
@@ -398,11 +390,9 @@ class LogoutAppView(APIView):
 
         if not app:
             return Response("App inválida", status=400)
-        
         app_context = app_slug.upper()
         cookie_name = build_cookie_name(app_context)
         session_key = request.COOKIES.get(cookie_name)
-        
         if session_key:
             AccountsSession.objects.filter(
                 session_key=session_key,
@@ -433,7 +423,6 @@ class MeView(APIView):
         responses={200: OpenApiResponse(description="Dados do usuário")},
         tags=["1 - Usuários"],
     )
-    
     def get(self, request):
         user = request.user
 
@@ -455,7 +444,6 @@ class MeView(APIView):
         }).data
 
         return Response(data)
-
 
 
 class MePermissionView(APIView):
@@ -500,7 +488,6 @@ class MePermissionView(APIView):
         },
         tags=["1 - Usuários"],
     )
-
     def get(self, request):
         app_codigo = getattr(request, "app_context", None)
 
@@ -565,7 +552,6 @@ class UserCreateView(APIView):
         },
         tags=["1 - Usuários"],
     )
-
     def post(self, request):
         serializer = UserCreateSerializer(
             data=request.data,
@@ -573,7 +559,8 @@ class UserCreateView(APIView):
         )
         serializer.is_valid(raise_exception=True)
 
-        from apps.accounts.services.authorization_service import AuthorizationService
+        from apps.accounts.services.authorization_service import \
+            AuthorizationService
         service = AuthorizationService(request.user)
 
         if not service._is_portal_admin():
@@ -633,9 +620,9 @@ class UserCreateWithRoleView(APIView):
         },
         tags=["1 - Usuários"],
     )
-
     def post(self, request):
-        from apps.accounts.services.authorization_service import AuthorizationService
+        from apps.accounts.services.authorization_service import \
+            AuthorizationService
         service = AuthorizationService(request.user)
 
         if not service._is_portal_admin() and not request.user.is_superuser:
@@ -652,7 +639,8 @@ class UserCreateWithRoleView(APIView):
         aplicacao_destino = serializer.validated_data["aplicacao"]
 
         if aplicacao_destino is not None:
-            from apps.accounts.services.authorization_service import AuthorizationService
+            from apps.accounts.services.authorization_service import \
+                AuthorizationService
             service = AuthorizationService(request.user)
             if not service.user_can_create_user_in_application(aplicacao_destino):
                 security_logger.warning(
@@ -707,7 +695,7 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     R-03: pagination_class = None — retorna lista plana sem envelope de paginação.
     R-04: throttle_classes = [] — endpoint público de leitura; sem rate limit.
     """
-    serializer_class = AplicacaoPublicaSerializer    
+    serializer_class = AplicacaoPublicaSerializer
     authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = []
@@ -850,9 +838,9 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
     http_method_names = ["get", "post", "delete", "head", "options"]
 
     def get_queryset(self):
-        #return UserRole.objects.all().select_related(
-        #    "user", "aplicacao", "role"
-        #)
+        # return UserRole.objects.all().select_related(
+        #     "user", "aplicacao", "role"
+        # )
         return UserRole.objects.all().select_related(
             "user", "aplicacao", "role"
         ).order_by("user__username", "role__nomeperfil")

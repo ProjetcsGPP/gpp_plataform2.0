@@ -14,21 +14,19 @@ Referencia: docs/PERMISSIONS_ARCHITECTURE.md
   Fórmula: herdadas |= user_permissions |= grant -= revoke
   ADR-PERM-01: auth_user_groups NÃO é populado neste sistema.
 """
+
 import pytest
 from django.contrib.auth.models import Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
 from rest_framework.test import APIClient
 
-from apps.accounts.models import Aplicacao, Role, UserPermissionOverride, UserRole
+from apps.accounts.models import Role, UserPermissionOverride, UserRole
 from apps.accounts.services.permission_sync import (
-    calculate_effective_permissions,
     calculate_inherited_permissions,
     sync_all_users_permissions,
     sync_user_permissions,
 )
 from apps.accounts.tests.conftest import (
-    DEFAULT_PASSWORD,
-    LOGIN_URL,
     _assign_role,
     _make_authenticated_client,
     _make_user,
@@ -42,6 +40,7 @@ OVERRIDES_URL = "/api/accounts/user-permission-overrides/"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_or_create_permission(codename: str, app_label: str = "accounts") -> Permission:
     """Obtém ou cria uma Permission de teste com ContentType mínimo."""
@@ -105,6 +104,7 @@ def _get_granted_perms(resp) -> list:
 # TestServicePermissions — testes do orquestrador permission_sync
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestServicePermissions:
     """Valida que o orquestrador escreve corretamente em auth_user_user_permissions."""
@@ -121,9 +121,9 @@ class TestServicePermissions:
 
         _assign_role(user, role_pk=2)
 
-        assert _user_has_perm_in_db(user, perm.codename), (
-            "Permissão herdada da role não foi materializada em auth_user_user_permissions."
-        )
+        assert _user_has_perm_in_db(
+            user, perm.codename
+        ), "Permissão herdada da role não foi materializada em auth_user_user_permissions."
 
     def test_editar_user_role_recalcula_permissoes(self):
         """Trocar a role do usuário recalcula o conjunto em auth_user_user_permissions."""
@@ -145,12 +145,12 @@ class TestServicePermissions:
         user_role.save()
         sync_user_permissions(user)
 
-        assert _user_has_perm_in_db(user, "srv_perm_role_b"), (
-            "Permissão da nova role não foi adicionada."
-        )
-        assert not _user_has_perm_in_db(user, "srv_perm_role_a"), (
-            "Permissão da role anterior não foi removida após troca."
-        )
+        assert _user_has_perm_in_db(
+            user, "srv_perm_role_b"
+        ), "Permissão da nova role não foi adicionada."
+        assert not _user_has_perm_in_db(
+            user, "srv_perm_role_a"
+        ), "Permissão da role anterior não foi removida após troca."
 
     def test_excluir_user_role_remove_permissoes_herdadas(self):
         """Remover a UserRole e sincronizar limpa as permissões herdadas exclusivas."""
@@ -164,15 +164,15 @@ class TestServicePermissions:
         UserRole.objects.filter(user=user).delete()
         sync_user_permissions(user)
 
-        assert not _user_has_perm_in_db(user, "srv_excl_perm"), (
-            "Permissão não foi removida após exclusão da UserRole."
-        )
+        assert not _user_has_perm_in_db(
+            user, "srv_excl_perm"
+        ), "Permissão não foi removida após exclusão da UserRole."
 
     def test_multiplas_roles_geram_uniao_correta(self):
         """Usuário com roles em apps distintas acumula permissões de ambas."""
         user = _make_user("srv_multi_roles")
 
-        role_pngi = Role.objects.get(pk=2)   # GESTOR_PNGI (app pk=2)
+        role_pngi = Role.objects.get(pk=2)  # GESTOR_PNGI (app pk=2)
         role_carga = Role.objects.get(pk=6)  # GESTOR_CARGA (app pk=3)
 
         perm_pngi = _get_or_create_permission("srv_multi_pngi")
@@ -189,12 +189,12 @@ class TestServicePermissions:
         )
         sync_user_permissions(user)
 
-        assert _user_has_perm_in_db(user, "srv_multi_pngi"), (
-            "Permissão PNGI não encontrada."
-        )
-        assert _user_has_perm_in_db(user, "srv_multi_carga"), (
-            "Permissão CARGA não encontrada."
-        )
+        assert _user_has_perm_in_db(
+            user, "srv_multi_pngi"
+        ), "Permissão PNGI não encontrada."
+        assert _user_has_perm_in_db(
+            user, "srv_multi_carga"
+        ), "Permissão CARGA não encontrada."
 
     def test_sync_idempotente(self):
         """Chamar sync_user_permissions duas vezes produz o mesmo estado."""
@@ -208,9 +208,9 @@ class TestServicePermissions:
         sync_user_permissions(user)  # segunda chamada
         perms_depois = set(user.user_permissions.values_list("codename", flat=True))
 
-        assert perms_antes == perms_depois, (
-            "sync_user_permissions não é idempotente — resultado mudou na segunda chamada."
-        )
+        assert (
+            perms_antes == perms_depois
+        ), "sync_user_permissions não é idempotente — resultado mudou na segunda chamada."
 
     def test_usuario_sem_role_fica_sem_permissoes_herdadas(self):
         """Usuário sem UserRole não deve ter permissões herdadas."""
@@ -218,17 +218,16 @@ class TestServicePermissions:
         sync_user_permissions(user)
 
         herdadas = calculate_inherited_permissions(user)
-        assert len(herdadas) == 0, (
-            f"Esperava conjunto vazio, mas obteve: {herdadas}"
-        )
-        assert user.user_permissions.count() == 0, (
-            "auth_user_user_permissions deveria estar vazio para usuário sem role."
-        )
+        assert len(herdadas) == 0, f"Esperava conjunto vazio, mas obteve: {herdadas}"
+        assert (
+            user.user_permissions.count() == 0
+        ), "auth_user_user_permissions deveria estar vazio para usuário sem role."
 
 
 # ---------------------------------------------------------------------------
 # TestOverridePermissions — testes de UserPermissionOverride
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestOverridePermissions:
@@ -246,12 +245,14 @@ class TestOverridePermissions:
         sync_user_permissions(user)
         assert not _user_has_perm_in_db(user, "ovr_grant_extra_perm")
 
-        UserPermissionOverride.objects.create(user=user, permission=perm_extra, mode="grant")
+        UserPermissionOverride.objects.create(
+            user=user, permission=perm_extra, mode="grant"
+        )
         sync_user_permissions(user)
 
-        assert _user_has_perm_in_db(user, "ovr_grant_extra_perm"), (
-            "Override grant não adicionou a permissão extra."
-        )
+        assert _user_has_perm_in_db(
+            user, "ovr_grant_extra_perm"
+        ), "Override grant não adicionou a permissão extra."
 
     def test_revoke_remove_permissao_herdada_da_role(self):
         """Override revoke retira permissão que viria da role."""
@@ -265,9 +266,9 @@ class TestOverridePermissions:
         UserPermissionOverride.objects.create(user=user, permission=perm, mode="revoke")
         sync_user_permissions(user)
 
-        assert not _user_has_perm_in_db(user, "ovr_revoke_hrd_perm"), (
-            "Override revoke não removeu a permissão herdada."
-        )
+        assert not _user_has_perm_in_db(
+            user, "ovr_revoke_hrd_perm"
+        ), "Override revoke não removeu a permissão herdada."
 
     def test_grant_em_permissao_ja_herdada_nao_duplica(self):
         """Grant em permissão já herdada não gera duplicidade — conjunto permanece com 1 entrada."""
@@ -282,9 +283,7 @@ class TestOverridePermissions:
         sync_user_permissions(user)
 
         count = user.user_permissions.filter(codename="ovr_grant_dup_perm").count()
-        assert count == 1, (
-            f"Esperava 1 entrada, mas encontrou {count} (duplicidade)."
-        )
+        assert count == 1, f"Esperava 1 entrada, mas encontrou {count} (duplicidade)."
         assert _user_has_perm_in_db(user, "ovr_grant_dup_perm")
 
     def test_revoke_em_permissao_nao_herdada_mantem_consistencia(self):
@@ -298,12 +297,14 @@ class TestOverridePermissions:
         sync_user_permissions(user)
         assert not _user_has_perm_in_db(user, "ovr_revoke_non_hrd_perm")
 
-        UserPermissionOverride.objects.create(user=user, permission=perm_fora, mode="revoke")
+        UserPermissionOverride.objects.create(
+            user=user, permission=perm_fora, mode="revoke"
+        )
         sync_user_permissions(user)
 
-        assert not _user_has_perm_in_db(user, "ovr_revoke_non_hrd_perm"), (
-            "Revoke em permissão ausente causou estado inconsistente."
-        )
+        assert not _user_has_perm_in_db(
+            user, "ovr_revoke_non_hrd_perm"
+        ), "Revoke em permissão ausente causou estado inconsistente."
 
     def test_remover_override_grant_recompoe_conjunto_sem_a_perm(self):
         """Após remover override grant, a permissão extra desaparece do conjunto efetivo."""
@@ -315,15 +316,17 @@ class TestOverridePermissions:
         role.group.permissions.remove(perm)
         sync_user_permissions(user)
 
-        override = UserPermissionOverride.objects.create(user=user, permission=perm, mode="grant")
+        override = UserPermissionOverride.objects.create(
+            user=user, permission=perm, mode="grant"
+        )
         sync_user_permissions(user)
         assert _user_has_perm_in_db(user, "ovr_rm_grant_perm")
 
         override.delete()
         sync_user_permissions(user)
-        assert not _user_has_perm_in_db(user, "ovr_rm_grant_perm"), (
-            "Após remover override grant, a permissão deveria sumir."
-        )
+        assert not _user_has_perm_in_db(
+            user, "ovr_rm_grant_perm"
+        ), "Após remover override grant, a permissão deveria sumir."
 
     def test_remover_override_revoke_recompoe_permissao_herdada(self):
         """Após remover override revoke, a permissão herdada volta ao conjunto."""
@@ -334,20 +337,23 @@ class TestOverridePermissions:
         _assign_role(user, role_pk=2)
         assert _user_has_perm_in_db(user, "ovr_rm_revoke_perm")
 
-        override = UserPermissionOverride.objects.create(user=user, permission=perm, mode="revoke")
+        override = UserPermissionOverride.objects.create(
+            user=user, permission=perm, mode="revoke"
+        )
         sync_user_permissions(user)
         assert not _user_has_perm_in_db(user, "ovr_rm_revoke_perm")
 
         override.delete()
         sync_user_permissions(user)
-        assert _user_has_perm_in_db(user, "ovr_rm_revoke_perm"), (
-            "Após remover override revoke, a permissão herdada deveria reaparecer."
-        )
+        assert _user_has_perm_in_db(
+            user, "ovr_rm_revoke_perm"
+        ), "Após remover override revoke, a permissão herdada deveria reaparecer."
 
 
 # ---------------------------------------------------------------------------
 # TestOverlapPermissions — testes de sobreposição de roles
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestOverlapPermissions:
@@ -356,7 +362,7 @@ class TestOverlapPermissions:
     def test_duas_roles_concedendo_mesma_perm_reflete_uniao(self):
         """Quando duas roles (apps distintas) concedem a mesma permissão, ela permanece no conjunto."""
         user = _make_user("ovlp_duas_roles")
-        role_pngi = Role.objects.get(pk=2)   # ACOES_PNGI
+        role_pngi = Role.objects.get(pk=2)  # ACOES_PNGI
         role_carga = Role.objects.get(pk=6)  # CARGA_ORG_LOT
 
         perm_comum = _get_or_create_permission("ovlp_shared_perm")
@@ -371,9 +377,9 @@ class TestOverlapPermissions:
         )
         sync_user_permissions(user)
 
-        assert _user_has_perm_in_db(user, "ovlp_shared_perm"), (
-            "Permissão compartilhada por duas roles não foi materializada."
-        )
+        assert _user_has_perm_in_db(
+            user, "ovlp_shared_perm"
+        ), "Permissão compartilhada por duas roles não foi materializada."
         count = user.user_permissions.filter(codename="ovlp_shared_perm").count()
         assert count == 1, f"Esperava 1 entrada, mas encontrou {count} (duplicidade)."
 
@@ -400,9 +406,9 @@ class TestOverlapPermissions:
         UserRole.objects.filter(user=user, aplicacao=role_pngi.aplicacao).delete()
         sync_user_permissions(user)
 
-        assert _user_has_perm_in_db(user, "ovlp_rm_one_perm"), (
-            "Permissão não deveria ter sido removida — outra role ainda a concede."
-        )
+        assert _user_has_perm_in_db(
+            user, "ovlp_rm_one_perm"
+        ), "Permissão não deveria ter sido removida — outra role ainda a concede."
 
     def test_remocao_da_ultima_origem_apaga_permissao(self):
         """Quando todas as origens de uma permissão são removidas, ela some do conjunto."""
@@ -427,14 +433,15 @@ class TestOverlapPermissions:
         UserRole.objects.filter(user=user).delete()
         sync_user_permissions(user)
 
-        assert not _user_has_perm_in_db(user, "ovlp_rm_all_perm"), (
-            "Permissão deveria ter sido removida após excluir todas as origens."
-        )
+        assert not _user_has_perm_in_db(
+            user, "ovlp_rm_all_perm"
+        ), "Permissão deveria ter sido removida após excluir todas as origens."
 
 
 # ---------------------------------------------------------------------------
 # TestAPIPermissions — testes do endpoint /me/permissions/
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestAPIPermissions:
@@ -452,9 +459,9 @@ class TestAPIPermissions:
         resp = client.get(ME_PERMS_URL)
         assert resp.status_code == 200
         codenames = _get_granted_perms(resp)
-        assert "api_cf_perm" in codenames, (
-            f"Permissão herdada não apareceu no endpoint. Retorno: {codenames}"
-        )
+        assert (
+            "api_cf_perm" in codenames
+        ), f"Permissão herdada não apareceu no endpoint. Retorno: {codenames}"
 
     def test_retorno_muda_apos_adicionar_role(self):
         """
@@ -477,9 +484,9 @@ class TestAPIPermissions:
             f"Esperava 200 mas recebeu {resp.status_code}. "
             "Verifique se _assign_role foi chamado antes de _login_client."
         )
-        assert "api_add_role_perm" in _get_granted_perms(resp), (
-            "Permissão da role não apareceu no endpoint após login com role ativa."
-        )
+        assert "api_add_role_perm" in _get_granted_perms(
+            resp
+        ), "Permissão da role não apareceu no endpoint após login com role ativa."
 
     def test_retorno_muda_apos_remover_role(self):
         """
@@ -504,58 +511,59 @@ class TestAPIPermissions:
 
         resp_after = client.get(ME_PERMS_URL)
         # Aceita 200 (lista vazia) ou 403 (sem role) — ambos indicam que a perm sumiu
-        assert resp_after.status_code in (200, 403), (
-            f"Status inesperado após remover role: {resp_after.status_code}"
-        )
-        assert "api_rm_role_perm" not in _get_granted_perms(resp_after), (
-            "Permissão não foi removida do endpoint após excluir a role."
-        )
+        assert resp_after.status_code in (
+            200,
+            403,
+        ), f"Status inesperado após remover role: {resp_after.status_code}"
+        assert "api_rm_role_perm" not in _get_granted_perms(
+            resp_after
+        ), "Permissão não foi removida do endpoint após excluir a role."
 
-#    def test_retorno_muda_apos_grant_override(self):
-#        """
-#        Criar override grant reflete imediatamente no endpoint /me/permissions/.
-#
-#        CORREÇÃO (Falha 3): _login_client agora usa _make_authenticated_client
-#        do conftest, que persiste corretamente o cookie de sessão no APIClient.
-#        O client_after faz novo login APÓS o sync, garantindo que a sessão é
-#        emitida com o estado de permissões já atualizado.
-#        """
-#        user = _make_user("api_grant_ovr")
-#        perm = _get_or_create_permission("api_grant_ovr_perm")
-#
-#        # Remove a perm do template da role — não deve vir por herança
-#        role = Role.objects.get(pk=2)
-#        role.group.permissions.remove(perm)
-#
-#        # Atribui role e sincroniza — usuário não tem a perm ainda
-#        _assign_role(user, role_pk=2)
-#        sync_user_permissions(user)
-#        assert not _user_has_perm_in_db(user, "api_grant_ovr_perm")
-#
-#        # Estado ANTES: sessão válida, perm ausente
-#        client_before = _login_client("api_grant_ovr", "ACOES_PNGI")
-#        resp_before = client_before.get(ME_PERMS_URL)
-#        assert resp_before.status_code == 200, (
-#            f"Esperava 200 antes do override, recebeu {resp_before.status_code}."
-#        )
-#        assert "api_grant_ovr_perm" not in _get_granted_perms(resp_before), (
-#            "A permissão extra não deveria estar presente antes do override."
-#        )
-#
-#        # Cria override grant e sincroniza
-#        UserPermissionOverride.objects.create(user=user, permission=perm, mode="grant")
-#        sync_user_permissions(user)
-#        assert _user_has_perm_in_db(user, "api_grant_ovr_perm")
-#
-#        # Estado APÓS: novo login — cookie de sessão emitido após o sync
-#        client_after = _login_client("api_grant_ovr", "ACOES_PNGI")
-#        resp_after = client_after.get(ME_PERMS_URL)
-#        assert resp_after.status_code == 200, (
-#            f"Esperava 200 após o override, recebeu {resp_after.status_code}."
-#        )
-#        assert "api_grant_ovr_perm" in _get_granted_perms(resp_after), (
-#            "Override grant não refletiu no endpoint."
-#        )
+    #    def test_retorno_muda_apos_grant_override(self):
+    #        """
+    #        Criar override grant reflete imediatamente no endpoint /me/permissions/.
+    #
+    #        CORREÇÃO (Falha 3): _login_client agora usa _make_authenticated_client
+    #        do conftest, que persiste corretamente o cookie de sessão no APIClient.
+    #        O client_after faz novo login APÓS o sync, garantindo que a sessão é
+    #        emitida com o estado de permissões já atualizado.
+    #        """
+    #        user = _make_user("api_grant_ovr")
+    #        perm = _get_or_create_permission("api_grant_ovr_perm")
+    #
+    #        # Remove a perm do template da role — não deve vir por herança
+    #        role = Role.objects.get(pk=2)
+    #        role.group.permissions.remove(perm)
+    #
+    #        # Atribui role e sincroniza — usuário não tem a perm ainda
+    #        _assign_role(user, role_pk=2)
+    #        sync_user_permissions(user)
+    #        assert not _user_has_perm_in_db(user, "api_grant_ovr_perm")
+    #
+    #        # Estado ANTES: sessão válida, perm ausente
+    #        client_before = _login_client("api_grant_ovr", "ACOES_PNGI")
+    #        resp_before = client_before.get(ME_PERMS_URL)
+    #        assert resp_before.status_code == 200, (
+    #            f"Esperava 200 antes do override, recebeu {resp_before.status_code}."
+    #        )
+    #        assert "api_grant_ovr_perm" not in _get_granted_perms(resp_before), (
+    #            "A permissão extra não deveria estar presente antes do override."
+    #        )
+    #
+    #        # Cria override grant e sincroniza
+    #        UserPermissionOverride.objects.create(user=user, permission=perm, mode="grant")
+    #        sync_user_permissions(user)
+    #        assert _user_has_perm_in_db(user, "api_grant_ovr_perm")
+    #
+    #        # Estado APÓS: novo login — cookie de sessão emitido após o sync
+    #        client_after = _login_client("api_grant_ovr", "ACOES_PNGI")
+    #        resp_after = client_after.get(ME_PERMS_URL)
+    #        assert resp_after.status_code == 200, (
+    #            f"Esperava 200 após o override, recebeu {resp_after.status_code}."
+    #        )
+    #        assert "api_grant_ovr_perm" in _get_granted_perms(resp_after), (
+    #            "Override grant não refletiu no endpoint."
+    #        )
 
     def test_retorno_muda_apos_grant_override(self):
         """
@@ -576,36 +584,34 @@ class TestAPIPermissions:
         role.group.permissions.remove(perm)
         _assign_role(user, role_pk=2)
 
-        assert not _user_has_perm_in_db(user, "api_grant_ovr_perm"), (
-            "Pré-condição falhou: perm não deveria estar no DB antes do grant."
-        )
+        assert not _user_has_perm_in_db(
+            user, "api_grant_ovr_perm"
+        ), "Pré-condição falhou: perm não deveria estar no DB antes do grant."
 
         # Estado ANTES do grant — perm ausente na API
         client_before = _login_client("api_grant_ovr", "ACOES_PNGI")
         resp_before = client_before.get(ME_PERMS_URL, HTTP_X_GPP_APP="ACOES_PNGI")
-        assert resp_before.status_code == 200, (
-            f"Esperava 200 antes do grant, obteve {resp_before.status_code}"
-        )
-        assert "api_grant_ovr_perm" not in _get_granted_perms(resp_before), (
-            "Pré-condição de API falhou: perm não deveria aparecer antes do grant."
-        )
+        assert (
+            resp_before.status_code == 200
+        ), f"Esperava 200 antes do grant, obteve {resp_before.status_code}"
+        assert "api_grant_ovr_perm" not in _get_granted_perms(
+            resp_before
+        ), "Pré-condição de API falhou: perm não deveria aparecer antes do grant."
 
         # Cria o override grant e sincroniza
-        UserPermissionOverride.objects.create(
-            user=user, permission=perm, mode="grant"
-        )
+        UserPermissionOverride.objects.create(user=user, permission=perm, mode="grant")
         sync_user_permissions(user)
 
-        assert _user_has_perm_in_db(user, "api_grant_ovr_perm"), (
-            "Pós-condição de DB falhou: perm deveria estar materializada após grant+sync."
-        )
+        assert _user_has_perm_in_db(
+            user, "api_grant_ovr_perm"
+        ), "Pós-condição de DB falhou: perm deveria estar materializada após grant+sync."
 
         # Estado APÓS o grant — perm deve aparecer na API
         client_after = _login_client("api_grant_ovr", "ACOES_PNGI")
         resp_after = client_after.get(ME_PERMS_URL, HTTP_X_GPP_APP="ACOES_PNGI")
-        assert resp_after.status_code == 200, (
-            f"Esperava 200 após grant, obteve {resp_after.status_code}"
-        )
+        assert (
+            resp_after.status_code == 200
+        ), f"Esperava 200 após grant, obteve {resp_after.status_code}"
         assert "api_grant_ovr_perm" in _get_granted_perms(resp_after), (
             f"Perm 'api_grant_ovr_perm' deveria estar em granted após override grant+sync. "
             f"Obtido: {_get_granted_perms(resp_after)}"
@@ -627,14 +633,15 @@ class TestAPIPermissions:
         sync_user_permissions(user)
 
         resp_after = client.get(ME_PERMS_URL)
-        assert "api_revoke_ovr_perm" not in _get_granted_perms(resp_after), (
-            "Override revoke não removeu a permissão do endpoint."
-        )
+        assert "api_revoke_ovr_perm" not in _get_granted_perms(
+            resp_after
+        ), "Override revoke não removeu a permissão do endpoint."
 
 
 # ---------------------------------------------------------------------------
 # TestStructuralIntegration — integração estrutural (gatilhos de sync)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestStructuralIntegration:
@@ -653,9 +660,9 @@ class TestStructuralIntegration:
         role.group.permissions.add(perm_nova)
 
         # Verifica que o re-sync automático (via signal) ocorreu
-        assert _user_has_perm_in_db(user, "strct_grp_new_perm"), (
-            "Adicionar permissão ao Group não foi propagada para auth_user_user_permissions (D-05)."
-        )
+        assert _user_has_perm_in_db(
+            user, "strct_grp_new_perm"
+        ), "Adicionar permissão ao Group não foi propagada para auth_user_user_permissions (D-05)."
 
     def test_alterar_role_group_impacta_usuarios_apos_sync(self):
         """Trocar o Group associado a uma Role e sincronizar atualiza os usuários com essa role."""
@@ -676,12 +683,12 @@ class TestStructuralIntegration:
         role.group = group_novo
         role.save()  # signal post_save em Role deve disparar re-sync
 
-        assert _user_has_perm_in_db(user, "strct_rg_new_perm"), (
-            "Nova permissão do novo Group não foi materializada após troca de Role.group."
-        )
-        assert not _user_has_perm_in_db(user, "strct_rg_orig_perm"), (
-            "Permissão antiga do Group anterior deveria ter sido removida."
-        )
+        assert _user_has_perm_in_db(
+            user, "strct_rg_new_perm"
+        ), "Nova permissão do novo Group não foi materializada após troca de Role.group."
+        assert not _user_has_perm_in_db(
+            user, "strct_rg_orig_perm"
+        ), "Permissão antiga do Group anterior deveria ter sido removida."
 
         # Restaura para não afetar outros testes
         role.group = group_original
@@ -708,17 +715,18 @@ class TestStructuralIntegration:
         # Re-sync em batch
         sync_all_users_permissions()
 
-        assert _user_has_perm_in_db(user_a, "strct_sync_all_perm"), (
-            "user_a não teve permissões recompostas pelo sync_all."
-        )
-        assert _user_has_perm_in_db(user_b, "strct_sync_all_perm"), (
-            "user_b não teve permissões recompostas pelo sync_all."
-        )
+        assert _user_has_perm_in_db(
+            user_a, "strct_sync_all_perm"
+        ), "user_a não teve permissões recompostas pelo sync_all."
+        assert _user_has_perm_in_db(
+            user_b, "strct_sync_all_perm"
+        ), "user_b não teve permissões recompostas pelo sync_all."
 
 
 # ---------------------------------------------------------------------------
 # TestNegativePermissions — testes negativos
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestNegativePermissions:
@@ -743,9 +751,9 @@ class TestNegativePermissions:
         UserPermissionOverride.objects.filter(user=user, permission=perm).delete()
 
         service = AuthorizationService(user)
-        assert not service.can("neg_bloqueio_perm"), (
-            "AuthorizationService.can() deveria retornar False para permissão não efetiva."
-        )
+        assert not service.can(
+            "neg_bloqueio_perm"
+        ), "AuthorizationService.can() deveria retornar False para permissão não efetiva."
 
     def test_grupo_sem_role_ativa_nao_afeta_permissoes_do_usuario(self):
         """Group sem UserRole associado a um usuário não deve influenciar suas permissões."""
@@ -760,9 +768,9 @@ class TestNegativePermissions:
         user.groups.clear()
         sync_user_permissions(user)
 
-        assert not _user_has_perm_in_db(user, "neg_grp_sr_perm"), (
-            "Group sem UserRole associada não deveria afetar auth_user_user_permissions."
-        )
+        assert not _user_has_perm_in_db(
+            user, "neg_grp_sr_perm"
+        ), "Group sem UserRole associada não deveria afetar auth_user_user_permissions."
 
     def test_auth_user_groups_isolado_nao_altera_comportamento(self):
         """ADR-PERM-01: adicionar usuário a auth_user_groups isoladamente não deve alterar
