@@ -52,9 +52,14 @@ class FrontEndLogging(APIView):
     def post(self, request):
         log_data = request.data
         remote_address = get_client_ip(request)
+        user = request.user
+        app_context = getattr(request, "app_context", "UNKNOWN")
 
         security_logger.info(
-            "FRONTEND_LOG_ERR: %s - %s",
+            "FRONTEND_LOG user=%s(%s) app=%s ip=%s | %s",
+            user.username,
+            user.id,
+            app_context,
             remote_address,
             log_data,
         )
