@@ -1,21 +1,32 @@
 {
+  // 1. Caminho exato para ativar o venv automaticamente
+  "python.terminal.activateEnvironment": true,
+  "python.experiments.optOutFrom": ["pythonTerminalEnvVarActivation"],
+  "python-envs.terminal.autoActivationType": "shellStartup",
+
+  "python.terminal.activateEnvInCurrentTerminal": true,
+  "python.terminal.autoActivateEnvironment": true,
+  "terminal.integrated.env.windows": {
+    "PATH": "${workspaceFolder}\\.venv\\Scripts;${env:PATH}"
+  },
+
   "editor.formatOnSave": true,
 
   "[python]": {
-    "editor.defaultFormatter": "ms-python.black-formatter"
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
   },
 
-  "editor.codeActionsOnSave": {
-    "source.organizeImports": "always"
-  },
-
-  "python.linting.enabled": true,
-  "python.linting.flake8Enabled": true,
-  "python.linting.pylintEnabled": false,
-
+  // 2. Configurações das extensões modernas (substituem o antigo python.linting)
   "flake8.args": [
     "--max-line-length=120",
     "--exclude=migrations,__pycache__,.venv",
     "--ignore=E203,W503"
-  ]
+  ],
+
+  // 3. Garante que o VS Code use as bibliotecas instaladas no seu .venv para análise de código
+  "python.analysis.extraPaths": ["."],
+  "python.analysis.typeCheckingMode": "basic"
 }
