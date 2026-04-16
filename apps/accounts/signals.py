@@ -36,12 +36,17 @@ FASE-4-PERM (corrige D-05):
   Antes desta correção, a invalidação de cache não garantia que os dados em
   auth_user_user_permissions fossem consistentes com as novas permissões do grupo.
 """
+
 import logging
 
 from django.contrib.auth.models import Group
 from django.core.cache import cache
 from django.db.models.signals import m2m_changed, post_delete, post_save, pre_save
 from django.dispatch import receiver
+
+# Importação explícita de bump_authz_version para patchabilidade em testes.
+# Segue o mesmo padrão de sync_user_permissions (Issue #19).
+from apps.accounts.models import bump_authz_version  # noqa: E402
 
 # Importação explícita no topo do módulo — obrigatória para que mocker.patch
 # funcione em test_permission_sync_triggers.py (Issue #19).
@@ -52,14 +57,11 @@ from apps.accounts.services.permission_sync import (  # noqa: E402
     sync_users_permissions,
 )
 
-# Importação explícita de bump_authz_version para patchabilidade em testes.
-# Segue o mesmo padrão de sync_user_permissions (Issue #19).
-from apps.accounts.authz_versioning import bump_authz_version  # noqa: E402
-
 security_logger = logging.getLogger("gpp.security")
 
 
 # ─── Auto-criação de auth_group ─────────────────────────────────────────────
+
 
 @receiver(post_save, sender="accounts.Role")
 def auto_create_group_for_role(sender, instance, created, **kwargs):
@@ -74,11 +76,13 @@ def auto_create_group_for_role(sender, instance, created, **kwargs):
         sender.objects.filter(pk=instance.pk).update(group=group)
         security_logger.info(
             "ROLE_GROUP_CREATED role_id=%s group=%s",
-            instance.pk, group_name,
+            instance.pk,
+            group_name,
         )
 
 
 # ─── Helpers de invalidação ─────────────────────────────────────────────────
+
 
 def _bump_user_version(user_id: int):
     """
@@ -98,6 +102,7 @@ def _bump_user_version(user_id: int):
 
 
 # ─── Invalidação por UserRole ───────────────────────────────────────────────
+
 
 @receiver(post_save, sender="accounts.UserRole")
 @receiver(post_delete, sender="accounts.UserRole")
@@ -128,7 +133,9 @@ def invalidate_on_userrole_change(sender, instance, **kwargs):
     cache.delete(f"user_roles:{instance.user_id}:{app_code}")
     security_logger.warning(
         "USERROLE_CHANGED user_id=%s role_id=%s app=%s",
-        instance.user_id, instance.role_id, app_code,
+        instance.user_id,
+        instance.role_id,
+        app_code,
     )
 
     # [feat/authz_versioning] Incrementa versão de banco para frontend.
@@ -157,6 +164,7 @@ def invalidate_on_userrole_change(sender, instance, **kwargs):
 
 
 # ─── Re-sync por mudança de group em Role ───────────────────────────────────
+
 
 @receiver(pre_save, sender="accounts.Role")
 def _store_old_role_group(sender, instance, **kwargs):
@@ -205,8 +213,7 @@ def sync_on_role_group_change(sender, instance, created, **kwargs):
     from apps.accounts.models import UserRole
 
     affected_user_ids = list(
-        UserRole.objects
-        .filter(role=instance)
+        UserRole.objects.filter(role=instance)
         .values_list("user_id", flat=True)
         .distinct()
     )
@@ -221,17 +228,22 @@ def sync_on_role_group_change(sender, instance, created, **kwargs):
 
     security_logger.warning(
         "ROLE_GROUP_CHANGED role_id=%s old_group=%s new_group=%s affected_users=%s",
-        instance.pk, old_group_id, new_group_id, affected_user_ids,
+        instance.pk,
+        old_group_id,
+        new_group_id,
+        affected_user_ids,
     )
 
     sync_users_permissions(affected_user_ids)
     security_logger.info(
         "ROLE_GROUP_RESYNC_TRIGGERED role_id=%s users=%s",
-        instance.pk, affected_user_ids,
+        instance.pk,
+        affected_user_ids,
     )
 
 
 # ─── Invalidação por alteração de permissões do grupo ─────────────────────
+
 
 @receiver(m2m_changed, sender=Group.permissions.through)
 def invalidate_on_group_permission_change(sender, instance, action, **kwargs):
@@ -263,8 +275,7 @@ def invalidate_on_group_permission_change(sender, instance, action, **kwargs):
 
     roles = Role.objects.filter(group=instance)
     affected_user_ids = list(
-        UserRole.objects
-        .filter(role__in=roles)
+        UserRole.objects.filter(role__in=roles)
         .values_list("user_id", flat=True)
         .distinct()
     )
@@ -276,7 +287,9 @@ def invalidate_on_group_permission_change(sender, instance, action, **kwargs):
 
     security_logger.warning(
         "GROUP_PERM_CHANGED group=%s affected_users=%s action=%s",
-        instance.name, affected_user_ids, action,
+        instance.name,
+        affected_user_ids,
+        action,
     )
 
     # D-05: re-sincroniza auth_user_user_permissions para os usuários afetados
@@ -284,17 +297,20 @@ def invalidate_on_group_permission_change(sender, instance, action, **kwargs):
         sync_users_permissions(affected_user_ids)
         security_logger.info(
             "GROUP_PERM_RESYNC_TRIGGERED group=%s users=%s",
-            instance.name, affected_user_ids,
+            instance.name,
+            affected_user_ids,
         )
 
 
 # ─── Invalidação do ApplicationRegistry ────────────────────────────────────
+
 
 @receiver(post_save, sender="accounts.Aplicacao")
 @receiver(post_delete, sender="accounts.Aplicacao")
 def invalidate_application_registry(sender, instance, **kwargs):
     """Invalida o cache do ApplicationRegistry quando Aplicacao muda."""
     from apps.accounts.services.application_registry import ApplicationRegistry
+
     ApplicationRegistry().invalidate()
     security_logger.info(
         "APP_REGISTRY_INVALIDATED_BY_SIGNAL app=%s",
@@ -303,6 +319,7 @@ def invalidate_application_registry(sender, instance, **kwargs):
 
 
 # ─── bump_authz_version em UserPermissionOverride ──────────────────────────
+
 
 @receiver(post_save, sender="accounts.UserPermissionOverride")
 @receiver(post_delete, sender="accounts.UserPermissionOverride")
