@@ -9,6 +9,7 @@ IMPORTANTE:
   - Consulta direta em accounts_userauthzstate — O(1).
   - Usado APENAS para invalidação de cache no frontend.
 """
+
 import logging
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -60,7 +61,7 @@ class AuthzVersionView(APIView):
             ),
             401: OpenApiResponse(description="Não autenticado."),
         },
-        tags=["AuthZ Versioning"],
+        tags=["1 - Usuários"],
     )
     def get(self, request):
         """
