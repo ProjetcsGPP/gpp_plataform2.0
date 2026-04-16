@@ -14,17 +14,16 @@ Padrão de testes:
   - _make_user() + _assign_role() do conftest para criação de usuários.
   - Objetos Aplicacao e Role referenciados pelos pks fixos do bootstrap.
 """
+
 import pytest
-from django.contrib.auth.models import Group, Permission
+from django.contrib.auth.models import Permission
 from django.test import TestCase
-from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from apps.accounts.authz_versioning import UserAuthzState, bump_authz_version
 from apps.accounts.models import Aplicacao, Role, UserPermissionOverride, UserRole
 from apps.accounts.tests.conftest import (
-    DEFAULT_PASSWORD,
     _assign_role,
     _make_authenticated_client,
     _make_user,
@@ -66,9 +65,9 @@ def client_authenticated(db, portal_admin):
     o único perfil que garante login no app_context=PORTAL sem 403 no_role.
     """
     client, resp = _make_authenticated_client("portal_admin_test", "PORTAL")
-    assert resp.status_code == 200, (
-        f"Falha no login: status={resp.status_code} data={resp.data}"
-    )
+    assert (
+        resp.status_code == 200
+    ), f"Falha no login: status={resp.status_code} data={resp.data}"
     return client, portal_admin
 
 
@@ -185,7 +184,9 @@ def test_authz_version_endpoint_returns_correct_version(client_authenticated):
 
 
 @pytest.mark.django_db
-def test_authz_version_endpoint_does_not_leak_other_user(client_authenticated, other_user):
+def test_authz_version_endpoint_does_not_leak_other_user(
+    client_authenticated, other_user
+):
     """O endpoint deve retornar apenas a versão do usuário autenticado."""
     client, user = client_authenticated
     UserAuthzState.objects.filter(user=user).delete()
