@@ -35,17 +35,12 @@ Regras de domínio validadas (ADR-PERM-01):
   - can() é RBAC-first: exige UserRole válida antes de avaliar permissões.
     Permissões diretas sem role não são suficientes para can() retornar True.
 """
+
 import pytest
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
-from rest_framework.test import APIClient, APIRequestFactory
 
-from apps.accounts.models import (
-    Aplicacao,
-    Role,
-    UserPermissionOverride,
-    UserRole,
-)
+from apps.accounts.models import Role, UserRole
 from apps.accounts.serializers import MePermissionSerializer
 from apps.accounts.services.authorization_service import AuthorizationService
 from apps.accounts.services.permission_sync import sync_user_permissions
@@ -60,6 +55,7 @@ PERM_OVERRIDES_URL = "/api/accounts/permission-overrides/"
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────────────────
+
 
 def _get_or_create_permission(codename, app_label="auth", model="user"):
     ct = ContentType.objects.get(app_label=app_label, model=model)
@@ -104,6 +100,7 @@ def _get_can_set_via_service(user, app, perm_codenames):
 
 # ─── DC-01: Consistência entre fontes ───────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_dc01_can_e_serializer_retornam_mesmo_conjunto(_ensure_base_data):
     """
@@ -145,18 +142,19 @@ def test_dc01_can_e_serializer_retornam_mesmo_conjunto(_ensure_base_data):
         )
 
     # Verifica que as permissões adicionadas ao grupo estão no granted
-    assert "dc01_view_acao" in granted_codenames, (
-        "dc01_view_acao deve aparecer em granted após sync"
-    )
-    assert "dc01_add_acao" in granted_codenames, (
-        "dc01_add_acao deve aparecer em granted após sync"
-    )
+    assert (
+        "dc01_view_acao" in granted_codenames
+    ), "dc01_view_acao deve aparecer em granted após sync"
+    assert (
+        "dc01_add_acao" in granted_codenames
+    ), "dc01_add_acao deve aparecer em granted após sync"
 
     # Permissão fora do grupo da role não deve estar em granted
     assert "dc01_permissao_inexistente" not in granted_codenames
 
 
 # ─── DC-02: Contrato do AuthorizationService com permissão direta ───────────────
+
 
 @pytest.mark.django_db
 def test_dc02_permissao_direta_visivel_em_can_e_endpoint(_ensure_base_data):
@@ -201,18 +199,16 @@ def test_dc02_permissao_direta_visivel_em_can_e_endpoint(_ensure_base_data):
         del user._perm_cache
     if hasattr(user, "_user_perm_cache"):
         del user._user_perm_cache
-    assert user.has_perm(f"auth.dc02_direct_perm"), (
+    assert user.has_perm("auth.dc02_direct_perm"), (
         "DC-02b FAIL: permissão direta deve ser visível via user.has_perm() "
         "(Django nativo, fora do escopo RBAC do AuthorizationService)."
     )
 
     # Confirma que a permissão está em auth_user_user_permissions
-    direct_codenames = set(
-        user.user_permissions.values_list("codename", flat=True)
-    )
-    assert "dc02_direct_perm" in direct_codenames, (
-        "DC-02b FAIL: permissão direta deve estar em auth_user_user_permissions."
-    )
+    direct_codenames = set(user.user_permissions.values_list("codename", flat=True))
+    assert (
+        "dc02_direct_perm" in direct_codenames
+    ), "DC-02b FAIL: permissão direta deve estar em auth_user_user_permissions."
 
     # DC-02c: com role + perm no group + sync, can() e granted retornam True
     role = Role.objects.get(pk=2)  # GESTOR_PNGI
@@ -237,6 +233,7 @@ def test_dc02_permissao_direta_visivel_em_can_e_endpoint(_ensure_base_data):
 
 
 # ─── DC-03: Override grant reflete em /me/permissions/ ───────────────────────
+
 
 @pytest.mark.django_db
 def test_dc03_override_grant_reflete_em_me_permissions(_ensure_base_data):
@@ -271,9 +268,9 @@ def test_dc03_override_grant_reflete_em_me_permissions(_ensure_base_data):
     target.refresh_from_db()
 
     granted_before = _get_granted_via_serializer(target, role)
-    assert "dc03_grant_perm" not in granted_before, (
-        "Pré-condição: permissão não deve estar em granted antes do override."
-    )
+    assert (
+        "dc03_grant_perm" not in granted_before
+    ), "Pré-condição: permissão não deve estar em granted antes do override."
 
     # Cria override grant via API
     client, login_resp = _make_authenticated_client("dc03_admin", "PORTAL")
@@ -284,9 +281,9 @@ def test_dc03_override_grant_reflete_em_me_permissions(_ensure_base_data):
         {"user": target.pk, "permission": perm_grant.pk, "mode": "grant"},
         format="json",
     )
-    assert resp.status_code == 201, (
-        f"DC-03 FAIL: POST /permission-overrides/ retornou {resp.status_code}: {resp.data}"
-    )
+    assert (
+        resp.status_code == 201
+    ), f"DC-03 FAIL: POST /permission-overrides/ retornou {resp.status_code}: {resp.data}"
 
     # O sync deve ser acionado automaticamente pela view após o create.
     # Adiciona ao group para que o serializer inclua no escopo da role.
@@ -303,6 +300,7 @@ def test_dc03_override_grant_reflete_em_me_permissions(_ensure_base_data):
 
 
 # ─── DC-04: Override revoke remove permissão de /me/permissions/ e can() ────────
+
 
 @pytest.mark.django_db
 def test_dc04_override_revoke_remove_de_me_permissions_e_can(_ensure_base_data):
@@ -337,14 +335,14 @@ def test_dc04_override_revoke_remove_de_me_permissions_e_can(_ensure_base_data):
 
     # Pré-condição: permissão presente antes do revoke
     granted_before = _get_granted_via_serializer(target, role)
-    assert "dc04_revoke_perm" in granted_before, (
-        "Pré-condição: permissão deve estar em granted antes do override revoke."
-    )
+    assert (
+        "dc04_revoke_perm" in granted_before
+    ), "Pré-condição: permissão deve estar em granted antes do override revoke."
     cache.clear()
     service_before = AuthorizationService(target, application=app)
-    assert service_before.can("dc04_revoke_perm"), (
-        "Pré-condição: can() deve retornar True antes do revoke."
-    )
+    assert service_before.can(
+        "dc04_revoke_perm"
+    ), "Pré-condição: can() deve retornar True antes do revoke."
 
     # Cria override revoke via API
     client, login_resp = _make_authenticated_client("dc04_admin", "PORTAL")
@@ -355,9 +353,9 @@ def test_dc04_override_revoke_remove_de_me_permissions_e_can(_ensure_base_data):
         {"user": target.pk, "permission": perm_revoke.pk, "mode": "revoke"},
         format="json",
     )
-    assert resp.status_code == 201, (
-        f"DC-04 FAIL: POST /permission-overrides/ retornou {resp.status_code}: {resp.data}"
-    )
+    assert (
+        resp.status_code == 201
+    ), f"DC-04 FAIL: POST /permission-overrides/ retornou {resp.status_code}: {resp.data}"
 
     # Re-sync e verifica
     sync_user_permissions(target)
@@ -371,12 +369,13 @@ def test_dc04_override_revoke_remove_de_me_permissions_e_can(_ensure_base_data):
     )
 
     service_after = AuthorizationService(target, application=app)
-    assert not service_after.can("dc04_revoke_perm"), (
-        "DC-04 FAIL: can() deve retornar False após override revoke + sync."
-    )
+    assert not service_after.can(
+        "dc04_revoke_perm"
+    ), "DC-04 FAIL: can() deve retornar False após override revoke + sync."
 
 
 # ─── DC-05: Idempotência do sync ─────────────────────────────────────────────────────
+
 
 @pytest.mark.django_db
 def test_dc05_sync_idempotente(_ensure_base_data):
@@ -416,14 +415,13 @@ def test_dc05_sync_idempotente(_ensure_base_data):
     )
 
     # Confirma que as permissões adicionadas ao grupo estão no estado final
-    all_codenames = set(
-        user.user_permissions.values_list("codename", flat=True)
-    )
+    all_codenames = set(user.user_permissions.values_list("codename", flat=True))
     assert "dc05_perm_alpha" in all_codenames
     assert "dc05_perm_beta" in all_codenames
 
 
 # ─── DC-06: auth_user_groups não é populado (ADR-PERM-01) ────────────────────
+
 
 @pytest.mark.django_db
 def test_dc06_auth_user_groups_nao_e_populado(_ensure_base_data):

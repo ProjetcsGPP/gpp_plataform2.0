@@ -18,8 +18,8 @@ FASE-3: UserPermissionOverride adicionado — camada explícita de exceções in
         sem edição direta de auth_user_user_permissions.
 FIX: Aplicacao.save() normaliza codigointerno para maiúsculas antes de persistir.
 """
+
 from django.conf import settings
-from django.contrib.auth.models import Group, User
 from django.db import models
 from django.utils import timezone
 
@@ -40,8 +40,10 @@ def get_default_classificacao_usuario():
 # TABELAS AUXILIARES
 # =====================
 
+
 class Aplicacao(models.Model):
     """Aplicações da plataforma GPP."""
+
     idaplicacao = models.AutoField(primary_key=True)
     codigointerno = models.CharField(max_length=50, unique=True)
     nomeaplicacao = models.CharField(max_length=200)
@@ -90,6 +92,7 @@ class Aplicacao(models.Model):
 
 class StatusUsuario(models.Model):
     """Status do usuário (Ativo, Inativo, etc.)"""
+
     idstatususuario = models.SmallIntegerField(
         primary_key=True, db_column="idstatususuario"
     )
@@ -107,6 +110,7 @@ class StatusUsuario(models.Model):
 
 class TipoUsuario(models.Model):
     """Tipo de usuário (Gestor, Técnico, etc.)"""
+
     idtipousuario = models.SmallIntegerField(
         primary_key=True, db_column="idtipousuario"
     )
@@ -130,6 +134,7 @@ class ClassificacaoUsuario(models.Model):
     autorização de gerenciamento de usuários na plataforma.
     São lidos pelo AuthorizationService — nunca por hard code de role.
     """
+
     idclassificacaousuario = models.SmallIntegerField(
         primary_key=True, db_column="idclassificacaousuario"
     )
@@ -159,11 +164,13 @@ class ClassificacaoUsuario(models.Model):
 # USER PROFILE
 # =====================
 
+
 class UserProfile(models.Model):
     """
     Extensão do User padrão do Django com campos específicos da GPP Platform.
     Relacionamento OneToOne com auth.User.
     """
+
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -195,20 +202,24 @@ class UserProfile(models.Model):
     # Auditoria
     idusuariocriacao = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        null=True, blank=True,
+        null=True,
+        blank=True,
         on_delete=models.SET_NULL,
         db_column="idusuariocriacao",
         related_name="profiles_criados",
     )
     idusuarioalteracao = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        null=True, blank=True,
+        null=True,
+        blank=True,
         on_delete=models.SET_NULL,
         db_column="idusuarioalteracao",
         related_name="profiles_alterados",
     )
     datacriacao = models.DateTimeField(auto_now_add=True, db_column="datacriacao")
-    data_alteracao = models.DateTimeField(null=True, blank=True, auto_now=True, db_column="data_alteracao")
+    data_alteracao = models.DateTimeField(
+        null=True, blank=True, auto_now=True, db_column="data_alteracao"
+    )
 
     class Meta:
         db_table = "tblusuario"
@@ -224,12 +235,14 @@ class UserProfile(models.Model):
 # RBAC
 # =====================
 
+
 class Role(models.Model):
     """
     Perfis RBAC por aplicação.
     A FK 'group' liga diretamente ao auth_group do Django,
     eliminando a dependência de sincronização por nome.
     """
+
     aplicacao = models.ForeignKey(
         Aplicacao,
         on_delete=models.CASCADE,
@@ -265,6 +278,7 @@ class Role(models.Model):
 
 class UserRole(models.Model):
     """Relacionamento User <-> Role por aplicação."""
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -295,6 +309,7 @@ class UserRole(models.Model):
 
 class Attribute(models.Model):
     """ABAC — Atributos por usuário/aplicação."""
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -328,6 +343,7 @@ class Attribute(models.Model):
 # =====================
 # SESSION (stateful — session_key Django)
 # =====================
+
 
 class AccountsSession(models.Model):
     """
@@ -371,12 +387,9 @@ class AccountsSession(models.Model):
     ip_address = models.GenericIPAddressField(null=True, blank=True)
 
     user_agent = models.TextField(blank=True, default="")
-    
-    session_cookie_name =  models.CharField(
-        max_length=100,
-        null=True,
-        blank=True,
-        default='\\'
+
+    session_cookie_name = models.CharField(
+        max_length=100, null=True, blank=True, default="\\"
     )
 
     class Meta:
@@ -404,6 +417,7 @@ class AccountsSession(models.Model):
 # =====================
 # PERMISSION OVERRIDES (Fase 3)
 # =====================
+
 
 class UserPermissionOverride(models.Model):
     """
@@ -513,7 +527,9 @@ class UserPermissionOverride(models.Model):
         """
         from django.core.exceptions import ValidationError
 
-        opposite_mode = self.MODE_REVOKE if self.mode == self.MODE_GRANT else self.MODE_GRANT
+        opposite_mode = (
+            self.MODE_REVOKE if self.mode == self.MODE_GRANT else self.MODE_GRANT
+        )
         conflict_qs = UserPermissionOverride.objects.filter(
             user=self.user,
             permission=self.permission,

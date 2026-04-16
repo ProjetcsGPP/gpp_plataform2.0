@@ -21,18 +21,11 @@ NOTA: A autenticação é feita via login real (POST /api/accounts/login/)
       _make_authenticated_client. O middleware AppContextMiddleware
       preenche request.app_context a partir do cookie gpp_session_{APP}.
 """
+
 import pytest
 from rest_framework.test import APIClient
-from django.contrib.auth.models import User
 
-from apps.accounts.models import Aplicacao, AccountsSession, UserRole, Role
-from apps.accounts.tests.conftest import (
-    DEFAULT_PASSWORD,
-    LOGIN_URL,
-    _make_user,
-    _assign_role,
-    _make_authenticated_client,
-)
+from apps.accounts.tests.conftest import _make_authenticated_client
 
 ME_PERMISSIONS_URL = "/api/accounts/me/permissions/"
 
@@ -41,25 +34,27 @@ ME_PERMISSIONS_URL = "/api/accounts/me/permissions/"
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _assert_permissions_200(resp, expected_role_code: str):
     """Verifica que a resposta é 200 com a estrutura correta."""
-    assert resp.status_code == 200, (
-        f"Esperado 200, recebido {resp.status_code}. Body: {resp.data}"
-    )
+    assert (
+        resp.status_code == 200
+    ), f"Esperado 200, recebido {resp.status_code}. Body: {resp.data}"
     data = resp.data
     assert "role" in data, f"Chave 'role' ausente: {data}"
     assert "granted" in data, f"Chave 'granted' ausente: {data}"
-    assert data["role"] == expected_role_code, (
-        f"Role esperada '{expected_role_code}', recebida '{data['role']}'"
-    )
-    assert isinstance(data["granted"], list), (
-        f"'granted' deve ser lista, recebido: {type(data['granted'])}"
-    )
+    assert (
+        data["role"] == expected_role_code
+    ), f"Role esperada '{expected_role_code}', recebida '{data['role']}'"
+    assert isinstance(
+        data["granted"], list
+    ), f"'granted' deve ser lista, recebido: {type(data['granted'])}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TC-01 — GESTOR_PNGI em ACOES_PNGI → 200
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.django_db
 def test_me_permissions_gestor_pngi(gestor_pngi):
@@ -68,9 +63,9 @@ def test_me_permissions_gestor_pngi(gestor_pngi):
     com role=GESTOR_PNGI e lista de granted.
     """
     client, login_resp = _make_authenticated_client("gestor_test", "ACOES_PNGI")
-    assert login_resp.status_code == 200, (
-        f"Login falhou: {login_resp.status_code} {login_resp.data}"
-    )
+    assert (
+        login_resp.status_code == 200
+    ), f"Login falhou: {login_resp.status_code} {login_resp.data}"
 
     resp = client.get(ME_PERMISSIONS_URL)
     _assert_permissions_200(resp, "GESTOR_PNGI")
@@ -80,6 +75,7 @@ def test_me_permissions_gestor_pngi(gestor_pngi):
 # TC-02 — COORDENADOR_PNGI em ACOES_PNGI → 200
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_me_permissions_coordenador_pngi(coordenador_pngi):
     """
@@ -87,9 +83,9 @@ def test_me_permissions_coordenador_pngi(coordenador_pngi):
     com role=COORDENADOR_PNGI.
     """
     client, login_resp = _make_authenticated_client("coordenador_test", "ACOES_PNGI")
-    assert login_resp.status_code == 200, (
-        f"Login falhou: {login_resp.status_code} {login_resp.data}"
-    )
+    assert (
+        login_resp.status_code == 200
+    ), f"Login falhou: {login_resp.status_code} {login_resp.data}"
 
     resp = client.get(ME_PERMISSIONS_URL)
     _assert_permissions_200(resp, "COORDENADOR_PNGI")
@@ -99,6 +95,7 @@ def test_me_permissions_coordenador_pngi(coordenador_pngi):
 # TC-03 — OPERADOR_ACAO em ACOES_PNGI → 200
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_me_permissions_operador_acao(operador_acao):
     """
@@ -106,9 +103,9 @@ def test_me_permissions_operador_acao(operador_acao):
     com role=OPERADOR_ACAO.
     """
     client, login_resp = _make_authenticated_client("operador_test", "ACOES_PNGI")
-    assert login_resp.status_code == 200, (
-        f"Login falhou: {login_resp.status_code} {login_resp.data}"
-    )
+    assert (
+        login_resp.status_code == 200
+    ), f"Login falhou: {login_resp.status_code} {login_resp.data}"
 
     resp = client.get(ME_PERMISSIONS_URL)
     _assert_permissions_200(resp, "OPERADOR_ACAO")
@@ -118,16 +115,19 @@ def test_me_permissions_operador_acao(operador_acao):
 # TC-04 — GESTOR_CARGA em CARGA_ORG_LOT → 200
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_me_permissions_gestor_carga(gestor_carga):
     """
     TC-04: GESTOR_CARGA autenticado em CARGA_ORG_LOT deve retornar 200
     com role=GESTOR_CARGA.
     """
-    client, login_resp = _make_authenticated_client("gestor_carga_test", "CARGA_ORG_LOT")
-    assert login_resp.status_code == 200, (
-        f"Login falhou: {login_resp.status_code} {login_resp.data}"
+    client, login_resp = _make_authenticated_client(
+        "gestor_carga_test", "CARGA_ORG_LOT"
     )
+    assert (
+        login_resp.status_code == 200
+    ), f"Login falhou: {login_resp.status_code} {login_resp.data}"
 
     resp = client.get(ME_PERMISSIONS_URL)
     _assert_permissions_200(resp, "GESTOR_CARGA")
@@ -137,6 +137,7 @@ def test_me_permissions_gestor_carga(gestor_carga):
 # TC-05 — PORTAL_ADMIN em PORTAL → 200
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_me_permissions_portal_admin(portal_admin):
     """
@@ -144,9 +145,9 @@ def test_me_permissions_portal_admin(portal_admin):
     com role=PORTAL_ADMIN.
     """
     client, login_resp = _make_authenticated_client("portal_admin_test", "PORTAL")
-    assert login_resp.status_code == 200, (
-        f"Login falhou: {login_resp.status_code} {login_resp.data}"
-    )
+    assert (
+        login_resp.status_code == 200
+    ), f"Login falhou: {login_resp.status_code} {login_resp.data}"
 
     resp = client.get(ME_PERMISSIONS_URL)
     _assert_permissions_200(resp, "PORTAL_ADMIN")
@@ -156,6 +157,7 @@ def test_me_permissions_portal_admin(portal_admin):
 # TC-06 — SuperUser (sem UserRole) em PORTAL → 404 (no_role)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_me_permissions_superuser_sem_role(superuser):
     """
@@ -164,21 +166,22 @@ def test_me_permissions_superuser_sem_role(superuser):
     mas /me/permissions/ retorna 404 pois não há UserRole na tabela.
     """
     client, login_resp = _make_authenticated_client("superuser_test", "PORTAL")
-    assert login_resp.status_code == 200, (
-        f"Login falhou: {login_resp.status_code} {login_resp.data}"
-    )
+    assert (
+        login_resp.status_code == 200
+    ), f"Login falhou: {login_resp.status_code} {login_resp.data}"
 
     resp = client.get(ME_PERMISSIONS_URL)
     # Superuser sem UserRole → 404 com code=no_role
-    assert resp.status_code == 404, (
-        f"Esperado 404 para superuser sem UserRole, recebido {resp.status_code}. Body: {resp.data}"
-    )
+    assert (
+        resp.status_code == 404
+    ), f"Esperado 404 para superuser sem UserRole, recebido {resp.status_code}. Body: {resp.data}"
     assert resp.data.get("code") == "no_role"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TC-07 — Sem autenticação → 401
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.django_db
 def test_me_permissions_sem_autenticacao():
@@ -189,14 +192,15 @@ def test_me_permissions_sem_autenticacao():
     """
     client = APIClient()
     resp = client.get(ME_PERMISSIONS_URL)
-    assert resp.status_code == 401, (
-        f"Esperado 401 para request anônima, recebido {resp.status_code}"
-    )
+    assert (
+        resp.status_code == 401
+    ), f"Esperado 401 para request anônima, recebido {resp.status_code}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TC-08 — Cookie forjado → 401
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.django_db
 def test_me_permissions_cookie_forjado():
@@ -208,14 +212,15 @@ def test_me_permissions_cookie_forjado():
     client = APIClient()
     client.cookies["gpp_session_PORTAL"] = "sessao_invalida_forjada_12345"
     resp = client.get(ME_PERMISSIONS_URL)
-    assert resp.status_code == 401, (
-        f"Esperado 401 para cookie forjado, recebido {resp.status_code}. Body: {resp.data}"
-    )
+    assert (
+        resp.status_code == 401
+    ), f"Esperado 401 para cookie forjado, recebido {resp.status_code}. Body: {resp.data}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TC-09 — app_context ausente na request → 400
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.django_db
 def test_me_permissions_sem_app_context(gestor_pngi):
@@ -225,9 +230,10 @@ def test_me_permissions_sem_app_context(gestor_pngi):
     (ex: sessão válida mas app_context não gravado no AccountsSession).
     Resposta esperada: 400 com code=no_app_context.
     """
-    from unittest.mock import patch
-    from rest_framework.test import APIRequestFactory
+
     from django.contrib.auth.models import User
+    from rest_framework.test import APIRequestFactory
+
     from apps.accounts.views import MePermissionView
 
     user = User.objects.get(username="gestor_test")
@@ -241,9 +247,9 @@ def test_me_permissions_sem_app_context(gestor_pngi):
     view = MePermissionView.as_view()
     response = view(request)
 
-    assert response.status_code == 400, (
-        f"Esperado 400 quando app_context ausente, recebido {response.status_code}"
-    )
+    assert (
+        response.status_code == 400
+    ), f"Esperado 400 quando app_context ausente, recebido {response.status_code}"
     assert response.data.get("code") == "no_app_context"
 
 
@@ -251,15 +257,17 @@ def test_me_permissions_sem_app_context(gestor_pngi):
 # TC-10 — App bloqueada → 404
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @pytest.mark.django_db
 def test_me_permissions_app_bloqueada(gestor_pngi):
     """
     TC-10: app_context aponta para uma aplicação bloqueada.
     A view deve retornar 404 com code=app_not_found.
     """
-    from unittest.mock import patch
-    from rest_framework.test import APIRequestFactory
+
     from django.contrib.auth.models import User
+    from rest_framework.test import APIRequestFactory
+
     from apps.accounts.views import MePermissionView
 
     user = User.objects.get(username="gestor_test")
@@ -272,15 +280,16 @@ def test_me_permissions_app_bloqueada(gestor_pngi):
     view = MePermissionView.as_view()
     response = view(request)
 
-    assert response.status_code == 404, (
-        f"Esperado 404 para app bloqueada, recebido {response.status_code}. Body: {response.data}"
-    )
+    assert (
+        response.status_code == 404
+    ), f"Esperado 404 para app bloqueada, recebido {response.status_code}. Body: {response.data}"
     assert response.data.get("code") == "app_not_found"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TC-11 — Usuário sem role em app válida → 404
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.django_db
 def test_me_permissions_usuario_sem_role_na_app(gestor_pngi):
@@ -292,8 +301,9 @@ def test_me_permissions_usuario_sem_role_na_app(gestor_pngi):
     Usamos APIRequestFactory diretamente para definir app_context
     sem depender da camada de autenticação real.
     """
-    from rest_framework.test import APIRequestFactory
     from django.contrib.auth.models import User
+    from rest_framework.test import APIRequestFactory
+
     from apps.accounts.views import MePermissionView
 
     # gestor_pngi tem role em ACOES_PNGI mas NÃO em CARGA_ORG_LOT
@@ -307,15 +317,16 @@ def test_me_permissions_usuario_sem_role_na_app(gestor_pngi):
     view = MePermissionView.as_view()
     response = view(request)
 
-    assert response.status_code == 404, (
-        f"Esperado 404 quando sem role na app, recebido {response.status_code}. Body: {response.data}"
-    )
+    assert (
+        response.status_code == 404
+    ), f"Esperado 404 quando sem role na app, recebido {response.status_code}. Body: {response.data}"
     assert response.data.get("code") == "no_role"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TC-12 — Estrutura completa da resposta 200
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.django_db
 def test_me_permissions_estrutura_resposta(gestor_pngi):
@@ -335,4 +346,6 @@ def test_me_permissions_estrutura_resposta(gestor_pngi):
     assert isinstance(data.get("role"), str), "'role' deve ser string"
     assert isinstance(data.get("granted"), list), "'granted' deve ser lista"
     for item in data["granted"]:
-        assert isinstance(item, str), f"Cada item de 'granted' deve ser string, recebido: {type(item)}"
+        assert isinstance(
+            item, str
+        ), f"Cada item de 'granted' deve ser string, recebido: {type(item)}"

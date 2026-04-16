@@ -6,12 +6,13 @@ Estratégia:
   - MagicMock para todas as entidades
   - patch em apps.accounts.policies.role_policy.UserRole para isolar queries
 """
+
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 from apps.accounts.policies.role_policy import RolePolicy
-from apps.accounts.tests.policies.conftest import make_user, make_role, make_aplicacao
-
+from apps.accounts.tests.policies.conftest import make_role, make_user
 
 # ── Patch path ───────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,7 @@ USERROLE_PATH = "apps.accounts.policies.role_policy.UserRole"
 
 
 # ── Helpers de patch ────────────────────────────────────────────────────────────
+
 
 def _patch_is_portal_admin(is_admin: bool):
     """Patch UserRole.objects.filter(...).exists() para _is_portal_admin."""
@@ -36,6 +38,7 @@ def _patch_actor_role_in_app(user_role):
 
 # ── Fixture: portal_admin_user ─────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def portal_admin_user():
     """Usuário com role PORTAL_ADMIN (não superuser)."""
@@ -43,6 +46,7 @@ def portal_admin_user():
 
 
 # ── TestCanViewRole ──────────────────────────────────────────────────────────────
+
 
 class TestCanViewRole:
     def test_portal_admin_can_view_any_role(self, portal_admin_user, regular_role):
@@ -56,7 +60,9 @@ class TestCanViewRole:
         # SuperUser não precisa de query — _is_superuser() curto-circuita
         assert policy.can_view_role() is True
 
-    def test_user_with_role_in_app_can_view_role_of_same_app(self, regular_user, regular_role):
+    def test_user_with_role_in_app_can_view_role_of_same_app(
+        self, regular_user, regular_role
+    ):
         policy = RolePolicy(regular_user, regular_role)
         mock_user_role = MagicMock()
         with patch(USERROLE_PATH) as mock_ur:
@@ -87,6 +93,7 @@ class TestCanViewRole:
 
 # ── TestCanCreateRole ─────────────────────────────────────────────────────────────
 
+
 class TestCanCreateRole:
     def test_portal_admin_can_create_role(self, portal_admin_user, regular_role):
         policy = RolePolicy(portal_admin_user, regular_role)
@@ -107,6 +114,7 @@ class TestCanCreateRole:
 
 # ── TestCanEditRole ──────────────────────────────────────────────────────────────
 
+
 class TestCanEditRole:
     def test_portal_admin_can_edit_regular_role(self, portal_admin_user, regular_role):
         policy = RolePolicy(portal_admin_user, regular_role)
@@ -118,7 +126,9 @@ class TestCanEditRole:
         policy = RolePolicy(superuser, regular_role)
         assert policy.can_edit_role() is True
 
-    def test_portal_admin_cannot_edit_portal_admin_role(self, portal_admin_user, admin_role):
+    def test_portal_admin_cannot_edit_portal_admin_role(
+        self, portal_admin_user, admin_role
+    ):
         policy = RolePolicy(portal_admin_user, admin_role)
         with patch(USERROLE_PATH) as mock_ur:
             mock_ur.objects.filter.return_value = _patch_is_portal_admin(True)
@@ -137,8 +147,11 @@ class TestCanEditRole:
 
 # ── TestCanDeleteRole ─────────────────────────────────────────────────────────────
 
+
 class TestCanDeleteRole:
-    def test_portal_admin_can_delete_regular_role(self, portal_admin_user, regular_role):
+    def test_portal_admin_can_delete_regular_role(
+        self, portal_admin_user, regular_role
+    ):
         policy = RolePolicy(portal_admin_user, regular_role)
         with patch(USERROLE_PATH) as mock_ur:
             mock_ur.objects.filter.return_value = _patch_is_portal_admin(True)
@@ -149,7 +162,9 @@ class TestCanDeleteRole:
         # Root role é imutável mesmo para SuperUser
         assert policy.can_delete_role() is False
 
-    def test_portal_admin_cannot_delete_portal_admin_role(self, portal_admin_user, admin_role):
+    def test_portal_admin_cannot_delete_portal_admin_role(
+        self, portal_admin_user, admin_role
+    ):
         policy = RolePolicy(portal_admin_user, admin_role)
         with patch(USERROLE_PATH) as mock_ur:
             mock_ur.objects.filter.return_value = _patch_is_portal_admin(True)
@@ -163,6 +178,7 @@ class TestCanDeleteRole:
 
 
 # ── TestCanAssignRole ─────────────────────────────────────────────────────────────
+
 
 class TestCanAssignRole:
     def test_portal_admin_can_assign_regular_role_in_ready_app(
@@ -181,7 +197,9 @@ class TestCanAssignRole:
             mock_ur.objects.filter.return_value = _patch_is_portal_admin(True)
             assert policy.can_assign_role_to_user(other_user) is False
 
-    def test_superuser_can_assign_portal_admin_role(self, superuser, admin_role, other_user):
+    def test_superuser_can_assign_portal_admin_role(
+        self, superuser, admin_role, other_user
+    ):
         policy = RolePolicy(superuser, admin_role)
         assert policy.can_assign_role_to_user(other_user) is True
 
@@ -203,15 +221,15 @@ class TestCanAssignRole:
             mock_ur.objects.filter.return_value = _patch_is_portal_admin(True)
             assert policy.can_assign_role_to_user(other_user) is False
 
-    def test_regular_user_cannot_assign_any_role(self, regular_user, regular_role, other_user):
+    def test_regular_user_cannot_assign_any_role(
+        self, regular_user, regular_role, other_user
+    ):
         policy = RolePolicy(regular_user, regular_role)
         with patch(USERROLE_PATH) as mock_ur:
             mock_ur.objects.filter.return_value = _patch_is_portal_admin(False)
             assert policy.can_assign_role_to_user(other_user) is False
 
-    def test_portal_admin_can_assign_global_role(
-        self, portal_admin_user, other_user
-    ):
+    def test_portal_admin_can_assign_global_role(self, portal_admin_user, other_user):
         """
         role.aplicacao=None (role global, ex: PORTAL_ADMIN sem app vinculada) →
         _role_app_is_production_ready() retorna True (linha 269) sem consultar
@@ -228,6 +246,7 @@ class TestCanAssignRole:
 
 
 # ── TestCanRevokeRole ─────────────────────────────────────────────────────────────
+
 
 class TestCanRevokeRole:
     def test_portal_admin_can_revoke_regular_role_from_other_user(
@@ -273,7 +292,9 @@ class TestCanRevokeRole:
             # App bloqueada NÃO impede revogação
             assert policy.can_revoke_role_from_user(other_user) is True
 
-    def test_regular_user_cannot_revoke_any_role(self, regular_user, regular_role, other_user):
+    def test_regular_user_cannot_revoke_any_role(
+        self, regular_user, regular_role, other_user
+    ):
         policy = RolePolicy(regular_user, regular_role)
         with patch(USERROLE_PATH) as mock_ur:
             mock_ur.objects.filter.return_value = _patch_is_portal_admin(False)

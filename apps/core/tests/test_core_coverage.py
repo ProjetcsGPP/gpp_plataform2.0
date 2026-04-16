@@ -10,30 +10,29 @@ Metas:
   apps/core/urls.py        : 0%  → ≥ 80%
   apps/core/permissions.py : 95% → ≥ 97%
 """
-import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
-from django.contrib.auth.models import AnonymousUser
-from rest_framework.test import APIRequestFactory, APIClient
-from rest_framework.exceptions import PermissionDenied
 
-from apps.accounts.tests.factories import make_user, make_role, make_user_role, make_permission
-from apps.core.utils import get_client_ip
-from apps.core.views import FrontEndLogging
+from unittest.mock import MagicMock
+
+import pytest
+from django.contrib.auth.models import AnonymousUser
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.test import APIClient
+
+from apps.accounts.tests.factories import make_role, make_user, make_user_role
 from apps.core.permissions import (
+    CanCreateUser,
+    CanEditUser,
     CanPermission,
     IsPortalAdmin,
     ObjectPermission,
     require_permission,
-    CanCreateUser,
-    CanEditUser,
-    HasRolePermission,
 )
-from apps.accounts.models import ClassificacaoUsuario, UserProfile
-
+from apps.core.utils import get_client_ip
 
 # ---------------------------------------------------------------------------
 # get_client_ip  (apps/core/utils.py)
 # ---------------------------------------------------------------------------
+
 
 class TestGetClientIp:
 
@@ -57,11 +56,13 @@ class TestGetClientIp:
 # FrontEndLogging  (apps/core/views.py)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestFrontEndLogging:
 
     def test_frontend_log_retorna_ok(self):
         from django.test import Client as DjangoClient
+
         from apps.accounts.tests.factories import make_user, make_user_role
 
         user = make_user()
@@ -76,7 +77,6 @@ class TestFrontEndLogging:
             content_type="application/json",
         )
         assert response.status_code == 200
-
 
     def test_frontend_log_via_client(self, db):
         """
@@ -97,10 +97,12 @@ class TestFrontEndLogging:
 # apps/core/urls.py — verifica que as URLs estão registradas
 # ---------------------------------------------------------------------------
 
+
 class TestCoreUrls:
 
     def test_frontend_url_resolves(self):
-        from django.urls import reverse, NoReverseMatch
+        from django.urls import NoReverseMatch, reverse
+
         try:
             url = reverse("core:frontend")
             assert "/core/frontendlog/" in url
@@ -110,6 +112,7 @@ class TestCoreUrls:
 
     def test_core_urls_importaveis(self):
         from apps.core import urls as core_urls
+
         assert hasattr(core_urls, "urlpatterns")
         assert len(core_urls.urlpatterns) > 0
 
@@ -117,6 +120,7 @@ class TestCoreUrls:
 # ---------------------------------------------------------------------------
 # CanPermission  (apps/core/permissions.py)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestCanPermission:
@@ -156,6 +160,7 @@ class TestCanPermission:
 # IsPortalAdmin  (apps/core/permissions.py)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestIsPortalAdminPermission:
 
@@ -181,6 +186,7 @@ class TestIsPortalAdminPermission:
 # ObjectPermission  (apps/core/permissions.py)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestObjectPermission:
 
@@ -195,7 +201,9 @@ class TestObjectPermission:
         perm_cls = ObjectPermission()
         request = MagicMock()
         request.user = AnonymousUser()
-        assert perm_cls.has_object_permission(request, MagicMock(), MagicMock()) is False
+        assert (
+            perm_cls.has_object_permission(request, MagicMock(), MagicMock()) is False
+        )
 
     def test_has_object_permission_proprio_dono_true(self):
         user = make_user()
@@ -240,6 +248,7 @@ class TestObjectPermission:
 # require_permission decorator  (apps/core/permissions.py)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.django_db
 class TestRequirePermission:
 
@@ -273,6 +282,7 @@ class TestRequirePermission:
 # ---------------------------------------------------------------------------
 # CanCreateUser / CanEditUser  (apps/core/permissions.py)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.django_db
 class TestCanCreateEditUser:
@@ -315,7 +325,8 @@ class TestCanCreateEditUser:
         O teste valida que um usuário com role cujo Group contém auth.add_user
         passa em CanCreateUser.
         """
-        from django.contrib.auth.models import Permission, User as DjangoUser
+        from django.contrib.auth.models import Permission
+        from django.contrib.auth.models import User as DjangoUser
         from django.contrib.contenttypes.models import ContentType
 
         # 1. Buscar permissão auth.add_user (já existe no banco do Django)
@@ -332,11 +343,12 @@ class TestCanCreateEditUser:
 
         # 4. Verificar que a permissão foi materializada (garantia de setup)
         user.refresh_from_db()
-        assert user.has_perm("auth.add_user"), "Setup incorreto: auth.add_user não materializado"
+        assert user.has_perm(
+            "auth.add_user"
+        ), "Setup incorreto: auth.add_user não materializado"
 
         perm = CanCreateUser()
         request = MagicMock()
         request.user = user
         result = perm.has_permission(request, MagicMock())
         assert result is True
-

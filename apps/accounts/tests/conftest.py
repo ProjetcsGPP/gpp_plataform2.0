@@ -33,9 +33,9 @@ URLs dos endpoints accounts:
   POST /api/accounts/users/create-with-role/
 """
 import pytest
-from django.contrib.auth.models import Group, User, Permission
-from rest_framework.test import APIClient
+from django.contrib.auth.models import Group, Permission, User
 from django.db import connection
+from rest_framework.test import APIClient
 
 from apps.accounts.models import (
     Aplicacao,
@@ -53,13 +53,15 @@ DEFAULT_PASSWORD = "TestPass@2026"
 
 def _reset_pk_sequence(table: str, pk_col: str):
     with connection.cursor() as cur:
-        cur.execute(f"""
+        cur.execute(
+            f"""
             SELECT setval(
                 pg_get_serial_sequence('{table}', '{pk_col}'),
                 COALESCE((SELECT MAX({pk_col}) FROM "{table}"), 0) + 1,
                 false
             )
-        """)
+        """
+        )
 
 
 # --- Bootstrap de dados base -------------------------------------------------
@@ -69,6 +71,7 @@ def _reset_pk_sequence(table: str, pk_col: str):
 # testes que referenciam objetos por pk (ex: Role.objects.get(pk=1)).
 # Isso tambem funciona quando initial_data.json JA foi carregado no banco:
 # get_or_create simplesmente encontra os registros existentes.
+
 
 def _bootstrap_lookup_tables():
     """Cria StatusUsuario, TipoUsuario e ClassificacaoUsuario base."""
@@ -141,7 +144,7 @@ def _bootstrap_aplicacoes():
     )
 
     # Resetar a sequence antes de qualquer insert sem pk
-    _reset_pk_sequence('tblaplicacao', 'idaplicacao')
+    _reset_pk_sequence("tblaplicacao", "idaplicacao")
 
     # Apps extras usadas nos testes de visibilidade
     Aplicacao.objects.get_or_create(
@@ -171,15 +174,15 @@ def _bootstrap_roles():
     em auth_user_user_permissions (ADR-PERM-01).
     """
     app_portal = Aplicacao.objects.get(pk=1)
-    app_pngi   = Aplicacao.objects.get(pk=2)
-    app_carga  = Aplicacao.objects.get(pk=3)
+    app_pngi = Aplicacao.objects.get(pk=2)
+    app_carga = Aplicacao.objects.get(pk=3)
 
     _role_data = [
-        (1, "PORTAL_ADMIN",      "Portal Admin",      app_portal, "portal_admin_group"),
-        (2, "GESTOR_PNGI",       "Gestor PNGI",       app_pngi,   "gestor_pngi_group"),
-        (3, "COORDENADOR_PNGI",  "Coordenador PNGI",  app_pngi,   "coordenador_pngi_group"),
-        (4, "OPERADOR_ACAO",     "Operador de Acao",  app_pngi,   "operador_acao_group"),
-        (6, "GESTOR_CARGA",      "Gestor Carga",      app_carga,  "gestor_carga_group"),
+        (1, "PORTAL_ADMIN", "Portal Admin", app_portal, "portal_admin_group"),
+        (2, "GESTOR_PNGI", "Gestor PNGI", app_pngi, "gestor_pngi_group"),
+        (3, "COORDENADOR_PNGI", "Coordenador PNGI", app_pngi, "coordenador_pngi_group"),
+        (4, "OPERADOR_ACAO", "Operador de Acao", app_pngi, "operador_acao_group"),
+        (6, "GESTOR_CARGA", "Gestor Carga", app_carga, "gestor_carga_group"),
     ]
 
     for pk, codigo, nome, app, group_name in _role_data:
@@ -188,9 +191,9 @@ def _bootstrap_roles():
             pk=pk,
             defaults={
                 "codigoperfil": codigo,
-                "nomeperfil":   nome,
-                "aplicacao":    app,
-                "group":        group,
+                "nomeperfil": nome,
+                "aplicacao": app,
+                "group": group,
             },
         )
 
@@ -200,30 +203,62 @@ def _bootstrap_roles():
     _group_permissions = {
         "portal_admin_group": [
             # auth.user — acesso total
-            "add_user", "change_user", "delete_user", "view_user",
+            "add_user",
+            "change_user",
+            "delete_user",
+            "view_user",
             # accounts
-            "add_aplicacao", "change_aplicacao", "delete_aplicacao", "view_aplicacao",
-            "add_role", "change_role", "delete_role", "view_role",
-            "add_userprofile", "change_userprofile", "delete_userprofile", "view_userprofile",
-            "add_userrole", "change_userrole", "delete_userrole", "view_userrole",
-            "add_classificacaousuario", "change_classificacaousuario",
-            "delete_classificacaousuario", "view_classificacaousuario",
-            "add_statususuario", "change_statususuario",
-            "delete_statususuario", "view_statususuario",
-            "add_tipousuario", "change_tipousuario",
-            "delete_tipousuario", "view_tipousuario",
+            "add_aplicacao",
+            "change_aplicacao",
+            "delete_aplicacao",
+            "view_aplicacao",
+            "add_role",
+            "change_role",
+            "delete_role",
+            "view_role",
+            "add_userprofile",
+            "change_userprofile",
+            "delete_userprofile",
+            "view_userprofile",
+            "add_userrole",
+            "change_userrole",
+            "delete_userrole",
+            "view_userrole",
+            "add_classificacaousuario",
+            "change_classificacaousuario",
+            "delete_classificacaousuario",
+            "view_classificacaousuario",
+            "add_statususuario",
+            "change_statususuario",
+            "delete_statususuario",
+            "view_statususuario",
+            "add_tipousuario",
+            "change_tipousuario",
+            "delete_tipousuario",
+            "view_tipousuario",
         ],
         "gestor_pngi_group": [
             # auth.user — criar e editar (materializado em auth_user_user_permissions)
-            "add_user", "change_user", "delete_user", "view_user",
+            "add_user",
+            "change_user",
+            "delete_user",
+            "view_user",
             # accounts
-            "add_userprofile", "change_userprofile", "delete_userprofile", "view_userprofile",
-            "add_userrole", "change_userrole", "delete_userrole", "view_userrole",
+            "add_userprofile",
+            "change_userprofile",
+            "delete_userprofile",
+            "view_userprofile",
+            "add_userrole",
+            "change_userrole",
+            "delete_userrole",
+            "view_userrole",
         ],
         "coordenador_pngi_group": [
             "view_user",
             "view_userprofile",
-            "add_userrole", "change_userrole", "view_userrole",
+            "add_userrole",
+            "change_userrole",
+            "view_userrole",
         ],
         "operador_acao_group": [
             "view_user",
@@ -231,9 +266,15 @@ def _bootstrap_roles():
             "view_userrole",
         ],
         "gestor_carga_group": [
-            "add_user", "change_user", "view_user",
-            "add_userprofile", "change_userprofile", "view_userprofile",
-            "add_userrole", "change_userrole", "view_userrole",
+            "add_user",
+            "change_user",
+            "view_user",
+            "add_userprofile",
+            "change_userprofile",
+            "view_userprofile",
+            "add_userrole",
+            "change_userrole",
+            "view_userrole",
         ],
     }
 
@@ -246,6 +287,7 @@ def _bootstrap_roles():
 
 def _bootstrap_status_usuario():
     from apps.accounts.models import StatusUsuario
+
     StatusUsuario.objects.get_or_create(
         idstatususuario=1, defaults={"strdescricao": "Ativo"}
     )
@@ -262,11 +304,12 @@ def _bootstrap_all():
     _bootstrap_status_usuario()
 
     # Garante que a sequence do PostgreSQL está além dos IDs inseridos com pk explícita
-    _reset_pk_sequence('tblaplicacao', 'idaplicacao')
-    _reset_pk_sequence('accounts_role', 'id')
+    _reset_pk_sequence("tblaplicacao", "idaplicacao")
+    _reset_pk_sequence("accounts_role", "id")
 
 
 # --- Fixture autouse: garante dados base antes de qualquer teste -------------
+
 
 @pytest.fixture(autouse=True)
 def _ensure_base_data(db):
@@ -280,6 +323,7 @@ def _ensure_base_data(db):
 
 # --- Helpers internos --------------------------------------------------------
 
+
 def _get_status_usuario():
     return StatusUsuario.objects.get(pk=1)
 
@@ -292,8 +336,9 @@ def _get_classificacao_usuario():
     return ClassificacaoUsuario.objects.get(pk=1)
 
 
-def _make_user(username, password=DEFAULT_PASSWORD,
-               is_superuser=False, classificacao_pk=1):
+def _make_user(
+    username, password=DEFAULT_PASSWORD, is_superuser=False, classificacao_pk=1
+):
     """
     Cria (ou recupera) auth.User + UserProfile.
     Seguro com --reuse-db: usa get_or_create e atualiza senha sempre.
@@ -374,6 +419,7 @@ def _make_authenticated_client(username, app_context, password=DEFAULT_PASSWORD)
 
 # --- Fixtures de usuarios por perfil -----------------------------------------
 
+
 @pytest.fixture
 def gestor_pngi(db):
     """
@@ -440,13 +486,14 @@ def usuario_alvo(db):
 
 # --- Fixtures de clients autenticados (sessao real) ---------------------------
 
+
 @pytest.fixture
 def client_gestor(db, gestor_pngi):
     """APIClient autenticado como GESTOR_PNGI via sessao Django real."""
     client, resp = _make_authenticated_client("gestor_test", "ACOES_PNGI")
-    assert resp.status_code == 200, (
-        f"Falha no login do GESTOR_PNGI: status={resp.status_code} data={resp.data}"
-    )
+    assert (
+        resp.status_code == 200
+    ), f"Falha no login do GESTOR_PNGI: status={resp.status_code} data={resp.data}"
     return client
 
 
@@ -454,9 +501,9 @@ def client_gestor(db, gestor_pngi):
 def client_coordenador(db, coordenador_pngi):
     """APIClient autenticado como COORDENADOR_PNGI via sessao Django real."""
     client, resp = _make_authenticated_client("coordenador_test", "ACOES_PNGI")
-    assert resp.status_code == 200, (
-        f"Falha no login do COORDENADOR_PNGI: status={resp.status_code} data={resp.data}"
-    )
+    assert (
+        resp.status_code == 200
+    ), f"Falha no login do COORDENADOR_PNGI: status={resp.status_code} data={resp.data}"
     return client
 
 
@@ -464,9 +511,9 @@ def client_coordenador(db, coordenador_pngi):
 def client_operador(db, operador_acao):
     """APIClient autenticado como OPERADOR_ACAO via sessao Django real."""
     client, resp = _make_authenticated_client("operador_test", "ACOES_PNGI")
-    assert resp.status_code == 200, (
-        f"Falha no login do OPERADOR_ACAO: status={resp.status_code} data={resp.data}"
-    )
+    assert (
+        resp.status_code == 200
+    ), f"Falha no login do OPERADOR_ACAO: status={resp.status_code} data={resp.data}"
     return client
 
 
@@ -474,9 +521,9 @@ def client_operador(db, operador_acao):
 def client_gestor_carga(db, gestor_carga):
     """APIClient autenticado como GESTOR_CARGA via sessao Django real."""
     client, resp = _make_authenticated_client("gestor_carga_test", "CARGA_ORG_LOT")
-    assert resp.status_code == 200, (
-        f"Falha no login do GESTOR_CARGA: status={resp.status_code} data={resp.data}"
-    )
+    assert (
+        resp.status_code == 200
+    ), f"Falha no login do GESTOR_CARGA: status={resp.status_code} data={resp.data}"
     return client
 
 
@@ -484,9 +531,9 @@ def client_gestor_carga(db, gestor_carga):
 def client_portal_admin(db, portal_admin):
     """APIClient autenticado como PORTAL_ADMIN via sessao Django real."""
     client, resp = _make_authenticated_client("portal_admin_test", "PORTAL")
-    assert resp.status_code == 200, (
-        f"Falha no login do PORTAL_ADMIN: status={resp.status_code} data={resp.data}"
-    )
+    assert (
+        resp.status_code == 200
+    ), f"Falha no login do PORTAL_ADMIN: status={resp.status_code} data={resp.data}"
     return client
 
 
@@ -494,9 +541,9 @@ def client_portal_admin(db, portal_admin):
 def client_superuser(db, superuser):
     """APIClient autenticado como SuperUser via sessao Django real."""
     client, resp = _make_authenticated_client("superuser_test", "PORTAL")
-    assert resp.status_code == 200, (
-        f"Falha no login do SUPERUSER: status={resp.status_code} data={resp.data}"
-    )
+    assert (
+        resp.status_code == 200
+    ), f"Falha no login do SUPERUSER: status={resp.status_code} data={resp.data}"
     return client
 
 

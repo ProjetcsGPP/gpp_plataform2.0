@@ -59,7 +59,7 @@ jobs:
 
   # 🧪 TESTES + QUALIDADE
   tests:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     name: Full Test Suite + Quality
     runs-on: ubuntu-latest
 

@@ -22,6 +22,7 @@ URLs dos endpoints acoes_pngi:
   GET        /api/acoes-pngi/situacoes/
   GET/POST   /api/acoes-pngi/vigencias/
 """
+
 import pytest
 from django.contrib.auth.models import Group, User
 from rest_framework.test import APIClient
@@ -49,6 +50,7 @@ DEFAULT_PASSWORD = "gpp@2026"
 # lru_cache bust — _load_role_matrix() deve reler o banco em cada teste
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _clear_role_matrix_cache():
     """
@@ -66,6 +68,7 @@ def _clear_role_matrix_cache():
     fazendo test_nao_pode_criar_vigencia retornar 201 em vez de 403.
     """
     from apps.acoes_pngi.views import _load_role_matrix, _load_vigencia_role_matrix
+
     _load_role_matrix.cache_clear()
     _load_vigencia_role_matrix.cache_clear()
     yield
@@ -76,6 +79,7 @@ def _clear_role_matrix_cache():
 # ---------------------------------------------------------------------------
 # Bootstrap de dados base (idempotente — funciona com --reuse-db)
 # ---------------------------------------------------------------------------
+
 
 def _bootstrap_base_data():
     """Garante tabelas lookup e aplicacoes/roles base (get_or_create)."""
@@ -109,10 +113,10 @@ def _bootstrap_base_data():
     )
 
     roles_data = [
-        (2, "GESTOR_PNGI",      "Gestor PNGI",       "gestor_pngi_group"),
-        (3, "COORDENADOR_PNGI", "Coordenador PNGI",  "coordenador_pngi_group"),
-        (4, "OPERADOR_ACAO",    "Operador de Acao",  "operador_acao_group"),
-        (5, "CONSULTOR_PNGI",   "Consultor PNGI",    "consultor_pngi_group"),
+        (2, "GESTOR_PNGI", "Gestor PNGI", "gestor_pngi_group"),
+        (3, "COORDENADOR_PNGI", "Coordenador PNGI", "coordenador_pngi_group"),
+        (4, "OPERADOR_ACAO", "Operador de Acao", "operador_acao_group"),
+        (5, "CONSULTOR_PNGI", "Consultor PNGI", "consultor_pngi_group"),
     ]
     for pk, codigo, nome, group_name in roles_data:
         group, _ = Group.objects.get_or_create(name=group_name)
@@ -135,6 +139,7 @@ def _ensure_base_data(db):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_user(username, password=DEFAULT_PASSWORD, classificacao_pk=1):
     user, _ = User.objects.get_or_create(
@@ -161,7 +166,9 @@ def _make_user(username, password=DEFAULT_PASSWORD, classificacao_pk=1):
 
 def _make_user_rj(username, password=DEFAULT_PASSWORD):
     """Cria usuario com orgao=RJ para testes de IDOR."""
-    user, _ = User.objects.get_or_create(username=username, defaults={"is_active": True})
+    user, _ = User.objects.get_or_create(
+        username=username, defaults={"is_active": True}
+    )
     user.set_password(password)
     user.is_active = True
     user.save(update_fields=["password", "is_active"])
@@ -207,7 +214,11 @@ def _login(username, app_context=None, password=DEFAULT_PASSWORD):
     client.credentials(HTTP_X_APPLICATION_CODE="ACOES_PNGI")
     resp = client.post(
         LOGIN_URL,
-        {"username": username, "password": password, "app_context": app_context or "ACOES_PNGI"},
+        {
+            "username": username,
+            "password": password,
+            "app_context": app_context or "ACOES_PNGI",
+        },
         format="json",
     )
     return client, resp
@@ -216,6 +227,7 @@ def _login(username, app_context=None, password=DEFAULT_PASSWORD):
 # ---------------------------------------------------------------------------
 # Fixtures de usuarios por role
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def gestor_pngi(db):
@@ -254,6 +266,7 @@ def usuario_sem_role(db):
 # Fixtures de clients autenticados
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def client_gestor(db, gestor_pngi):
     client, resp = _login("gestor_pngi_u")
@@ -290,6 +303,7 @@ def client_anonimo():
 # ---------------------------------------------------------------------------
 # Fixtures de dados de dominio
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def vigencia(db):

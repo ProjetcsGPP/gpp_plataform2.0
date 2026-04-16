@@ -1,0 +1,124 @@
+[MASTER]
+ignore=migrations,venv,.venv,__pycache__
+jobs=0
+load-plugins=pylint_django
+django-settings-module=config.settings.test
+
+
+[MESSAGES CONTROL]
+disable=
+    # Docstrings (não obrigatórias no projeto)
+    C0114,
+    C0115,
+    C0116,
+
+    # Design — complexidade tolerada
+    R0903,
+    R0801,
+
+    # Exceções genéricas
+    W0703,
+
+    # Linha longa (controlado por max-line-length)
+    C0301,
+
+    # TODOs e FIXMEs
+    W0511,
+
+    # Import não resolvido (Django apps carregadas dinamicamente)
+    E0401,
+
+    # Membro não encontrado em classe Django/DRF
+    E1101,
+
+    # Import dentro de função (usado em signals/apps)
+    C0415,
+
+    # Acesso a membro protegido (_privado) — comum e aceitável em testes
+    W0212,
+
+    # Argumento não usado — fixtures pytest declaram mas não referenciam diretamente
+    W0613,
+
+    # Redefinição de nome de escopo externo — padrão de fixtures pytest/conftest
+    W0621,
+
+    # Uso de f-string em logging (projeto usa f-strings intencionalmente)
+    W1203,
+
+    # Nome não segue snake_case — factories e mocks usam PascalCase
+    C0103,
+
+    # Expressão atribuída a nada — assert helpers de mock
+    W0106,
+
+    # Reimport — fixtures re-exportadas entre conftest e test files
+    W0404,
+
+    # Condição sempre verdadeira/falsa em testes de domínio
+    R1727,
+
+    # Simplificação de booleano implícito
+    C1803,
+
+    # non-ascii em nomes de função (testes em português)
+    C2401,
+
+    # Opção não reconhecida (max-ancestors removido, aviso residual)
+    E0015,
+
+    # try/except que re-raise imediatamente
+    W0706,
+
+    # too-many-positional-arguments
+    R0917,
+
+    E5142
+
+[FORMAT]
+max-line-length=120
+
+
+[BASIC]
+good-names=i,j,k,ex,pk,id,qs,ct,db,User,app_name
+
+
+[DESIGN]
+max-args=10
+max-attributes=12
+max-public-methods=25
+max-locals=20
+max-branches=15
+# max-ancestors removido — opção descontinuada no Pylint >= 2.14
+# use --max-parents na linha de comando se necessário
+
+
+[TYPECHECK]
+ignored-modules=
+    rest_framework,
+    django.db.models,
+    django.contrib.auth
+ignored-classes=
+    QuerySet,
+    Manager,
+    ManyToManyField,
+    ForeignKey,
+    OneToOneField
+
+
+[LOGGING]
+# old = estilo %s (logger.info("msg %s", var))
+# new = estilo {}/{} (logger.info("msg {}", var))
+# O projeto usa %s — manter old para evitar E1205
+logging-format-style=old
+
+
+[SIMILARITIES]
+ignore-imports=yes
+ignore-comments=yes
+min-similarity-lines=6
+
+
+[REPORTS]
+output-format=colorized
+score=yes

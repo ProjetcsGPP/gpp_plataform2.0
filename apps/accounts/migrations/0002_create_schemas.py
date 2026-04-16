@@ -3,6 +3,7 @@ GPP Plataform 2.0 — Migration 0002
 Cria os schemas PostgreSQL: acoes_pngi e carga_org_lot.
 Deve rodar APÓS 0001_initial (que cria as tabelas no schema public).
 """
+
 from django.db import migrations
 
 

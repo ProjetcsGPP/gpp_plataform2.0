@@ -27,21 +27,18 @@ Cenários cobertos (Issue #18):
   TC-08  Alterar group de Group via m2m (group_permissions) aciona re-sync
          → cobre o sinal invalidate_on_group_permission_change (D-05)
 """
+
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, call
 from django.contrib.auth.models import Group, Permission
 from django.contrib.contenttypes.models import ContentType
 
-from apps.accounts.models import (
-    Aplicacao,
-    Role,
-    UserPermissionOverride,
-    UserRole,
-)
+from apps.accounts.models import Role, UserPermissionOverride, UserRole
 from apps.accounts.tests.conftest import (
-    _make_user,
     _assign_role,
     _make_authenticated_client,
+    _make_user,
 )
 
 USER_ROLES_URL = "/api/accounts/user-roles/"
@@ -51,6 +48,7 @@ SYNC_PATH = "apps.accounts.services.permission_sync.sync_user_permissions"
 
 # ─── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _get_or_create_permission(codename, app_label="auth", model="user"):
     ct = ContentType.objects.get(app_label=app_label, model=model)
     perm, _ = Permission.objects.get_or_create(codename=codename, content_type=ct)
@@ -58,6 +56,7 @@ def _get_or_create_permission(codename, app_label="auth", model="user"):
 
 
 # ─── TC-01: Signal post_save em UserRole aciona sync ──────────────────────────────
+
 
 @pytest.mark.django_db
 def test_tc01_userrole_post_save_triggers_sync(db, _ensure_base_data):
@@ -72,12 +71,15 @@ def test_tc01_userrole_post_save_triggers_sync(db, _ensure_base_data):
     sync_call_target = "apps.accounts.signals.sync_user_permissions"
     with patch(sync_call_target) as mock_sync:
         UserRole.objects.create(user=user, role=role, aplicacao=app)
-        assert mock_sync.called, "sync_user_permissions deve ser chamado pelo signal post_save de UserRole"
+        assert (
+            mock_sync.called
+        ), "sync_user_permissions deve ser chamado pelo signal post_save de UserRole"
         called_user = mock_sync.call_args[1].get("user") or mock_sync.call_args[0][0]
         assert called_user.pk == user.pk
 
 
 # ─── TC-02: Signal post_delete em UserRole aciona sync ─────────────────────────────
+
 
 @pytest.mark.django_db
 def test_tc02_userrole_post_delete_triggers_sync(db, _ensure_base_data):
@@ -93,12 +95,15 @@ def test_tc02_userrole_post_delete_triggers_sync(db, _ensure_base_data):
     sync_call_target = "apps.accounts.signals.sync_user_permissions"
     with patch(sync_call_target) as mock_sync:
         user_role.delete()
-        assert mock_sync.called, "sync_user_permissions deve ser chamado pelo signal post_delete de UserRole"
+        assert (
+            mock_sync.called
+        ), "sync_user_permissions deve ser chamado pelo signal post_delete de UserRole"
         called_user = mock_sync.call_args[1].get("user") or mock_sync.call_args[0][0]
         assert called_user.pk == user.pk
 
 
 # ─── TC-03: Mudar Role.group aciona sync para todos os usuários da role ───────────
+
 
 @pytest.mark.django_db
 def test_tc03_role_group_change_triggers_sync_for_affected_users(db, _ensure_base_data):
@@ -121,13 +126,16 @@ def test_tc03_role_group_change_triggers_sync_for_affected_users(db, _ensure_bas
         role.group = new_group
         role.save(update_fields=["group"])
 
-        assert mock_sync.called, "sync_users_permissions deve ser chamado ao mudar Role.group"
+        assert (
+            mock_sync.called
+        ), "sync_users_permissions deve ser chamado ao mudar Role.group"
         called_ids = set(mock_sync.call_args[0][0])
         assert user1.pk in called_ids
         assert user2.pk in called_ids
 
 
 # ─── TC-04: POST /user-roles/ via API aciona sync ──────────────────────────────────
+
 
 @pytest.mark.django_db
 def test_tc04_api_create_userrole_triggers_sync(db, _ensure_base_data):
@@ -144,21 +152,24 @@ def test_tc04_api_create_userrole_triggers_sync(db, _ensure_base_data):
     client, resp = _make_authenticated_client("tc04_admin", "PORTAL")
     assert resp.status_code == 200, f"Login falhou: {resp.data}"
 
-    with patch(
-        "apps.accounts.views.sync_user_permissions"
-    ) as mock_sync:
+    with patch("apps.accounts.views.sync_user_permissions") as mock_sync:
         resp = client.post(
             USER_ROLES_URL,
             {"user": target_user.pk, "role": role.pk, "aplicacao": app.pk},
             format="json",
         )
-        assert resp.status_code == 201, f"Esperado 201, obtido {resp.status_code}: {resp.data}"
-        assert mock_sync.called, "sync_user_permissions deve ser chamado pela view no create"
+        assert (
+            resp.status_code == 201
+        ), f"Esperado 201, obtido {resp.status_code}: {resp.data}"
+        assert (
+            mock_sync.called
+        ), "sync_user_permissions deve ser chamado pela view no create"
         called_user = mock_sync.call_args[1].get("user") or mock_sync.call_args[0][0]
         assert called_user.pk == target_user.pk
 
 
 # ─── TC-05: DELETE /user-roles/{id}/ via API aciona sync ───────────────────────────
+
 
 @pytest.mark.django_db
 def test_tc05_api_destroy_userrole_triggers_sync(db, _ensure_base_data):
@@ -176,17 +187,20 @@ def test_tc05_api_destroy_userrole_triggers_sync(db, _ensure_base_data):
     client, resp = _make_authenticated_client("tc05_admin", "PORTAL")
     assert resp.status_code == 200, f"Login falhou: {resp.data}"
 
-    with patch(
-        "apps.accounts.views.sync_user_permissions"
-    ) as mock_sync:
+    with patch("apps.accounts.views.sync_user_permissions") as mock_sync:
         resp = client.delete(f"{USER_ROLES_URL}{user_role.pk}/")
-        assert resp.status_code == 204, f"Esperado 204, obtido {resp.status_code}: {resp.data}"
-        assert mock_sync.called, "sync_user_permissions deve ser chamado pela view no destroy"
+        assert (
+            resp.status_code == 204
+        ), f"Esperado 204, obtido {resp.status_code}: {resp.data}"
+        assert (
+            mock_sync.called
+        ), "sync_user_permissions deve ser chamado pela view no destroy"
         called_user = mock_sync.call_args[1].get("user") or mock_sync.call_args[0][0]
         assert called_user.pk == target_user.pk
 
 
 # ─── TC-06: POST /permission-overrides/ aciona sync ────────────────────────────────
+
 
 @pytest.mark.django_db
 def test_tc06_api_create_override_triggers_sync(db, _ensure_base_data):
@@ -202,21 +216,24 @@ def test_tc06_api_create_override_triggers_sync(db, _ensure_base_data):
     client, resp = _make_authenticated_client("tc06_admin", "PORTAL")
     assert resp.status_code == 200, f"Login falhou: {resp.data}"
 
-    with patch(
-        "apps.accounts.views.sync_user_permissions"
-    ) as mock_sync:
+    with patch("apps.accounts.views.sync_user_permissions") as mock_sync:
         resp = client.post(
             PERM_OVERRIDES_URL,
             {"user": target_user.pk, "permission": perm.pk, "mode": "grant"},
             format="json",
         )
-        assert resp.status_code == 201, f"Esperado 201, obtido {resp.status_code}: {resp.data}"
-        assert mock_sync.called, "sync_user_permissions deve ser chamado no create de override"
+        assert (
+            resp.status_code == 201
+        ), f"Esperado 201, obtido {resp.status_code}: {resp.data}"
+        assert (
+            mock_sync.called
+        ), "sync_user_permissions deve ser chamado no create de override"
         called_user = mock_sync.call_args[1].get("user") or mock_sync.call_args[0][0]
         assert called_user.pk == target_user.pk
 
 
 # ─── TC-07: DELETE /permission-overrides/{id}/ aciona sync ──────────────────────────
+
 
 @pytest.mark.django_db
 def test_tc07_api_destroy_override_triggers_sync(db, _ensure_base_data):
@@ -235,17 +252,20 @@ def test_tc07_api_destroy_override_triggers_sync(db, _ensure_base_data):
     client, resp = _make_authenticated_client("tc07_admin", "PORTAL")
     assert resp.status_code == 200, f"Login falhou: {resp.data}"
 
-    with patch(
-        "apps.accounts.views.sync_user_permissions"
-    ) as mock_sync:
+    with patch("apps.accounts.views.sync_user_permissions") as mock_sync:
         resp = client.delete(f"{PERM_OVERRIDES_URL}{override.pk}/")
-        assert resp.status_code == 204, f"Esperado 204, obtido {resp.status_code}: {resp.data}"
-        assert mock_sync.called, "sync_user_permissions deve ser chamado no destroy de override"
+        assert (
+            resp.status_code == 204
+        ), f"Esperado 204, obtido {resp.status_code}: {resp.data}"
+        assert (
+            mock_sync.called
+        ), "sync_user_permissions deve ser chamado no destroy de override"
         called_user = mock_sync.call_args[1].get("user") or mock_sync.call_args[0][0]
         assert called_user.pk == target_user.pk
 
 
 # ─── TC-08: m2m_changed em Group.permissions aciona re-sync (D-05) ───────────────
+
 
 @pytest.mark.django_db
 def test_tc08_group_permission_change_triggers_resync(db, _ensure_base_data):
@@ -264,8 +284,8 @@ def test_tc08_group_permission_change_triggers_resync(db, _ensure_base_data):
     sync_call_target = "apps.accounts.signals.sync_users_permissions"
     with patch(sync_call_target) as mock_sync:
         role.group.permissions.add(perm)
-        assert mock_sync.called, (
-            "sync_users_permissions deve ser chamado ao adicionar permissão ao group da role"
-        )
+        assert (
+            mock_sync.called
+        ), "sync_users_permissions deve ser chamado ao adicionar permissão ao group da role"
         called_ids = set(mock_sync.call_args[0][0])
         assert user.pk in called_ids

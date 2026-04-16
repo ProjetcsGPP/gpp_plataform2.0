@@ -22,6 +22,7 @@ se altera entre requests (detecção de troca de contexto).
 FIX: user.is_superuser=True seta is_portal_admin=True sem exigir UserRole
      no banco — evita 403 reason=no_role para superusers Django.
 """
+
 import logging
 
 from django.contrib.auth.models import AnonymousUser
@@ -35,27 +36,26 @@ CACHE_TTL = 300  # 5 minutos
 
 
 class RoleContextMiddleware:
-   
+
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        
+
         # 🔥 BYPASS TOTAL PARA LOGOUT
         if getattr(request, "is_logout_request", False):
             security_logger.debug(
-                "LOGOUT_REQUEST — skipping role loading path=%s",
-                request.path
+                "LOGOUT_REQUEST — skipping role loading path=%s", request.path
             )
             request.user_roles = []
             request.is_portal_admin = False
-    
+
             # 🔥 opcional (blindagem extra)
             if not hasattr(request, "user"):
                 request.user = AnonymousUser()
-                
+
             return self.get_response(request)
-        
+
         if request.user and not isinstance(request.user, AnonymousUser):
             self._load_roles(request)
         else:
@@ -63,7 +63,7 @@ class RoleContextMiddleware:
             request.is_portal_admin = False
 
         return self.get_response(request)
-        
+
     def _load_roles(self, request):
         user = request.user
         application = getattr(request, "application", None)
@@ -76,8 +76,7 @@ class RoleContextMiddleware:
         if cached_roles is not None:
             request.user_roles = cached_roles or []
             request.is_portal_admin = user.is_superuser or any(
-                ur.role.codigoperfil == "PORTAL_ADMIN"
-                for ur in request.user_roles
+                ur.role.codigoperfil == "PORTAL_ADMIN" for ur in request.user_roles
             )
             return
 
@@ -93,22 +92,22 @@ class RoleContextMiddleware:
             cache.set(cache_key, [], CACHE_TTL)
             return
 
-        qs = (
-            UserRole.objects
-            .filter(user=user)
-            .select_related("role", "role__group", "aplicacao")
+        qs = UserRole.objects.filter(user=user).select_related(
+            "role", "role__group", "aplicacao"
         )
 
         if application:
-            qs = qs.filter(
-                aplicacao=application
-            ) | qs.filter(role__codigoperfil="PORTAL_ADMIN")
+            qs = qs.filter(aplicacao=application) | qs.filter(
+                role__codigoperfil="PORTAL_ADMIN"
+            )
 
         user_roles = list(qs.distinct())
 
         request.user_roles = user_roles or []
 
-        is_admin = any(ur.role.codigoperfil == "PORTAL_ADMIN" for ur in request.user_roles)
+        is_admin = any(
+            ur.role.codigoperfil == "PORTAL_ADMIN" for ur in request.user_roles
+        )
         request.is_portal_admin = is_admin
 
         previous_roles_key = f"user_roles_previous:{user.id}"
@@ -137,7 +136,6 @@ class RoleContextMiddleware:
             [ur.role.codigoperfil for ur in request.user_roles],
             is_admin,
         )
-
 
     @staticmethod
     def _make_cache_key(user_id, application):

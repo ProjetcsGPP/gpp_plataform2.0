@@ -1,7 +1,7 @@
 from django.contrib import admin
-from django.contrib.auth.models import User
 
 from .models import (
+    AccountsSession,
     Aplicacao,
     Attribute,
     ClassificacaoUsuario,
@@ -11,13 +11,12 @@ from .models import (
     UserPermissionOverride,
     UserProfile,
     UserRole,
-    AccountsSession,
 )
-
 
 # =====================
 # TABELAS AUXILIARES
 # =====================
+
 
 @admin.register(StatusUsuario)
 class StatusUsuarioAdmin(admin.ModelAdmin):
@@ -52,6 +51,7 @@ class AplicacaoAdmin(admin.ModelAdmin):
 # USER PROFILE
 # =====================
 
+
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
     list_display = (
@@ -64,24 +64,44 @@ class UserProfileAdmin(admin.ModelAdmin):
     )
     list_filter = ("status_usuario", "tipo_usuario", "classificacao_usuario")
     search_fields = ("user__username", "user__email", "name", "orgao")
-    readonly_fields = ("datacriacao", "data_alteracao", "idusuariocriacao", "idusuarioalteracao")
+    readonly_fields = (
+        "datacriacao",
+        "data_alteracao",
+        "idusuariocriacao",
+        "idusuarioalteracao",
+    )
     fieldsets = (
-        ("Identificação", {
-            "fields": ("user", "name", "orgao"),
-        }),
-        ("Classificações", {
-            "fields": ("status_usuario", "tipo_usuario", "classificacao_usuario"),
-        }),
-        ("Auditoria", {
-            "classes": ("collapse",),
-            "fields": ("idusuariocriacao", "idusuarioalteracao", "datacriacao", "data_alteracao"),
-        }),
+        (
+            "Identificação",
+            {
+                "fields": ("user", "name", "orgao"),
+            },
+        ),
+        (
+            "Classificações",
+            {
+                "fields": ("status_usuario", "tipo_usuario", "classificacao_usuario"),
+            },
+        ),
+        (
+            "Auditoria",
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "idusuariocriacao",
+                    "idusuarioalteracao",
+                    "datacriacao",
+                    "data_alteracao",
+                ),
+            },
+        ),
     )
 
 
 # =====================
 # RBAC
 # =====================
+
 
 @admin.register(Role)
 class RoleAdmin(admin.ModelAdmin):
@@ -91,18 +111,24 @@ class RoleAdmin(admin.ModelAdmin):
     ordering = ("aplicacao", "codigoperfil")
     readonly_fields = ("group",)
     fieldsets = (
-        (None, {
-            "fields": ("aplicacao", "codigoperfil", "nomeperfil"),
-        }),
-        ("Grupo Django (gerado automaticamente)", {
-            "classes": ("collapse",),
-            "description": (
-                "O auth.Group é criado automaticamente via signal ao salvar uma Role "
-                "sem group definido. Gerencie as permissões do grupo diretamente no "
-                "admin de Grupos do Django."
-            ),
-            "fields": ("group",),
-        }),
+        (
+            None,
+            {
+                "fields": ("aplicacao", "codigoperfil", "nomeperfil"),
+            },
+        ),
+        (
+            "Grupo Django (gerado automaticamente)",
+            {
+                "classes": ("collapse",),
+                "description": (
+                    "O auth.Group é criado automaticamente via signal ao salvar uma Role "
+                    "sem group definido. Gerencie as permissões do grupo diretamente no "
+                    "admin de Grupos do Django."
+                ),
+                "fields": ("group",),
+            },
+        ),
     )
 
     def get_readonly_fields(self, request, obj=None):
@@ -127,6 +153,7 @@ class UserRoleAdmin(admin.ModelAdmin):
 # ABAC — Atributos
 # =====================
 
+
 @admin.register(Attribute)
 class AttributeAdmin(admin.ModelAdmin):
     list_display = ("user", "aplicacao", "key", "value")
@@ -138,6 +165,7 @@ class AttributeAdmin(admin.ModelAdmin):
 # =====================
 # SESSION (sessão Django)
 # =====================
+
 
 @admin.register(AccountsSession)
 class AccountsSessionAdmin(admin.ModelAdmin):
@@ -172,6 +200,7 @@ class AccountsSessionAdmin(admin.ModelAdmin):
     @admin.action(description="Revogar sessões selecionadas")
     def revoke_sessions(self, request, queryset):
         from django.utils import timezone
+
         updated = queryset.filter(revoked=False).update(
             revoked=True,
             revoked_at=timezone.now(),
@@ -182,6 +211,7 @@ class AccountsSessionAdmin(admin.ModelAdmin):
 # =====================
 # PERMISSION OVERRIDES (Fase 3)
 # =====================
+
 
 @admin.register(UserPermissionOverride)
 class UserPermissionOverrideAdmin(admin.ModelAdmin):
@@ -205,16 +235,25 @@ class UserPermissionOverrideAdmin(admin.ModelAdmin):
     ordering = ("user__username", "permission__codename", "mode")
     readonly_fields = ("created_at", "updated_at", "created_by", "updated_by")
     fieldsets = (
-        ("Override", {
-            "fields": ("user", "permission", "mode"),
-        }),
-        ("Contexto", {
-            "fields": ("source", "reason"),
-        }),
-        ("Auditoria", {
-            "classes": ("collapse",),
-            "fields": ("created_by", "updated_by", "created_at", "updated_at"),
-        }),
+        (
+            "Override",
+            {
+                "fields": ("user", "permission", "mode"),
+            },
+        ),
+        (
+            "Contexto",
+            {
+                "fields": ("source", "reason"),
+            },
+        ),
+        (
+            "Auditoria",
+            {
+                "classes": ("collapse",),
+                "fields": ("created_by", "updated_by", "created_at", "updated_at"),
+            },
+        ),
     )
 
     def save_model(self, request, obj, form, change):

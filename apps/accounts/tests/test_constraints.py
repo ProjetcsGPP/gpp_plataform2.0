@@ -6,20 +6,20 @@ import pytest
 from django.db import IntegrityError, transaction
 
 from apps.accounts.models import (
+    AccountsSession,
     Aplicacao,
     ClassificacaoUsuario,
     Role,
     StatusUsuario,
     TipoUsuario,
-    UserProfile,
     UserRole,
-    AccountsSession,
 )
 
 pytestmark = pytest.mark.django_db
 
 
 # --- Constraints de UniqueConstraint -----------------------------------------
+
 
 class TestUserRoleConstraints:
 
@@ -47,6 +47,7 @@ class TestUserRoleConstraints:
 
 
 # --- __str__ dos models de lookup (models.py 24, 28, 32) ---------------------
+
 
 class TestModelStrMethods:
     """
@@ -81,8 +82,9 @@ class TestModelStrMethods:
         models.py linhas 383–386: AccountsSession.__str__ deve retornar
         string contendo user_id, session_key e app_context.
         """
-        from django.utils import timezone
         from datetime import timedelta
+
+        from django.utils import timezone
 
         session = AccountsSession.objects.create(
             user=gestor_pngi,

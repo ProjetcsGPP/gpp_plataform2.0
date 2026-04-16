@@ -8,9 +8,8 @@ e sem is_superuser) invocam can_change_status(), can_change_classificacao()
 e can_edit_profile() → retorno False.
 """
 import pytest
-from django.contrib.auth.models import User
 
-from apps.accounts.models import ClassificacaoUsuario, UserProfile, UserRole
+from apps.accounts.models import UserProfile
 from apps.accounts.policies import UserProfilePolicy
 
 pytestmark = pytest.mark.django_db
@@ -18,11 +17,13 @@ pytestmark = pytest.mark.django_db
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
+
 def _get_profile(user):
     return UserProfile.objects.get(user=user)
 
 
 # ─── can_change_status() ─────────────────────────────────────────────────────
+
 
 class TestCanChangeStatusCoverage:
     """
@@ -30,41 +31,31 @@ class TestCanChangeStatusCoverage:
     → can_change_status() retorna False.
     """
 
-    def test_gestor_sem_privilegio_nao_pode_mudar_status(
-        self, gestor_pngi
-    ):
+    def test_gestor_sem_privilegio_nao_pode_mudar_status(self, gestor_pngi):
         profile = _get_profile(gestor_pngi)
         policy = UserProfilePolicy(actor=gestor_pngi, profile=profile)
         result = policy.can_change_status()
         assert result is False
 
-    def test_operador_sem_privilegio_nao_pode_mudar_status(
-        self, operador_acao
-    ):
+    def test_operador_sem_privilegio_nao_pode_mudar_status(self, operador_acao):
         profile = _get_profile(operador_acao)
         policy = UserProfilePolicy(actor=operador_acao, profile=profile)
         result = policy.can_change_status()
         assert result is False
 
-    def test_usuario_sem_role_nao_pode_mudar_status(
-        self, usuario_sem_role
-    ):
+    def test_usuario_sem_role_nao_pode_mudar_status(self, usuario_sem_role):
         profile = _get_profile(usuario_sem_role)
         policy = UserProfilePolicy(actor=usuario_sem_role, profile=profile)
         result = policy.can_change_status()
         assert result is False
 
-    def test_portal_admin_pode_mudar_status(
-        self, portal_admin
-    ):
+    def test_portal_admin_pode_mudar_status(self, portal_admin):
         profile = _get_profile(portal_admin)
         policy = UserProfilePolicy(actor=portal_admin, profile=profile)
         result = policy.can_change_status()
         assert result is True
 
-    def test_superuser_pode_mudar_status(
-        self, db_superuser
-    ):
+    def test_superuser_pode_mudar_status(self, db_superuser):
         """
         FIX 2: a fixture `superuser` do conftest de policies é um MagicMock
         (sem DB), impossível chamar UserProfile.objects.get(user=mock).
@@ -78,15 +69,14 @@ class TestCanChangeStatusCoverage:
 
 # ─── can_change_classificacao() ──────────────────────────────────────────────
 
+
 class TestCanChangeClassificacaoCoverage:
     """
     Linhas 230–231: branch where actor is NOT portal_admin and NOT superuser
     → can_change_classificacao() retorna False.
     """
 
-    def test_gestor_sem_privilegio_nao_pode_mudar_classificacao(
-        self, gestor_pngi
-    ):
+    def test_gestor_sem_privilegio_nao_pode_mudar_classificacao(self, gestor_pngi):
         profile = _get_profile(gestor_pngi)
         policy = UserProfilePolicy(actor=gestor_pngi, profile=profile)
         result = policy.can_change_classificacao()
@@ -100,9 +90,7 @@ class TestCanChangeClassificacaoCoverage:
         result = policy.can_change_classificacao()
         assert result is False
 
-    def test_portal_admin_pode_mudar_classificacao(
-        self, portal_admin
-    ):
+    def test_portal_admin_pode_mudar_classificacao(self, portal_admin):
         profile = _get_profile(portal_admin)
         policy = UserProfilePolicy(actor=portal_admin, profile=profile)
         result = policy.can_change_classificacao()
@@ -110,6 +98,7 @@ class TestCanChangeClassificacaoCoverage:
 
 
 # ─── can_edit_profile() — branches de escopo ─────────────────────────────────
+
 
 class TestCanEditProfileScopeCoverage:
     """
@@ -119,9 +108,7 @@ class TestCanEditProfileScopeCoverage:
     (not _has_application_intersection).
     """
 
-    def test_auto_edicao_sem_admin_retorna_true(
-        self, gestor_pngi
-    ):
+    def test_auto_edicao_sem_admin_retorna_true(self, gestor_pngi):
         """
         Linha 235, 238–239: actor edita o PRÓPRIO profile → True
         (independente de ser admin ou não).

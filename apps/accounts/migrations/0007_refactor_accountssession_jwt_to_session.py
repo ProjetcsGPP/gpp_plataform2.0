@@ -8,32 +8,36 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('accounts', '0006_refactor_accountssession_jwt_to_session'),
+        ("accounts", "0006_refactor_accountssession_jwt_to_session"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.RemoveIndex(
-            model_name='accountssession',
-            name='accounts_se_jti_6a3eb0_idx',
+            model_name="accountssession",
+            name="accounts_se_jti_6a3eb0_idx",
         ),
         migrations.RemoveIndex(
-            model_name='accountssession',
-            name='accounts_session_user_revoked_idx',
+            model_name="accountssession",
+            name="accounts_session_user_revoked_idx",
         ),
         migrations.RenameIndex(
-            model_name='accountssession',
-            new_name='accounts_se_session_a6df96_idx',
-            old_name='accounts_session_key_revoked_idx',
+            model_name="accountssession",
+            new_name="accounts_se_session_a6df96_idx",
+            old_name="accounts_session_key_revoked_idx",
         ),
         migrations.AlterField(
-            model_name='accountssession',
-            name='revoked',
+            model_name="accountssession",
+            name="revoked",
             field=models.BooleanField(default=False),
         ),
         migrations.AlterField(
-            model_name='accountssession',
-            name='user',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='account_sessions', to=settings.AUTH_USER_MODEL),
+            model_name="accountssession",
+            name="user",
+            field=models.ForeignKey(
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="account_sessions",
+                to=settings.AUTH_USER_MODEL,
+            ),
         ),
     ]

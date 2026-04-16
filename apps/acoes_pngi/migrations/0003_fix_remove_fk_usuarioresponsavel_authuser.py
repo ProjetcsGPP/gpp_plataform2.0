@@ -6,16 +6,19 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('acoes_pngi', '0002_alter_usuarioresponsavel_user_cascade'),
+        ("acoes_pngi", "0002_alter_usuarioresponsavel_user_cascade"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='relacaoacaousuarioresponsavel',
-            name='idusuarioresponsavel',
-            field=models.IntegerField(db_column='idusuarioresponsavel', help_text='ID lógico do usuário responsável (sem FK para auth_user)'),
+            model_name="relacaoacaousuarioresponsavel",
+            name="idusuarioresponsavel",
+            field=models.IntegerField(
+                db_column="idusuarioresponsavel",
+                help_text="ID lógico do usuário responsável (sem FK para auth_user)",
+            ),
         ),
         migrations.DeleteModel(
-            name='UsuarioResponsavel',
+            name="UsuarioResponsavel",
         ),
     ]
