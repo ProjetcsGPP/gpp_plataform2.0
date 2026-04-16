@@ -11,6 +11,7 @@ FIX: AUTHORIZATION_EXEMPT_PATHS expandido para incluir /api/accounts/auth/
 FIX: AUTHORIZATION_AUTHENTICATED_ONLY_PATHS adicionado para endpoints que
      exigem autenticação mas não exigem role de aplicação (ex: frontendlog).
 """
+
 from pathlib import Path
 
 import environ
@@ -41,7 +42,7 @@ THIRD_PARTY_APPS = [
     "rest_framework",
     "corsheaders",
     "django_extensions",
-    "csp",                 # django-csp >= 4.0 (Content Security Policy)
+    "csp",  # django-csp >= 4.0 (Content Security Policy)
     "drf_spectacular",
 ]
 
@@ -133,7 +134,9 @@ CACHES = {
 
 # ─── Auth ──────────────────────────────────────────────────────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -162,7 +165,7 @@ SESSION_ENGINE = "django.contrib.sessions.backends.db"
 # SESSION_COOKIE_NAME = "gpp_session"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
-SESSION_COOKIE_AGE = 3600          # 1 hora
+SESSION_COOKIE_AGE = 3600  # 1 hora
 SESSION_SAVE_EVERY_REQUEST = True
 # SESSION_COOKIE_SECURE — definido por ambiente (False em dev, True em prod)
 
@@ -170,8 +173,7 @@ SESSION_SAVE_EVERY_REQUEST = True
 CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_HTTPONLY = False  # Frontend precisa ler o csrftoken para enviar no header
 CSRF_TRUSTED_ORIGINS = env.list(
-    "CSRF_TRUSTED_ORIGINS",
-    default=["http://localhost:3000"]
+    "CSRF_TRUSTED_ORIGINS", default=["http://localhost:3000"]
 )
 # CSRF_COOKIE_SECURE — definido por ambiente (False em dev, True em prod)
 
@@ -267,7 +269,6 @@ SPECTACULAR_SETTINGS = {
     ),
     "VERSION": "2.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
-
     # Segurança: lista os três schemes — browser envia automaticamente o cookie ativo
     "SECURITY": [
         {"portalAuth": []},
@@ -296,35 +297,40 @@ SPECTACULAR_SETTINGS = {
             },
         },
     },
-
     "EXTENSIONS_INFO": {},
     "EXTENSIONS": [
         "apps.accounts.openapi.AppContextAuthenticationExtension",
     ],
-
     # ── Ordem das seções no Swagger UI ────────────────────────────────────────
     "TAGS": [
-        {"name": "0 - Autenticação", "description": "Login, logout e sessão do usuário"},
+        {
+            "name": "0 - Autenticação",
+            "description": "Login, logout e sessão do usuário",
+        },
         {"name": "1 - Usuários", "description": "Perfis, roles e permissões"},
         {"name": "2 - Portal", "description": "Dashboard e aplicações do portal"},
-        {"name": "3 - Ações PNGI", "description": "Ações, prazos, anotações e destaques"},
-        {"name": "4 - Carga Org/Lot", "description": "Carga de organogramas e loteamentos"},
+        {
+            "name": "3 - Ações PNGI",
+            "description": "Ações, prazos, anotações e destaques",
+        },
+        {
+            "name": "4 - Carga Org/Lot",
+            "description": "Carga de organogramas e loteamentos",
+        },
         {"name": "5 - Utilitários", "description": "Health check e logs de frontend"},
     ],
-
     # Filtra paths que não devem aparecer na documentação
     "PREPROCESSING_HOOKS": [
         "drf_spectacular.hooks.preprocess_exclude_path_format",
     ],
-
     # Melhora a aparência no Swagger UI + corrige CSRF para SessionAuthentication
     "SWAGGER_UI_SETTINGS": {
         "persistAuthorization": True,
         "displayOperationId": False,
         "tagsSorter": "alpha",
         "operationsSorter": "alpha",
-        "withCredentials": True,          # envia cookies automaticamente no Try it out
-        "csrfCookieName": "csrftoken",    # nome do cookie CSRF padrão do Django
+        "withCredentials": True,  # envia cookies automaticamente no Try it out
+        "csrfCookieName": "csrftoken",  # nome do cookie CSRF padrão do Django
         "csrfHeaderName": "X-CSRFToken",  # header que o DRF valida
     },
 }
@@ -346,16 +352,16 @@ APPLICATION_DOMAIN_MAP = {
 # Prefixos: qualquer path que COMECE com estes valores é liberado pelo
 # AuthorizationMiddleware sem checagem de autenticação/roles.
 AUTHORIZATION_EXEMPT_PATHS = [
-    "/api/accounts/login/",    # login via sessão
-    "/api/accounts/logout/",   # logout (IsAuthenticated no DRF, mas sem roles)
-    "/api/accounts/auth/",     # AplicacaoPublicaViewSet (AllowAny) — seletor de login
+    "/api/accounts/login/",  # login via sessão
+    "/api/accounts/logout/",  # logout (IsAuthenticated no DRF, mas sem roles)
+    "/api/accounts/auth/",  # AplicacaoPublicaViewSet (AllowAny) — seletor de login
     "/admin/",
     "/admin",
     "/api/health/",
     "/__debug__/",
-    "/api/schema/",   # ← schema JSON
-    "/api/docs/",     # ← Swagger UI
-    "/api/redoc/",    # ← ReDoc UI
+    "/api/schema/",  # ← schema JSON
+    "/api/docs/",  # ← Swagger UI
+    "/api/redoc/",  # ← ReDoc UI
 ]
 
 # ─── Rotas autenticadas sem exigência de role de aplicação ────────────────────────
@@ -393,12 +399,24 @@ LOGGING = {
             "backupCount": 30,
             "formatter": "security",
         },
+        "frontend_log_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": str(BASE_DIR / "logs" / "frontend.log"),
+            "maxBytes": 10 * 1024 * 1024,
+            "backupCount": 30,
+            "formatter": "security",
+        },
     },
     "loggers": {
         "gpp.security": {
             "handlers": ["security_file", "console"],
             "level": "INFO",
             "propagate": True,
+        },
+        "gpp.frontend_log": {
+            "handlers": ["frontend_log_file", "console"],  # ← handler próprio
+            "level": "INFO",
+            "propagate": False,  # ← não propaga para o root — evita duplicação
         },
         "django": {
             "handlers": ["console"],
