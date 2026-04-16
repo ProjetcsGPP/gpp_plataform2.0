@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 
 from .utils import get_client_ip
 
-security_logger = logging.getLogger("gpp.fontend_log")  # Create your views here.
+security_logger = logging.getLogger("gpp.frontend_log")
 
 
 class FrontEndLogging(APIView):
@@ -49,14 +49,14 @@ class FrontEndLogging(APIView):
         },
         tags=["5 - Utilitários"],
     )
-    def post(self, request):  # ← era "frontend_log", precisa ser "post"
+    def post(self, request):
         log_data = request.data
         remote_address = get_client_ip(request)
 
         security_logger.info(
             "FRONTEND_LOG_ERR: %s - %s",
             remote_address,
-            log_data,  # ← formato de log correto
+            log_data,
         )
 
         return Response({"status": "ok"})
