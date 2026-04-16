@@ -10,9 +10,9 @@ Cobre:
 
 Padrão de testes:
   - Sem force_authenticate: login real via POST /api/accounts/login/ + app_context.
-  - _make_user() + _assign_role() do conftest para criação de usuários com UserProfile.
-  - Objetos Aplicacao e Role referenciados pelos pks fixos do bootstrap (pk=1 PORTAL,
-    pk=2 ACOES_PNGI, Role pk=1 PORTAL_ADMIN, pk=2 GESTOR_PNGI).
+  - Usuários autenticados precisam de UserRole para logar — usa portal_admin (Role pk=1).
+  - _make_user() + _assign_role() do conftest para criação de usuários.
+  - Objetos Aplicacao e Role referenciados pelos pks fixos do bootstrap.
 """
 import pytest
 from django.contrib.auth.models import Group, Permission
@@ -40,7 +40,7 @@ AUTHZ_VERSION_URL = "/api/accounts/authz/version/"
 
 @pytest.fixture
 def plain_user(db):
-    """Usuário sem role (apenas auth.User + UserProfile)."""
+    """Usuário sem role — usado apenas em testes de bump direto (sem HTTP)."""
     return _make_user("authz_plain_user")
 
 
@@ -59,13 +59,17 @@ def user_with_role(db):
 
 
 @pytest.fixture
-def client_plain(db, plain_user):
-    """APIClient autenticado como plain_user via sessão Django real (PORTAL)."""
-    client, resp = _make_authenticated_client("authz_plain_user", "PORTAL")
+def client_authenticated(db, portal_admin):
+    """
+    APIClient autenticado via sessão Django real.
+    Reutiliza o fixture portal_admin do conftest (Role pk=1 / PORTAL) —
+    o único perfil que garante login no app_context=PORTAL sem 403 no_role.
+    """
+    client, resp = _make_authenticated_client("portal_admin_test", "PORTAL")
     assert resp.status_code == 200, (
-        f"Falha no login do plain_user: status={resp.status_code} data={resp.data}"
+        f"Falha no login: status={resp.status_code} data={resp.data}"
     )
-    return client
+    return client, portal_admin
 
 
 @pytest.fixture
@@ -161,33 +165,34 @@ def test_authz_version_endpoint_unauthenticated(client_anonimo):
 
 
 @pytest.mark.django_db
-def test_authz_version_endpoint_returns_zero_if_no_state(client_plain, plain_user):
-    # plain_user não tem UserAuthzState — endpoint deve retornar 0 (default lazy)
-    UserAuthzState.objects.filter(user=plain_user).delete()
-    response = client_plain.get(AUTHZ_VERSION_URL)
+def test_authz_version_endpoint_returns_zero_if_no_state(client_authenticated):
+    client, user = client_authenticated
+    # Remove estado para garantir comportamento lazy (retorna 0)
+    UserAuthzState.objects.filter(user=user).delete()
+    response = client.get(AUTHZ_VERSION_URL)
     assert response.status_code == status.HTTP_200_OK
     assert response.data["authz_version"] == 0
 
 
 @pytest.mark.django_db
-def test_authz_version_endpoint_returns_correct_version(client_plain, plain_user):
-    UserAuthzState.objects.filter(user=plain_user).delete()
-    UserAuthzState.objects.create(user=plain_user, authz_version=42)
-    response = client_plain.get(AUTHZ_VERSION_URL)
+def test_authz_version_endpoint_returns_correct_version(client_authenticated):
+    client, user = client_authenticated
+    UserAuthzState.objects.filter(user=user).delete()
+    UserAuthzState.objects.create(user=user, authz_version=42)
+    response = client.get(AUTHZ_VERSION_URL)
     assert response.status_code == status.HTTP_200_OK
     assert response.data["authz_version"] == 42
 
 
 @pytest.mark.django_db
-def test_authz_version_endpoint_does_not_leak_other_user(
-    client_plain, plain_user, other_user
-):
+def test_authz_version_endpoint_does_not_leak_other_user(client_authenticated, other_user):
     """O endpoint deve retornar apenas a versão do usuário autenticado."""
-    UserAuthzState.objects.filter(user=plain_user).delete()
+    client, user = client_authenticated
+    UserAuthzState.objects.filter(user=user).delete()
     UserAuthzState.objects.create(user=other_user, authz_version=99)
-    response = client_plain.get(AUTHZ_VERSION_URL)
+    response = client.get(AUTHZ_VERSION_URL)
     assert response.status_code == status.HTTP_200_OK
-    # plain_user não tem estado — deve retornar 0, não 99.
+    # usuário autenticado não tem estado — deve retornar 0, não 99
     assert response.data["authz_version"] == 0
 
 
@@ -199,7 +204,6 @@ def test_authz_version_endpoint_does_not_leak_other_user(
 @pytest.mark.django_db
 def test_bump_called_on_userrole_create(plain_user):
     """Criação de UserRole deve disparar bump_authz_version."""
-    # plain_user sem state — qualquer UserRole criada deve gerar versão >= 1
     UserAuthzState.objects.filter(user=plain_user).delete()
     app = Aplicacao.objects.get(pk=2)  # ACOES_PNGI
     role = Role.objects.get(pk=2)  # GESTOR_PNGI
@@ -263,11 +267,10 @@ def test_bump_called_on_override_delete(plain_user):
 @pytest.mark.django_db
 def test_bump_called_on_group_permission_add(user_with_role):
     """Adicionar permissão ao grupo do role do usuário deve incrementar versão."""
-    # user_with_role já tem PORTAL_ADMIN (Role pk=1) — group portal_admin_group
     state_before = UserAuthzState.objects.filter(user=user_with_role).first()
     version_before = state_before.authz_version if state_before else 0
 
-    role = Role.objects.get(pk=1)
+    role = Role.objects.get(pk=1)  # portal_admin_group
     perm = Permission.objects.exclude(
         id__in=role.group.permissions.values_list("id", flat=True)
     ).first()
