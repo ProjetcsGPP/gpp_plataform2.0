@@ -9,6 +9,9 @@ Responsabilidades:
      - Aplicacao é criada/alterada (invalida ApplicationRegistry)
   3. Re-sincronizar auth_user_user_permissions sempre que qualquer
      fonte do cálculo de permissões mudar.
+  4. [feat/authz_versioning] Incrementar authz_version em banco sempre
+     que qualquer mudança de autorização ocorrer — usado EXCLUSIVAMENTE
+     para invalidação de cache no frontend (não é parte da segurança).
 
 FASE-6-PERM (Issue #19):
   sync_user_permissions e sync_users_permissions são agora importadas
@@ -49,6 +52,10 @@ from apps.accounts.services.permission_sync import (  # noqa: E402
     sync_users_permissions,
 )
 
+# Importação explícita de bump_authz_version para patchabilidade em testes.
+# Segue o mesmo padrão de sync_user_permissions (Issue #19).
+from apps.accounts.authz_versioning import bump_authz_version  # noqa: E402
+
 security_logger = logging.getLogger("gpp.security")
 
 
@@ -75,7 +82,7 @@ def auto_create_group_for_role(sender, instance, created, **kwargs):
 
 def _bump_user_version(user_id: int):
     """
-    Incrementa a version key do usuário.
+    Incrementa a version key do usuário no cache Redis.
     Invalida automaticamente todas as chaves de cache
     que incluem a versão (authz, user_roles).
     """
@@ -99,6 +106,10 @@ def invalidate_on_userrole_change(sender, instance, **kwargs):
     Invalida cache E re-sincroniza auth_user_user_permissions quando
     UserRole é criado, alterado ou removido.
 
+    [feat/authz_versioning] Também chama bump_authz_version() para
+    incrementar o contador de versão em banco — usado pelo frontend
+    para invalidação de cache local.
+
     FASE-5-PERM (Issue #18):
         Além de invalidar o cache, chama sync_user_permissions(user) para
         garantir que auth_user_user_permissions reflita imediatamente a
@@ -119,6 +130,9 @@ def invalidate_on_userrole_change(sender, instance, **kwargs):
         "USERROLE_CHANGED user_id=%s role_id=%s app=%s",
         instance.user_id, instance.role_id, app_code,
     )
+
+    # [feat/authz_versioning] Incrementa versão de banco para frontend.
+    bump_authz_version(instance.user_id)
 
     # Re-sincroniza auth_user_user_permissions para o usuário afetado
     User = get_user_model()
@@ -166,6 +180,9 @@ def sync_on_role_group_change(sender, instance, created, **kwargs):
     Detecta mudança no campo ``group`` de uma Role e dispara
     ``sync_users_permissions`` para todos os usuários que possuem essa role.
 
+    [feat/authz_versioning] Também chama bump_authz_version() para cada
+    usuário afetado — notifica o frontend que as permissões mudaram.
+
     Quando o group de um perfil é trocado, os usuários com aquela role passam
     a herdar um conjunto de permissões completamente diferente. Sem este signal,
     auth_user_user_permissions ficaria desatualizado até a próxima ação manual.
@@ -199,6 +216,8 @@ def sync_on_role_group_change(sender, instance, created, **kwargs):
 
     for user_id in affected_user_ids:
         _bump_user_version(user_id)
+        # [feat/authz_versioning] Notifica frontend via versão persistida.
+        bump_authz_version(user_id)
 
     security_logger.warning(
         "ROLE_GROUP_CHANGED role_id=%s old_group=%s new_group=%s affected_users=%s",
@@ -220,6 +239,9 @@ def invalidate_on_group_permission_change(sender, instance, action, **kwargs):
     Quando auth_group_permissions muda, invalida cache E re-sincroniza
     auth_user_user_permissions para todos os usuários que têm roles ligadas
     a esse grupo.
+
+    [feat/authz_versioning] Também chama bump_authz_version() para cada
+    usuário afetado — notifica o frontend que as permissões mudaram.
 
     Cobre: post_add, post_remove, post_clear.
 
@@ -249,6 +271,8 @@ def invalidate_on_group_permission_change(sender, instance, action, **kwargs):
 
     for user_id in affected_user_ids:
         _bump_user_version(user_id)
+        # [feat/authz_versioning] Notifica frontend via versão persistida.
+        bump_authz_version(user_id)
 
     security_logger.warning(
         "GROUP_PERM_CHANGED group=%s affected_users=%s action=%s",
@@ -275,4 +299,26 @@ def invalidate_application_registry(sender, instance, **kwargs):
     security_logger.info(
         "APP_REGISTRY_INVALIDATED_BY_SIGNAL app=%s",
         instance.codigointerno,
+    )
+
+
+# ─── bump_authz_version em UserPermissionOverride ──────────────────────────
+
+@receiver(post_save, sender="accounts.UserPermissionOverride")
+@receiver(post_delete, sender="accounts.UserPermissionOverride")
+def bump_on_permission_override_change(sender, instance, **kwargs):
+    """
+    Incrementa authz_version quando um UserPermissionOverride é
+    criado, atualizado ou removido.
+
+    [feat/authz_versioning] Garante que o frontend seja notificado de
+    mudanças individuais de permissão via override, complementando o
+    bump que já ocorre dentro de sync_user_permissions.
+    """
+    bump_authz_version(instance.user_id)
+    security_logger.info(
+        "AUTHZ_VERSION_BUMPED_BY_OVERRIDE user_id=%s override_id=%s mode=%s",
+        instance.user_id,
+        instance.pk,
+        instance.mode,
     )

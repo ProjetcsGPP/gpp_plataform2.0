@@ -17,6 +17,7 @@ from .views import (
     UserRoleViewSet,
     ResolveUserView,
 )
+from .views_authz import AuthzVersionView
 
 app_name = "accounts"
 
@@ -46,4 +47,7 @@ urlpatterns = [
     path("me/permissions/", MePermissionView.as_view(), name="me-permissions"),
     path("users/", UserCreateView.as_view(), name="user-create"),
     path("users/create-with-role/", UserCreateWithRoleView.as_view(), name="user-create-with-role"),
+
+    # AuthZ Versioning — invalidação de cache no frontend
+    path("authz/version/", AuthzVersionView.as_view(), name="authz-version"),
 ]
