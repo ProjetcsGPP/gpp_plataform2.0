@@ -549,3 +549,43 @@ class UserPermissionOverride(models.Model):
 
     def __str__(self):
         return f"{self.user} | {self.permission.codename} | {self.mode}"
+
+
+class UserAuthzState(models.Model):
+    """
+    Estado de versionamento de autorização por usuário.
+
+    Mantém um contador (authz_version) que é incrementado sempre que
+    o conjunto de permissões do usuário muda. O frontend usa este valor
+    para decidir se deve refazer o fetch de permissões.
+
+    Regras:
+      - Relação 1:1 com auth.User.
+      - Persistido em banco — não depende de Redis.
+      - Sobrevive restart de servidor.
+      - NÃO é fonte de verdade de permissões — apenas invalidador.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="authz_state",
+    )
+    authz_version = models.BigIntegerField(
+        default=0,
+        help_text=(
+            "Contador de versão de autorização. Incrementado atomicamente "
+            "a cada mudança de permissão. Usado APENAS pelo frontend para "
+            "invalidação de cache — não representa permissões reais."
+        ),
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "accounts_userauthzstate"
+        managed = True
+        verbose_name = "User AuthZ State"
+        verbose_name_plural = "User AuthZ States"
+
+    def __str__(self):
+        return f"AuthZState(user_id={self.user_id}, version={self.authz_version})"

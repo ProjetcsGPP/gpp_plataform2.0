@@ -51,13 +51,13 @@ FIX(MePermissionView): removido fallback request.session em get() — incoerente
 FIX(UserRoleViewSet): adicionado order_by("user__username", "role__nomeperfil") em
              get_queryset() para eliminar UnorderedObjectListWarning durante paginação.
 """
+
 import logging
 from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
-from django.db import (DatabaseError, IntegrityError, OperationalError,
-                       transaction)
+from django.db import DatabaseError, IntegrityError, OperationalError, transaction
 from django.middleware.csrf import rotate_token
 from django.utils import timezone as dj_timezone
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -70,17 +70,35 @@ from rest_framework.views import APIView
 
 from apps.accounts.services.application_registry import ApplicationRegistry
 from common.mixins import AuditableMixin, SecureQuerysetMixin
-from common.permissions import (CanCreateUser, CanEditUser, HasRolePermission,
-                                IsPortalAdmin)
+from common.permissions import (
+    CanCreateUser,
+    CanEditUser,
+    HasRolePermission,
+    IsPortalAdmin,
+)
 from common.schema import tag_all_actions
 
-from .models import (AccountsSession, Aplicacao, Role, UserPermissionOverride,
-                     UserProfile, UserRole)
-from .serializers import (AplicacaoPublicaSerializer, AplicacaoSerializer,
-                          MePermissionSerializer, MeSerializer, RoleSerializer,
-                          UserCreateSerializer, UserCreateWithRoleSerializer,
-                          UserPermissionOverrideSerializer,
-                          UserProfileSerializer, UserRoleSerializer)
+from .models import (
+    AccountsSession,
+    Aplicacao,
+    Role,
+    UserAuthzState,
+    UserPermissionOverride,
+    UserProfile,
+    UserRole,
+)
+from .serializers import (
+    AplicacaoPublicaSerializer,
+    AplicacaoSerializer,
+    MePermissionSerializer,
+    MeSerializer,
+    RoleSerializer,
+    UserCreateSerializer,
+    UserCreateWithRoleSerializer,
+    UserPermissionOverrideSerializer,
+    UserProfileSerializer,
+    UserRoleSerializer,
+)
 from .services.permission_sync import sync_user_permissions
 from .utils import get_client_ip
 
@@ -92,6 +110,7 @@ def build_cookie_name(codigo_interno: str) -> str:
 
 
 # ─── Auth Views (Sessão) ──────────────────────────────────────────────────
+
 
 class LoginView(APIView):
     """
@@ -127,7 +146,9 @@ class LoginView(APIView):
         },
         responses={
             200: OpenApiResponse(description="Login realizado com sucesso"),
-            400: OpenApiResponse(description="Credenciais ou app_context não informados"),
+            400: OpenApiResponse(
+                description="Credenciais ou app_context não informados"
+            ),
             401: OpenApiResponse(description="Credenciais inválidas"),
             403: OpenApiResponse(description="Usuário sem acesso à aplicação"),
         },
@@ -140,57 +161,61 @@ class LoginView(APIView):
 
         if not all([username, password, app_context]):
             return Response(
-                {"detail": "Credenciais ou app_context não informados.", "code": "invalid_request"},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    "detail": "Credenciais ou app_context não informados.",
+                    "code": "invalid_request",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         user = authenticate(request, username=username, password=password)
         if not user:
             return Response(
                 {"detail": "Credenciais inválidas.", "code": "invalid_credentials"},
-                status=status.HTTP_401_UNAUTHORIZED
+                status=status.HTTP_401_UNAUTHORIZED,
             )
 
         app = Aplicacao.objects.filter(
-            codigointerno=app_context,
-            isappbloqueada=False
+            codigointerno=app_context, isappbloqueada=False
         ).first()
 
         if not app:
             return Response(
                 {"detail": "Aplicação inválida ou bloqueada.", "code": "invalid_app"},
-                status=status.HTTP_403_FORBIDDEN
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         if app_context == "PORTAL":
-            has_access = user.is_superuser or UserRole.objects.filter(
-                user=user,
-                role__codigoperfil="PORTAL_ADMIN"
-            ).exists()
+            has_access = (
+                user.is_superuser
+                or UserRole.objects.filter(
+                    user=user, role__codigoperfil="PORTAL_ADMIN"
+                ).exists()
+            )
             if not has_access:
                 has_access_user = UserRole.objects.filter(
-                    user=user,
-                    role__codigoperfil="PORTAL_USER"
+                    user=user, role__codigoperfil="PORTAL_USER"
                 ).exists()
                 if not has_access_user:
                     return Response(
                         {"detail": "Usuário sem acesso ao Portal.", "code": "no_role"},
-                        status=status.HTTP_403_FORBIDDEN
+                        status=status.HTTP_403_FORBIDDEN,
                     )
         else:
-            has_access = UserRole.objects.filter(
-                user=user,
-                aplicacao=app
-            ).exists()
+            has_access = UserRole.objects.filter(user=user, aplicacao=app).exists()
 
             if not has_access:
                 security_logger.warning(
                     "LOGIN_DENIED user_id=%s app_context=%s reason=no_role",
-                    user.id, app_context
+                    user.id,
+                    app_context,
                 )
                 return Response(
-                    {"detail": "Usuário sem acesso à aplicação informada.", "code": "no_role"},
-                    status=status.HTTP_403_FORBIDDEN
+                    {
+                        "detail": "Usuário sem acesso à aplicação informada.",
+                        "code": "no_role",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
                 )
 
         login(request, user)
@@ -223,13 +248,19 @@ class LoginView(APIView):
             session_key=session_key,
             app_context=app_context,
             session_cookie_name=cookie_name,
-            expires_at=dj_timezone.now() + timedelta(seconds=settings.SESSION_COOKIE_AGE),
+            expires_at=dj_timezone.now()
+            + timedelta(seconds=settings.SESSION_COOKIE_AGE),
             ip_address=get_client_ip(request),
             user_agent=request.META.get("HTTP_USER_AGENT", ""),
             revoked=False,
         )
 
-        security_logger.info("LOGIN_SUCCESS user_id=%s app=%s cookie=%s", user.id, app_context, cookie_name)
+        security_logger.info(
+            "LOGIN_SUCCESS user_id=%s app=%s cookie=%s",
+            user.id,
+            app_context,
+            cookie_name,
+        )
 
         response = Response({"detail": "Login realizado com sucesso"})
         response.set_cookie(
@@ -280,13 +311,16 @@ class ResolveUserView(APIView):
             }
         },
         responses={
-            200: OpenApiResponse(description="Username resolvido: { 'username': '...' }"),
+            200: OpenApiResponse(
+                description="Username resolvido: { 'username': '...' }"
+            ),
             404: OpenApiResponse(description="Usuário não encontrado"),
         },
         tags=["0 - Autenticação"],
     )
     def post(self, request):
         from django.contrib.auth import get_user_model
+
         User = get_user_model()
 
         identifier = (request.data.get("identifier") or "").strip()
@@ -294,13 +328,13 @@ class ResolveUserView(APIView):
         if not identifier:
             return Response(
                 {"detail": "Identificador não informado.", "code": "invalid_request"},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         if len(identifier) > 254:
             return Response(
                 {"detail": "Identificador inválido.", "code": "invalid_request"},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         is_email = "@" in identifier
@@ -324,7 +358,7 @@ class ResolveUserView(APIView):
             )
             return Response(
                 {"detail": "Usuário não encontrado.", "code": "user_not_found"},
-                status=status.HTTP_404_NOT_FOUND
+                status=status.HTTP_404_NOT_FOUND,
             )
 
         security_logger.info(
@@ -341,6 +375,7 @@ class LogoutView(APIView):
     POST /api/accounts/logout/
     Encerra a sessão atual e revoga no banco.
     """
+
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -363,8 +398,7 @@ class LogoutView(APIView):
         )
 
         security_logger.info(
-            "LOGOUT user_id=%s session_key=%s",
-            request.user.id, session_key
+            "LOGOUT user_id=%s session_key=%s", request.user.id, session_key
         )
 
         logout(request)
@@ -410,11 +444,13 @@ class LogoutAppView(APIView):
 
 # ─── Me View ────────────────────────────────────────────────────────────────────────────────────
 
+
 class MeView(APIView):
     """
     GET /api/accounts/me/
     Retorna dados do usuário autenticado: profile + roles + apps com acesso.
     """
+
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -431,17 +467,17 @@ class MeView(APIView):
         except UserProfile.DoesNotExist:
             profile = None
 
-        user_roles = (
-            UserRole.objects
-            .filter(user=user)
-            .select_related("role", "aplicacao")
+        user_roles = UserRole.objects.filter(user=user).select_related(
+            "role", "aplicacao"
         )
 
-        data = MeSerializer({
-            "user": user,
-            "profile": profile,
-            "user_roles": user_roles,
-        }).data
+        data = MeSerializer(
+            {
+                "user": user,
+                "profile": profile,
+                "user_roles": user_roles,
+            }
+        ).data
 
         return Response(data)
 
@@ -473,6 +509,7 @@ class MePermissionView(APIView):
     incoerente com a arquitetura e causaria AttributeError em contextos sem
     SessionMiddleware (ex: requests diretos via APIRequestFactory nos testes).
     """
+
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -496,7 +533,10 @@ class MePermissionView(APIView):
 
         if not app_codigo:
             return Response(
-                {"detail": "Contexto de app não encontrado na sessão.", "code": "no_app_context"},
+                {
+                    "detail": "Contexto de app não encontrado na sessão.",
+                    "code": "no_app_context",
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -507,38 +547,47 @@ class MePermissionView(APIView):
 
         if not app:
             return Response(
-                {"detail": "Aplicação não encontrada ou bloqueada.", "code": "app_not_found"},
+                {
+                    "detail": "Aplicação não encontrada ou bloqueada.",
+                    "code": "app_not_found",
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
         user_role = (
-            UserRole.objects
-            .select_related("role__group")
+            UserRole.objects.select_related("role__group")
             .filter(user=request.user, aplicacao=app)
             .first()
         )
 
         if not user_role:
             return Response(
-                {"detail": "Usuário sem role na aplicação informada.", "code": "no_role"},
+                {
+                    "detail": "Usuário sem role na aplicação informada.",
+                    "code": "no_role",
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        data = MePermissionSerializer({
-            "user": request.user,
-            "role": user_role.role,
-        }).data
+        data = MePermissionSerializer(
+            {
+                "user": request.user,
+                "role": user_role.role,
+            }
+        ).data
 
         return Response(data)
 
 
 # ─── User Create View (GAP-01) ───────────────────────────────────────────────────────
 
+
 class UserCreateView(APIView):
     """
     POST /api/accounts/users/
     Cria atomicamente um auth.User e seu UserProfile.
     """
+
     permission_classes = [IsAuthenticated, CanCreateUser]
 
     @extend_schema(
@@ -559,8 +608,8 @@ class UserCreateView(APIView):
         )
         serializer.is_valid(raise_exception=True)
 
-        from apps.accounts.services.authorization_service import \
-            AuthorizationService
+        from apps.accounts.services.authorization_service import AuthorizationService
+
         service = AuthorizationService(request.user)
 
         if not service._is_portal_admin():
@@ -582,7 +631,8 @@ class UserCreateView(APIView):
         except (DatabaseError, IntegrityError, OperationalError) as exc:
             security_logger.error(
                 "USER_CREATE_ERROR admin_id=%s error=%s",
-                request.user.id, str(exc),
+                request.user.id,
+                str(exc),
             )
             raise APIException(
                 detail="Erro interno ao criar usuário. Tente novamente."
@@ -590,7 +640,9 @@ class UserCreateView(APIView):
 
         security_logger.info(
             "USER_CREATED admin_id=%s new_user_id=%s username=%s",
-            request.user.id, profile.user_id, profile.user.username,
+            request.user.id,
+            profile.user_id,
+            profile.user.username,
         )
         return Response(
             UserCreateSerializer(profile, context={"request": request}).data,
@@ -600,11 +652,13 @@ class UserCreateView(APIView):
 
 # ─── User Create With Role View (FASE 6) ──────────────────────────────────────────────
 
+
 class UserCreateWithRoleView(APIView):
     """
     POST /api/accounts/users/create-with-role/
     Cria atomicamente auth.User + UserProfile + UserRole + sync de permissões.
     """
+
     permission_classes = [IsAuthenticated, CanCreateUser]
 
     @extend_schema(
@@ -621,8 +675,8 @@ class UserCreateWithRoleView(APIView):
         tags=["1 - Usuários"],
     )
     def post(self, request):
-        from apps.accounts.services.authorization_service import \
-            AuthorizationService
+        from apps.accounts.services.authorization_service import AuthorizationService
+
         service = AuthorizationService(request.user)
 
         if not service._is_portal_admin() and not request.user.is_superuser:
@@ -639,8 +693,10 @@ class UserCreateWithRoleView(APIView):
         aplicacao_destino = serializer.validated_data["aplicacao"]
 
         if aplicacao_destino is not None:
-            from apps.accounts.services.authorization_service import \
-                AuthorizationService
+            from apps.accounts.services.authorization_service import (
+                AuthorizationService,
+            )
+
             service = AuthorizationService(request.user)
             if not service.user_can_create_user_in_application(aplicacao_destino):
                 security_logger.warning(
@@ -678,6 +734,7 @@ class UserCreateWithRoleView(APIView):
 
 # ─── Aplicacao Publica ViewSet (ARCH-01) ────────────────────────────────────────────────
 
+
 @tag_all_actions("5 - Utilitários")
 class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -695,6 +752,7 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     R-03: pagination_class = None — retorna lista plana sem envelope de paginação.
     R-04: throttle_classes = [] — endpoint público de leitura; sem rate limit.
     """
+
     serializer_class = AplicacaoPublicaSerializer
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -710,6 +768,7 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 # ─── Aplicacao ViewSet (GAP-02 / ARCH-01) ───────────────────────────────────────────────
+
 
 @tag_all_actions("1 - Usuários")
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
@@ -727,17 +786,17 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
     R-02: Ordenação alfabética por nomeaplicacao.
     R-03: pagination_class = None — retorna lista plana sem envelope de paginação.
     """
+
     serializer_class = AplicacaoSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = None
-    lookup_field = "idaplicacao"   # ← adicionar esta linha
+    lookup_field = "idaplicacao"  # ← adicionar esta linha
     lookup_url_kwarg = "idaplicacao"  # ← e esta (opcional, mas explícito)
 
     def get_queryset(self):
         user = self.request.user
         is_privileged = (
-            getattr(self.request, "is_portal_admin", False)
-            or user.is_superuser
+            getattr(self.request, "is_portal_admin", False) or user.is_superuser
         )
         if is_privileged:
             return Aplicacao.objects.all().order_by("nomeaplicacao")
@@ -753,11 +812,13 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
 
 # ─── CRUD ViewSets ────────────────────────────────────────────────────────────────────────
 
+
 @tag_all_actions("1 - Usuários")
 class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelViewSet):
     """
     APIs de UserProfile.
     """
+
     serializer_class = UserProfileSerializer
     permission_classes = [IsAuthenticated, HasRolePermission, CanEditUser]
     http_method_names = ["get", "patch", "head", "options"]
@@ -769,12 +830,16 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
     def get_queryset(self):
         user = self.request.user
         if getattr(self.request, "is_portal_admin", False):
-            return UserProfile.objects.all().select_related(
-                "user", "status_usuario", "tipo_usuario"
-            ).order_by('user__username')
-        return UserProfile.objects.filter(user=user).select_related(
-            "user", "status_usuario", "tipo_usuario"
-        ).order_by('user__username')
+            return (
+                UserProfile.objects.all()
+                .select_related("user", "status_usuario", "tipo_usuario")
+                .order_by("user__username")
+            )
+        return (
+            UserProfile.objects.filter(user=user)
+            .select_related("user", "status_usuario", "tipo_usuario")
+            .order_by("user__username")
+        )
 
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -785,23 +850,33 @@ class UserProfileViewSet(SecureQuerysetMixin, AuditableMixin, viewsets.ModelView
         if not policy.can_edit_profile():
             security_logger.warning(
                 "PROFILE_PATCH_DENIED user_id=%s target_user_id=%s",
-                request.user.id, instance.user_id,
+                request.user.id,
+                instance.user_id,
             )
             raise PermissionDenied("Você não tem permissão para editar este perfil.")
 
-        if "classificacao_usuario" in request.data and not policy.can_change_classificacao():
+        if (
+            "classificacao_usuario" in request.data
+            and not policy.can_change_classificacao()
+        ):
             security_logger.warning(
                 "PROFILE_PATCH_CLASSIFICACAO_DENIED user_id=%s target_user_id=%s",
-                request.user.id, instance.user_id,
+                request.user.id,
+                instance.user_id,
             )
-            raise PermissionDenied("Apenas administradores podem alterar a classificação.")
+            raise PermissionDenied(
+                "Apenas administradores podem alterar a classificação."
+            )
 
         if "status_usuario" in request.data and not policy.can_change_status():
             security_logger.warning(
                 "PROFILE_PATCH_STATUS_DENIED user_id=%s target_user_id=%s",
-                request.user.id, instance.user_id,
+                request.user.id,
+                instance.user_id,
             )
-            raise PermissionDenied("Apenas administradores podem alterar o status do usuário.")
+            raise PermissionDenied(
+                "Apenas administradores podem alterar o status do usuário."
+            )
 
         return super().partial_update(request, *args, **kwargs)
 
@@ -813,6 +888,7 @@ class RoleViewSet(viewsets.ReadOnlyModelViewSet):
     GET /api/accounts/roles/{id}/
     Acesso exclusivo a PORTAL_ADMIN.
     """
+
     serializer_class = RoleSerializer
     permission_classes = [IsAuthenticated, IsPortalAdmin]
 
@@ -833,6 +909,7 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
     Gerencia UserRoles. Apenas PORTAL_ADMIN.
     """
+
     serializer_class = UserRoleSerializer
     permission_classes = [IsAuthenticated, IsPortalAdmin]
     http_method_names = ["get", "post", "delete", "head", "options"]
@@ -841,9 +918,11 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
         # return UserRole.objects.all().select_related(
         #     "user", "aplicacao", "role"
         # )
-        return UserRole.objects.all().select_related(
-            "user", "aplicacao", "role"
-        ).order_by("user__username", "role__nomeperfil")
+        return (
+            UserRole.objects.all()
+            .select_related("user", "aplicacao", "role")
+            .order_by("user__username", "role__nomeperfil")
+        )
 
     def perform_create(self, serializer):
         serializer.save()
@@ -851,15 +930,16 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         security_logger.info(
             "USERROLE_ASSIGN admin_id=%s payload=%s",
-            request.user.id, request.data,
+            request.user.id,
+            request.data,
         )
         with transaction.atomic():
             response = super().create(request, *args, **kwargs)
 
             userrole_id = response.data.get("id")
-            userrole = UserRole.objects.select_related(
-                "user", "role__group"
-            ).get(pk=userrole_id)
+            userrole = UserRole.objects.select_related("user", "role__group").get(
+                pk=userrole_id
+            )
 
             sync_user_permissions(user=userrole.user)
 
@@ -876,7 +956,9 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
 
         security_logger.info(
             "USERROLE_REMOVE admin_id=%s userrole_id=%s user_id=%s role=%s app=%s",
-            request.user.id, instance.id, instance.user_id,
+            request.user.id,
+            instance.id,
+            instance.user_id,
             instance.role.codigoperfil,
             instance.aplicacao.codigointerno if instance.aplicacao else "N/A",
         )
@@ -917,13 +999,16 @@ class UserPermissionOverrideViewSet(AuditableMixin, viewsets.ModelViewSet):
 
     FASE-5-PERM (Issue #18).
     """
+
     serializer_class = UserPermissionOverrideSerializer
     permission_classes = [IsAuthenticated, IsPortalAdmin]
 
     def get_queryset(self):
-        return UserPermissionOverride.objects.all().select_related(
-            "user", "permission"
-        ).order_by("user__username", "permission__codename")
+        return (
+            UserPermissionOverride.objects.all()
+            .select_related("user", "permission")
+            .order_by("user__username", "permission__codename")
+        )
 
     def _sync_after_mutation(self, override):
         """Chama sync_user_permissions e registra log após qualquer mutação."""
@@ -938,7 +1023,8 @@ class UserPermissionOverrideViewSet(AuditableMixin, viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         security_logger.info(
             "OVERRIDE_CREATE admin_id=%s payload=%s",
-            request.user.id, request.data,
+            request.user.id,
+            request.data,
         )
         with transaction.atomic():
             response = super().create(request, *args, **kwargs)
@@ -951,7 +1037,8 @@ class UserPermissionOverrideViewSet(AuditableMixin, viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         security_logger.info(
             "OVERRIDE_UPDATE admin_id=%s override_id=%s",
-            request.user.id, kwargs.get("pk"),
+            request.user.id,
+            kwargs.get("pk"),
         )
         with transaction.atomic():
             response = super().update(request, *args, **kwargs)
@@ -971,15 +1058,80 @@ class UserPermissionOverrideViewSet(AuditableMixin, viewsets.ModelViewSet):
 
         security_logger.info(
             "OVERRIDE_DELETE admin_id=%s override_id=%s user_id=%s permission=%s mode=%s",
-            request.user.id, instance.pk, user.pk,
-            instance.permission.codename, instance.mode,
+            request.user.id,
+            instance.pk,
+            user.pk,
+            instance.permission.codename,
+            instance.mode,
         )
 
         with transaction.atomic():
             response = super().destroy(request, *args, **kwargs)
             sync_user_permissions(user=user)
             security_logger.info(
-                "OVERRIDE_DELETE_PERM_SYNC user_id=%s", user.pk,
+                "OVERRIDE_DELETE_PERM_SYNC user_id=%s",
+                user.pk,
             )
 
         return response
+
+
+class AuthzVersionView(APIView):
+    """
+    GET /api/authz/version/
+
+    Retorna a versão de autorização atual do usuário autenticado.
+
+    O frontend usa este endpoint para polling leve. Se o valor de
+    ``authz_version`` mudar desde o último check, o frontend deve:
+      - refazer GET /me/permissions/
+      - refazer GET navigation JSON
+      - invalidar caches locais (React Query / Zustand)
+
+    Garantias de performance:
+      - O(1): consulta direta por user_id — sem joins, sem RBAC.
+      - Sem chamadas a sync_user_permissions.
+      - Sem leitura de auth_user_user_permissions.
+
+    Segurança:
+      - Requer autenticação.
+      - Retorna SOMENTE a versão do usuário autenticado.
+      - Não expõe informações de outros usuários.
+      - NÃO pode ser usado para decisões de autorização.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Versão de autorização do usuário autenticado",
+        description=(
+            "Retorna o número de versão de autorização do usuário autenticado. "
+            "Usado EXCLUSIVAMENTE pelo frontend para invalidação de cache. "
+            "Não representa permissões reais e não deve ser usado em decisões de autorização."
+        ),
+        responses={
+            200: OpenApiResponse(
+                description="Versão de autorização retornada com sucesso.",
+            ),
+            401: OpenApiResponse(description="Não autenticado."),
+        },
+        tags=["1 - Usuários"],
+    )
+    def get(self, request):
+        """
+        Consulta direta em UserAuthzState por user_id.
+        Se o estado ainda não existe (usuário nunca teve mudança de permissão),
+        retorna version=0 sem criar registro — comportamento lazy.
+        """
+        user_id = request.user.pk
+
+        try:
+            state = UserAuthzState.objects.only("authz_version").get(user_id=user_id)
+            version = state.authz_version
+        except UserAuthzState.DoesNotExist:
+            version = 0
+
+        security_logger.info(
+            "AUTHZ_VERSION_FETCHED user_id=%s version=%s", user_id, version
+        )
+        return Response({"authz_version": version})
