@@ -66,7 +66,6 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     # ──────────────────────────────────────────────────────────────────────
-    # GPP — FASE-0: AppContextMiddleware substitui JWTAuthenticationMiddleware
     "apps.accounts.middleware.AppContextMiddleware",
     # ──────────────────────────────────────────────────────────────────────
     # CORE PLATFORM (mantidos — revisar dependências de JWT em próximas fases)
@@ -180,8 +179,6 @@ CSRF_TRUSTED_ORIGINS = env.list(
 # ─── DRF ──────────────────────────────────────────────────────────────────────────────
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        # FASE-0: JWT removido — sessão Django como único mecanismo
-        # "rest_framework.authentication.SessionAuthentication",
         "apps.accounts.authentication.AppContextAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [

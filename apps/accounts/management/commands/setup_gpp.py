@@ -36,8 +36,6 @@ GROUP_PERMISSIONS = {
         "add_user", "change_user", "delete_user", "view_user",
         "add_contenttype", "change_contenttype", "delete_contenttype", "view_contenttype",
         "add_session", "change_session", "delete_session", "view_session",
-        "add_blacklistedtoken", "change_blacklistedtoken", "delete_blacklistedtoken", "view_blacklistedtoken",
-        "add_outstandingtoken", "change_outstandingtoken", "delete_outstandingtoken", "view_outstandingtoken",
         "add_aplicacao", "change_aplicacao", "delete_aplicacao", "view_aplicacao",
         "add_classificacaousuario", "change_classificacaousuario", "delete_classificacaousuario",
         "view_classificacaousuario", "add_statususuario", "change_statususuario", "delete_statususuario",
