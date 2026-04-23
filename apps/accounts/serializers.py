@@ -43,6 +43,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from rest_framework import serializers
+from typing import Optional
 
 from .models import (
     Aplicacao,
@@ -637,21 +638,21 @@ class MeSerializer(serializers.Serializer):
 
     roles = UserRoleNestedSerializer(source="user_roles", many=True)
 
-    def get_is_portal_admin(self, obj):
+    def get_is_portal_admin(self, obj) -> bool:
         return UserRole.objects.filter(
             user=obj["user"],
             role__codigoperfil="PORTAL_ADMIN",
         ).exists()
 
-    def get_name(self, obj):
+    def get_name(self, obj) -> Optional[str]:
         profile = obj.get("profile")
         return profile.name if profile else None
 
-    def get_orgao(self, obj):
+    def get_orgao(self, obj) -> Optional[str]:
         profile = obj.get("profile")
         return profile.orgao if profile else None
 
-    def get_status_usuario_id(self, obj):
+    def get_status_usuario_id(self, obj) -> Optional[int]:
         profile = obj.get("profile")
         return profile.status_usuario_id if profile else None
 
@@ -716,10 +717,10 @@ class MePermissionSerializer(serializers.Serializer):
     role = serializers.SerializerMethodField()
     granted = serializers.SerializerMethodField()
 
-    def get_role(self, obj):
+    def get_role(self, obj) -> str:
         return obj["role"].codigoperfil
 
-    def get_granted(self, obj):
+    def get_granted(self, obj) -> list[str]:
         user = obj["user"]
         role = obj["role"]
         group = role.group
