@@ -219,9 +219,8 @@ class LoginView(APIView):
                 )
 
         login(request, user)
-        request.session.cycle_key()
         request.session["app_context"] = app_context
-        rotate_token(request)
+        request.session.save()
 
         cookie_name = build_cookie_name(app_context)
         session_key = request.session.session_key
@@ -419,8 +418,12 @@ class LogoutAppView(APIView):
     )
     def post(self, request, app_slug):
         registry = ApplicationRegistry()
+        # O endpoint recebe o slug da URL (ex.: "acoes-pngi"),
+        # enquanto o ApplicationRegistry trabalha com codigointerno
+        # (ex.: "ACOES_PNGI").
+        app_context = app_slug.replace("-", "_").upper()
 
-        app = registry.get(app_slug)
+        app = registry.get(app_context)
 
         if not app:
             return Response("App inválida", status=400)
@@ -439,6 +442,87 @@ class LogoutAppView(APIView):
         else:
             response = Response("Nenhuma sessão ativa para esta app")
 
+        return response
+
+
+class SwitchAppView(APIView):
+    """
+    POST /api/accounts/switch-app/
+    Gera um novo cookie de contexto para um usuário que JÁ ESTÁ AUTENTICADO via Portal.
+    SSO Seguro: Não trafega senha e respeita a auditoria.
+    """
+
+    permission_classes = [
+        IsAuthenticated
+    ]  # Exige que o usuário já tenha uma sessão ativa
+
+    def post(self, request):
+        app_context = request.data.get("app_context")
+
+        if not app_context:
+            return Response(
+                {
+                    "detail": "O campo app_context é obrigatório.",
+                    "code": "invalid_request",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 1. Valida se a aplicação existe e está ativa
+        app = Aplicacao.objects.filter(
+            codigointerno=app_context, isappbloqueada=False
+        ).first()
+        if not app:
+            return Response(
+                {"detail": "Aplicação inválida ou bloqueada.", "code": "invalid_app"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # 2. Valida se o usuário (reconhecido pela sessão do Portal) tem permissão no banco para o novo app
+        has_access = UserRole.objects.filter(user=request.user, aplicacao=app).exists()
+        if not has_access and not request.user.is_superuser:
+            return Response(
+                {
+                    "detail": "Usuário não possui perfil de acesso para esta aplicação.",
+                    "code": "no_role",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # 3. Se passou nas validações, gera o novo cookie de contexto (Copia a lógica de sucesso da LoginView)
+        request.session["app_context"] = app_context
+        rotate_token(request)
+
+        cookie_name = build_cookie_name(app_context)
+        session_key = request.session.session_key
+
+        # Revoga sessões antigas desse app para o mesmo usuário
+        AccountsSession.objects.filter(
+            user=request.user, session_cookie_name=cookie_name, revoked=False
+        ).update(revoked=True, revoked_at=dj_timezone.now())
+
+        # Registra a nova sessão de contexto
+        AccountsSession.objects.create(
+            user=request.user,
+            session_key=session_key,
+            app_context=app_context,
+            session_cookie_name=cookie_name,
+            expires_at=dj_timezone.now()
+            + timedelta(seconds=settings.SESSION_COOKIE_AGE),
+            ip_address=get_client_ip(request),
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            revoked=False,
+        )
+
+        response = Response({"detail": f"Contexto {app_context} ativado com sucesso."})
+        response.set_cookie(
+            key=cookie_name,
+            value=session_key,
+            max_age=settings.SESSION_COOKIE_AGE,
+            httponly=True,
+            samesite="Lax",
+            secure=getattr(settings, "SESSION_COOKIE_SECURE", False),
+        )
         return response
 
 
@@ -476,6 +560,7 @@ class MeView(APIView):
                 "user": user,
                 "profile": profile,
                 "user_roles": user_roles,
+                "app_context": getattr(request, "app_context", None),
             }
         ).data
 

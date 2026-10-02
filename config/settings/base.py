@@ -19,9 +19,21 @@ import environ
 # ─── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-# ─── Environ ─────────────────────────────────────────────────────────────────
+# ─── Environ ─────────────────────────────────────────────────────────────────#
 env = environ.Env()
-environ.Env.read_env(BASE_DIR / ".env")
+
+# Caminho absoluto para a raiz do projeto no WSL
+ENV_PATH = Path("/home/gppusrubuntu/projects/backend/.env")
+
+if ENV_PATH.exists():
+    # O parâmetro override=True força o Django a usar o arquivo físico,
+    # ignorando variáveis fantasmas que o VS Code injeta no terminal.
+    environ.Env.read_env(str(ENV_PATH), override=True)
+else:
+    # Fallback de segurança usando o BASE_DIR
+    environ.Env.read_env(BASE_DIR / ".env", override=True)
+
+# environ.Env.read_env(BASE_DIR / ".env")
 
 # ─── Security ────────────────────────────────────────────────────────────────
 SECRET_KEY = env("SECRET_KEY")

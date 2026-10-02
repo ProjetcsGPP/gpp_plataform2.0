@@ -12,6 +12,7 @@ from .views import (
     MeView,
     ResolveUserView,
     RoleViewSet,
+    SwitchAppView,
     UserCreateView,
     UserCreateWithRoleView,
     UserPermissionOverrideViewSet,
@@ -55,6 +56,7 @@ urlpatterns = [
         UserCreateWithRoleView.as_view(),
         name="user-create-with-role",
     ),
+    path("switch-app/", SwitchAppView.as_view(), name="switch-app"),
     # AuthZ Versioning — invalidação de cache no frontend
     path("authz/version/", AuthzVersionView.as_view(), name="authz-version"),
 ]

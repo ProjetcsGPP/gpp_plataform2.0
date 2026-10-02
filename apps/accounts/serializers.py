@@ -637,6 +637,11 @@ class MeSerializer(serializers.Serializer):
 
     roles = UserRoleNestedSerializer(source="user_roles", many=True)
 
+    app_context = serializers.CharField(
+        allow_null=True,
+        required=False,
+    )
+
     def get_is_portal_admin(self, obj):
         return UserRole.objects.filter(
             user=obj["user"],

@@ -121,6 +121,7 @@ class AuthorizationService:
         """Retorna a instância única de UserPolicy para este ciclo de request."""
         if not hasattr(self, "_user_policy"):
             from apps.accounts.policies import UserPolicy
+
             self._user_policy = UserPolicy(self.user)
         return self._user_policy
 
@@ -153,10 +154,11 @@ class AuthorizationService:
         Usado por TestGetUserRolesForApp em test_authorization_service.py.
         """
         from apps.accounts.models import UserRole
+
         return list(
-            UserRole.objects
-            .filter(user=self.user, aplicacao=aplicacao)
-            .select_related("role", "role__group", "aplicacao")
+            UserRole.objects.filter(user=self.user, aplicacao=aplicacao).select_related(
+                "role", "role__group", "aplicacao"
+            )
         )
 
     # ─────────────────────────────────────────────
@@ -202,11 +204,11 @@ class AuthorizationService:
 
         return True
 
-    # ─────────────────────────────────────────────
-    # Cache loaders
-    # ─────────────────────────────────────────────
+        # ─────────────────────────────────────────────
+        # Cache loaders
+        # ─────────────────────────────────────────────
 
-    def _load_permissions(self) -> set:
+        #    def _load_permissions(self) -> set:
         """
         Resolve o conjunto final de permissões do usuário.
 
@@ -215,6 +217,22 @@ class AuthorizationService:
           2. Permissões diretas do usuário (auth_user_user_permissions)  [D-02]
           3. + grant overrides (UserPermissionOverride mode='grant')     [D-01]
           4. - revoke overrides (UserPermissionOverride mode='revoke')   [D-01]
+        """
+
+    def _load_permissions(self) -> set:
+        """
+        Retorna as permissões efetivas do usuário.
+
+        A autorização em runtime consulta exclusivamente
+        auth_user_user_permissions.
+
+        As permissões de Role/Group e os UserPermissionOverride
+        são utilizados pelo permission_sync.py para materializar
+        o conjunto final de permissões do usuário. O AuthorizationService
+        não deve recalcular essas regras em runtime.
+
+        A aplicação continua sendo validada separadamente através de
+        UserRole.aplicacao em _has_valid_role().
         """
 
         if self._permissions is not None:
@@ -228,51 +246,9 @@ class AuthorizationService:
             self._permissions = cached
             return self._permissions
 
-        from django.contrib.auth.models import Permission
-        from apps.accounts.models import UserPermissionOverride
-
-        roles = self._load_roles()
-
-        # 1. Permissões herdadas pelos grupos das roles
-        group_ids = [
-            ur.role.group_id
-            for ur in roles
-            if ur.role.group_id is not None
-        ]
-
-        if group_ids:
-            base_perms = set(
-                Permission.objects
-                .filter(group__id__in=group_ids)
-                .values_list("codename", flat=True)
-            )
-        else:
-            base_perms = set()
-
-        # 2. Permissões diretas do usuário (auth_user_user_permissions) — corrige D-02
-        direct_perms = set(
-            self.user.user_permissions
-            .values_list("codename", flat=True)
+        self._permissions = set(
+            self.user.user_permissions.values_list("codename", flat=True)
         )
-        base_perms |= direct_perms
-
-        # 3. Aplicar grant overrides — corrige D-01
-        grant_codenames = set(
-            UserPermissionOverride.objects
-            .filter(user=self.user, mode=UserPermissionOverride.MODE_GRANT)
-            .values_list("permission__codename", flat=True)
-        )
-        base_perms |= grant_codenames
-
-        # 4. Aplicar revoke overrides — corrige D-01
-        revoke_codenames = set(
-            UserPermissionOverride.objects
-            .filter(user=self.user, mode=UserPermissionOverride.MODE_REVOKE)
-            .values_list("permission__codename", flat=True)
-        )
-        base_perms -= revoke_codenames
-
-        self._permissions = base_perms
 
         cache.set(cache_key, self._permissions, CACHE_TTL)
 
@@ -285,10 +261,8 @@ class AuthorizationService:
 
         from apps.accounts.models import UserRole
 
-        qs = (
-            UserRole.objects
-            .filter(user=self.user)
-            .select_related("role", "role__group", "aplicacao")
+        qs = UserRole.objects.filter(user=self.user).select_related(
+            "role", "role__group", "aplicacao"
         )
 
         if self.application:
