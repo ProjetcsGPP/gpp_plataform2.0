@@ -117,21 +117,28 @@ class AppContextMiddleware:
         }
 
         if all_gpp_cookies:
+            cookie_pairs = Q()
 
-            # # FIX: select_related não suporta reverse FK (userrole_set).
-            # # A verificação de portal_admin é feita abaixo com query separada.
-            # # ORDER BY -created_at garante resultado determinístico.
-            # session = (
-            #     AccountsSession.objects.filter(
-            #         session_key__in=list(all_gpp_cookies.values()),
-            #         session_cookie_name__in=list(all_gpp_cookies.keys()),
-            #         revoked=False,
-            #         app_context__isnull=False,
-            #     )
-            #     .select_related("user")
-            #     .order_by("-created_at")
-            #     .first()
-            # )
+            for (
+                candidate_cookie_name,
+                candidate_session_key,
+            ) in all_gpp_cookies.items():
+                cookie_pairs |= Q(
+                    session_key=candidate_session_key,
+                    session_cookie_name=candidate_cookie_name,
+                )
+
+            session = (
+                AccountsSession.objects.filter(
+                    cookie_pairs,
+                    revoked=False,
+                    app_context__isnull=False,
+                )
+                .select_related("user")
+                .order_by("-created_at")
+                .first()
+            )
+
             if session:
                 user = session.user
                 from apps.accounts.models import UserRole
@@ -148,25 +155,6 @@ class AppContextMiddleware:
                     request.app_context = app_context
                     request.user = user
                     return self.get_response(request)
-
-            cookie_pairs = Q()
-
-            for cookie_name, session_key in all_gpp_cookies.items():
-                cookie_pairs |= Q(
-                    session_key=session_key,
-                    session_cookie_name=cookie_name,
-                )
-
-            session = (
-                AccountsSession.objects.filter(
-                    cookie_pairs,
-                    revoked=False,
-                    app_context__isnull=False,
-                )
-                .select_related("user")
-                .order_by("-created_at")
-                .first()
-            )
 
         # Nenhum cookie válido encontrado
         request.user = AnonymousUser()

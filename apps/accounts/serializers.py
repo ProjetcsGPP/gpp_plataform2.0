@@ -37,6 +37,7 @@ FIX (Issue #22 Falha 3): MePermissionSerializer.get_granted() corrigido para inc
 """
 
 import logging
+from typing import Optional
 
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
@@ -642,21 +643,21 @@ class MeSerializer(serializers.Serializer):
         required=False,
     )
 
-    def get_is_portal_admin(self, obj):
+    def get_is_portal_admin(self, obj) -> bool:
         return UserRole.objects.filter(
             user=obj["user"],
             role__codigoperfil="PORTAL_ADMIN",
         ).exists()
 
-    def get_name(self, obj):
+    def get_name(self, obj) -> Optional[str]:
         profile = obj.get("profile")
         return profile.name if profile else None
 
-    def get_orgao(self, obj):
+    def get_orgao(self, obj) -> Optional[str]:
         profile = obj.get("profile")
         return profile.orgao if profile else None
 
-    def get_status_usuario_id(self, obj):
+    def get_status_usuario_id(self, obj) -> Optional[int]:
         profile = obj.get("profile")
         return profile.status_usuario_id if profile else None
 
@@ -721,10 +722,10 @@ class MePermissionSerializer(serializers.Serializer):
     role = serializers.SerializerMethodField()
     granted = serializers.SerializerMethodField()
 
-    def get_role(self, obj):
+    def get_role(self, obj) -> str:
         return obj["role"].codigoperfil
 
-    def get_granted(self, obj):
+    def get_granted(self, obj) -> list[str]:
         user = obj["user"]
         role = obj["role"]
         group = role.group
