@@ -1,4 +1,7 @@
 """
+
+common/permissions.py
+
 GPP Plataform 2.0 — DRF Permission Classes customizadas.
 
 Re-exporta de apps.core.permissions para manter compatibilidade
@@ -6,11 +9,12 @@ de import nos apps que usam common.permissions.
 
 NUNCA adicionar lógica aqui — toda lógica fica em apps/core/permissions.py.
 """
+
 import logging
 
 from rest_framework.permissions import BasePermission
 
-from apps.core.permissions import (   # noqa: F401  (re-export intencional)
+from apps.core.permissions import (  # noqa: F401  (re-export intencional)
     CanCreateUser,
     CanEditUser,
 )
@@ -23,6 +27,7 @@ class HasRolePermission(BasePermission):
     Verifica se o usuário tem ao menos uma role ativa para
     a aplicação identificada no request (via middleware).
     """
+
     message = "Você não possui um perfil de acesso para esta aplicação."
 
     def has_permission(self, request, view):
@@ -34,7 +39,8 @@ class HasRolePermission(BasePermission):
         if not user_roles:
             security_logger.warning(
                 "PERMISSION_DENIED user_id=%s path=%s reason=no_role",
-                request.user.id, request.path,
+                request.user.id,
+                request.path,
             )
             return False
         return True
@@ -42,6 +48,7 @@ class HasRolePermission(BasePermission):
 
 class IsPortalAdmin(BasePermission):
     """Acesso exclusivo para PORTAL_ADMIN."""
+
     message = "Acesso restrito a administradores da plataforma."
 
     def has_permission(self, request, view):

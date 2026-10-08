@@ -1,4 +1,6 @@
 """
+apps/accounts/services/application_registry.py
+
 ApplicationRegistry
 
 Responsabilidade:
@@ -22,6 +24,7 @@ NORMALIZAÇÃO:
   get() normaliza o argumento para maiúsculas antes da busca,
   tornando a pesquisa case-insensitive sem custo adicional.
 """
+
 import logging
 
 from django.core.cache import cache

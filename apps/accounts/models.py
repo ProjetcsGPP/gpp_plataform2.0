@@ -589,3 +589,271 @@ class UserAuthzState(models.Model):
 
     def __str__(self):
         return f"AuthZState(user_id={self.user_id}, version={self.authz_version})"
+
+
+# =====================
+# CAPABILITIES
+# =====================
+
+
+class Capability(models.Model):
+    """
+    Recurso funcional disponibilizado por uma aplicação.
+
+    Capability não é uma fonte de autorização.
+    Ela apenas organiza/distribui recursos funcionais para as Roles.
+
+    A autorização técnica continua sendo realizada pelas permissões
+    Django associadas ao Group da Role, pelos overrides individuais
+    e pelo AuthorizationService/ABAC.
+    """
+
+    aplicacao = models.ForeignKey(
+        Aplicacao,
+        on_delete=models.CASCADE,
+        db_column="aplicacao_id",
+        related_name="capabilities",
+    )
+    codigo = models.CharField(
+        max_length=100,
+        help_text="Código interno único da capability dentro da aplicação.",
+    )
+    nome = models.CharField(
+        max_length=200,
+        help_text="Nome funcional apresentado na administração.",
+    )
+    descricao = models.TextField(
+        blank=True,
+        default="",
+        help_text="Descrição do recurso funcional.",
+    )
+    ativo = models.BooleanField(
+        default=True,
+        help_text="Indica se a capability está disponível para distribuição.",
+    )
+
+    class Meta:
+        db_table = "accounts_capability"
+        managed = True
+        constraints = [
+            models.UniqueConstraint(
+                fields=["aplicacao", "codigo"],
+                name="uq_capability_aplicacao_codigo",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["aplicacao", "ativo"]),
+        ]
+        verbose_name = "Capability"
+        verbose_name_plural = "Capabilities"
+        ordering = ["aplicacao", "codigo"]
+
+    def __str__(self):
+        return f"{self.aplicacao.codigointerno} / {self.codigo}"
+
+
+class RoleCapability(models.Model):
+    """
+    Distribuição de uma Capability para uma Role.
+
+    Esta relação NÃO concede permissões técnicas.
+    Ela apenas determina quais recursos funcionais são distribuídos
+    para aquela Role dentro da aplicação.
+    """
+
+    aplicacao = models.ForeignKey(
+        Aplicacao,
+        on_delete=models.CASCADE,
+        db_column="aplicacao_id",
+        related_name="role_capabilities",
+    )
+    role = models.ForeignKey(
+        Role,
+        on_delete=models.CASCADE,
+        related_name="role_capabilities",
+    )
+    capability = models.ForeignKey(
+        Capability,
+        on_delete=models.CASCADE,
+        related_name="role_capabilities",
+    )
+
+    class Meta:
+        db_table = "accounts_rolecapability"
+        managed = True
+        constraints = [
+            models.UniqueConstraint(
+                fields=["aplicacao", "role", "capability"],
+                name="uq_rolecapability_aplicacao_role_capability",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["aplicacao", "role"]),
+            models.Index(fields=["aplicacao", "capability"]),
+        ]
+        verbose_name = "Role Capability"
+        verbose_name_plural = "Role Capabilities"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        if self.role_id and self.aplicacao_id:
+            if self.role.aplicacao_id != self.aplicacao_id:
+                raise ValidationError(
+                    {
+                        "role": (
+                            "A Role deve pertencer à mesma aplicação "
+                            "da Role Capability."
+                        )
+                    }
+                )
+
+        if self.capability_id and self.aplicacao_id:
+            if self.capability.aplicacao_id != self.aplicacao_id:
+                raise ValidationError(
+                    {
+                        "capability": (
+                            "A Capability deve pertencer à mesma aplicação "
+                            "da Role Capability."
+                        )
+                    }
+                )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return (
+            f"{self.aplicacao.codigointerno} / "
+            f"{self.role.codigoperfil} → {self.capability.codigo}"
+        )
+
+
+# =====================
+# MENU / NAVEGAÇÃO
+# =====================
+
+
+class Menu(models.Model):
+    """
+    Item de navegação de uma aplicação.
+
+    Menu organiza a apresentação dos recursos funcionais.
+    Não é uma fonte de autorização.
+
+    Uma Menu pode estar vinculada a uma Capability para indicar
+    qual recurso funcional ela representa, mas a autorização efetiva
+    continua sendo determinada pelo mecanismo RBAC/ABAC existente.
+    """
+
+    aplicacao = models.ForeignKey(
+        Aplicacao,
+        on_delete=models.CASCADE,
+        db_column="aplicacao_id",
+        related_name="menus",
+    )
+    codigo = models.CharField(
+        max_length=100,
+        help_text="Código interno único do item de menu na aplicação.",
+    )
+    nome = models.CharField(
+        max_length=200,
+        help_text="Texto apresentado no menu.",
+    )
+    descricao = models.TextField(
+        blank=True,
+        default="",
+        help_text="Descrição opcional do item de menu.",
+    )
+    rota = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Rota da aplicação. Pode ficar vazia para menus agrupadores.",
+    )
+    icone = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Identificador do ícone utilizado pelo frontend.",
+    )
+    ordem = models.PositiveIntegerField(
+        default=0,
+        help_text="Ordem de apresentação dentro do nível do menu.",
+    )
+    ativo = models.BooleanField(
+        default=True,
+        help_text="Indica se o item está disponível na navegação.",
+    )
+    parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="children",
+        help_text="Menu pai. Vazio quando o item estiver no nível raiz.",
+    )
+    capability = models.ForeignKey(
+        Capability,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="menus",
+        help_text=(
+            "Capability funcional representada pelo item. "
+            "Opcional para menus agrupadores ou itens sem capability própria."
+        ),
+    )
+
+    class Meta:
+        db_table = "accounts_menu"
+        managed = True
+        constraints = [
+            models.UniqueConstraint(
+                fields=["aplicacao", "codigo"],
+                name="uq_menu_aplicacao_codigo",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["aplicacao", "ativo"]),
+            models.Index(fields=["aplicacao", "parent", "ordem"]),
+        ]
+        verbose_name = "Menu"
+        verbose_name_plural = "Menus"
+        ordering = ["aplicacao", "parent_id", "ordem", "codigo"]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        if self.parent_id:
+            if self.parent.aplicacao_id != self.aplicacao_id:
+                raise ValidationError(
+                    {
+                        "parent": (
+                            "O menu pai deve pertencer à mesma aplicação " "do menu."
+                        )
+                    }
+                )
+
+            if self.parent_id == self.pk:
+                raise ValidationError(
+                    {"parent": "Um menu não pode ser pai de si mesmo."}
+                )
+
+        if self.capability_id:
+            if self.capability.aplicacao_id != self.aplicacao_id:
+                raise ValidationError(
+                    {
+                        "capability": (
+                            "A Capability deve pertencer à mesma aplicação " "do menu."
+                        )
+                    }
+                )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.aplicacao.codigointerno} / {self.nome}"

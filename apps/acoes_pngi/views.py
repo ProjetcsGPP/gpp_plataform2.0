@@ -1,43 +1,34 @@
 """
 GPP Plataform 2.0 — Ações PNGI Views
 
-Matriz de permissões por operação:
-  - list / retrieve  : ROLES_READ
-  - create / update  : ROLES_WRITE
-  - destroy          : ROLES_DELETE
+Autorização baseada exclusivamente em permissions efetivas.
 
-As roles SÃO LIDAS DO BANCO DE DADOS na primeira requisição e
-cacheadas no processo via _load_role_matrix(). Não há strings
-hardcoded de codigoperfil neste módulo.
+As permissions são avaliadas pelo AuthorizationService através de
+CanPermission. O mapeamento entre operação DRF e permission Django é:
 
-Nota: SecureQuerysetMixin NÃO é usado aqui pois Acoes PNGI
-não são recursos de tenant (independentes de orgão).
-O controle de acesso é feito exclusivamente por roles.
+  list / retrieve  → view_*
+  create           → add_*
+  update / PATCH   → change_*
+  destroy          → delete_*
 
-Matriz de permissões por ViewSet:
+A atribuição das permissions aos usuários é materializada em
+auth_user_user_permissions pelo permission_sync.py.
 
-  Acoes (AcaoViewSet):
-    READ   = GESTOR_PNGI, COORDENADOR_PNGI, OPERADOR_ACAO, CONSULTOR_PNGI
-    WRITE  = GESTOR_PNGI, COORDENADOR_PNGI, OPERADOR_ACAO
-    DELETE = GESTOR_PNGI
+Nota: SecureQuerysetMixin NÃO é usado aqui pois Ações PNGI
+não são recursos de tenant (independentes de órgão).
 
-  Vigencias (VigenciaPNGIViewSet):
-    READ   = GESTOR_PNGI, COORDENADOR_PNGI, OPERADOR_ACAO, CONSULTOR_PNGI
-    WRITE  = GESTOR_PNGI, COORDENADOR_PNGI   ← OPERADOR_ACAO nao pode escrever vigencias
-    DELETE = GESTOR_PNGI
+O controle de escopo ABAC das Ações, quando aplicável, é uma
+camada posterior à autorização por permission.
 """
 
 from __future__ import annotations
 
-from functools import lru_cache
-
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import viewsets
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 
+from apps.core.permissions import CanPermission
 from common.mixins import AuditableMixin
-from common.permissions import HasRolePermission
 from common.schema import tag_all_actions
 
 from .models import (
@@ -59,15 +50,46 @@ from .serializers import (
     VigenciaPNGISerializer,
 )
 
-# Identificador da aplicação no banco (accounts.Aplicacao.codigointerno)
-# ATENÇÃO: deve ser MAIÚSCULO — idêntico ao valor gravado em Aplicacao.codigointerno
-_APP_CODE = "ACOES_PNGI"
+# ---------------------------------------------------------------------------
+# Mapeamento genérico de operação DRF → permission Django
+# ---------------------------------------------------------------------------
 
-_LEVEL_READ = "READ"
-_LEVEL_WRITE = "WRITE"
-_LEVEL_DELETE = "DELETE"
 
+class PermissionedViewSetMixin:
+    """
+    Seleciona a permission Django correspondente à operação DRF atual.
+
+    O nome da permission é definido pela própria ViewSet em
+    `permission_map`.
+
+    Exemplo:
+
+        permission_map = {
+            "list": "view_acoes",
+            "retrieve": "view_acoes",
+            "create": "add_acoes",
+            "update": "change_acoes",
+            "partial_update": "change_acoes",
+            "destroy": "delete_acoes",
+        }
+
+    A verificação efetiva é feita por CanPermission, que delega
+    ao AuthorizationService.
+    """
+
+    permission_classes = [IsAuthenticated, CanPermission]
+    permission_map: dict[str, str] = {}
+
+    def get_permissions(self):
+        self.required_permission = self.permission_map.get(self.action)
+        return [permission() for permission in self.permission_classes]
+
+
+# ---------------------------------------------------------------------------
 # Parâmetro reutilizável para os 3 nested ViewSets
+# ---------------------------------------------------------------------------
+
+
 _ACAO_PK_PARAM = OpenApiParameter(
     name="acao_pk",
     type=int,
@@ -76,210 +98,111 @@ _ACAO_PK_PARAM = OpenApiParameter(
 )
 
 
-@lru_cache(maxsize=1)
-def _load_role_matrix() -> dict[str, frozenset[str]]:
-    """
-    Matriz de permissões para os recursos principais de acoes_pngi
-    (Acoes, Eixo, SituacaoAcao, Prazo, Destaque, Anotacao).
-
-    Retorna:
-        {
-          "READ":   frozenset({"GESTOR_PNGI", "COORDENADOR_PNGI", ...}),
-          "WRITE":  frozenset({"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO"}),
-          "DELETE": frozenset({"GESTOR_PNGI"}),
-        }
-
-    lru_cache(maxsize=1) → query ao banco feita apenas uma vez por worker.
-    Para recarregar: _load_role_matrix.cache_clear()
-    """
-    from apps.accounts.models import Role
-
-    roles_qs = Role.objects.filter(aplicacao__codigointerno=_APP_CODE).values_list(
-        "codigoperfil", flat=True
-    )
-
-    all_roles: frozenset[str] = frozenset(roles_qs)
-
-    read_codes = {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO", "CONSULTOR_PNGI"}
-    write_codes = {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO"}
-    delete_codes = {"GESTOR_PNGI"}
-
-    return {
-        _LEVEL_READ: all_roles.intersection(read_codes),
-        _LEVEL_WRITE: all_roles.intersection(write_codes),
-        _LEVEL_DELETE: all_roles.intersection(delete_codes),
-    }
-
-
-@lru_cache(maxsize=1)
-def _load_vigencia_role_matrix() -> dict[str, frozenset[str]]:
-    """
-    Matriz de permissões exclusiva para VigenciaPNGI.
-
-    Vigências representam os ciclos do programa PNGI — domínio do Gestor
-    e do Coordenador. OPERADOR_ACAO pode apenas consultar, não escrever.
-
-    Retorna:
-        {
-          "READ":   frozenset({"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO", "CONSULTOR_PNGI"}),
-          "WRITE":  frozenset({"GESTOR_PNGI", "COORDENADOR_PNGI"}),
-          "DELETE": frozenset({"GESTOR_PNGI"}),
-        }
-    """
-    from apps.accounts.models import Role
-
-    roles_qs = Role.objects.filter(aplicacao__codigointerno=_APP_CODE).values_list(
-        "codigoperfil", flat=True
-    )
-
-    all_roles: frozenset[str] = frozenset(roles_qs)
-
-    read_codes = {"GESTOR_PNGI", "COORDENADOR_PNGI", "OPERADOR_ACAO", "CONSULTOR_PNGI"}
-    write_codes = {
-        "GESTOR_PNGI",
-        "COORDENADOR_PNGI",
-    }  # OPERADOR_ACAO nao pode criar/editar vigencias
-    delete_codes = {"GESTOR_PNGI"}
-
-    return {
-        _LEVEL_READ: all_roles.intersection(read_codes),
-        _LEVEL_WRITE: all_roles.intersection(write_codes),
-        _LEVEL_DELETE: all_roles.intersection(delete_codes),
-    }
-
-
-def _check_roles(request, level: str, matrix_fn=None) -> None:
-    """
-    Verifica se o usuário possui alguma role do nível solicitado.
-    Lança PermissionDenied (403) caso contrário.
-    Portal admin bypass via request.is_portal_admin.
-
-    matrix_fn: função que retorna a matriz de permissões.
-               Padrão: _load_role_matrix (usado por Acoes e recursos nested).
-               Passar _load_vigencia_role_matrix para VigenciaPNGIViewSet.
-    """
-    if getattr(request, "is_portal_admin", False):
-        return
-
-    if matrix_fn is None:
-        matrix_fn = _load_role_matrix
-
-    matrix = matrix_fn()
-    allowed = matrix.get(level, frozenset())
-    user_roles = {r.role.codigoperfil for r in getattr(request, "user_roles", [])}
-
-    if not user_roles.intersection(allowed):
-        raise PermissionDenied(
-            f"Acesso negado. Roles necessárias: {', '.join(sorted(allowed))}"
-        )
-
-
 # ---------------------------------------------------------------------------
-# ViewSets de referência (somente leitura)
+# ViewSets de referência
 # ---------------------------------------------------------------------------
 
 
 @tag_all_actions("3 - Ações PNGI")
-class EixoViewSet(viewsets.ReadOnlyModelViewSet):
+class EixoViewSet(PermissionedViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
     Eixos temáticos do programa PNGI.
-    Somente leitura para todos os usuários autenticados.
+
+    Atualmente somente leitura através da API.
     """
 
     queryset = Eixo.objects.all()
     serializer_class = EixoSerializer
-    permission_classes = [IsAuthenticated, HasRolePermission]
 
-    def list(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ)
-        return super().list(request, *args, **kwargs)
-
-    def retrieve(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ)
-        return super().retrieve(request, *args, **kwargs)
+    permission_map = {
+        "list": "view_eixo",
+        "retrieve": "view_eixo",
+    }
 
 
 @tag_all_actions("3 - Ações PNGI")
-class SituacaoAcaoViewSet(viewsets.ReadOnlyModelViewSet):
+class SituacaoAcaoViewSet(
+    PermissionedViewSetMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
     """
     Situações possíveis de uma Ação PNGI.
-    Somente leitura para todos os usuários autenticados.
+
+    Atualmente somente leitura através da API.
     """
 
     queryset = SituacaoAcao.objects.all()
     serializer_class = SituacaoAcaoSerializer
-    permission_classes = [IsAuthenticated, HasRolePermission]
 
-    def list(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ)
-        return super().list(request, *args, **kwargs)
-
-    def retrieve(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ)
-        return super().retrieve(request, *args, **kwargs)
+    permission_map = {
+        "list": "view_situacaoacao",
+        "retrieve": "view_situacaoacao",
+    }
 
 
 # ---------------------------------------------------------------------------
-# VigenciaPNGIViewSet (CRUD completo — apenas GESTOR/COORDENADOR escrevem)
+# VigenciaPNGIViewSet
 # ---------------------------------------------------------------------------
 
 
 @tag_all_actions("3 - Ações PNGI")
-class VigenciaPNGIViewSet(AuditableMixin, viewsets.ModelViewSet):
+class VigenciaPNGIViewSet(
+    PermissionedViewSetMixin,
+    AuditableMixin,
+    viewsets.ModelViewSet,
+):
     """
     Vigências do programa PNGI.
 
-    Escrita restrita a GESTOR_PNGI e COORDENADOR_PNGI.
-    OPERADOR_ACAO e CONSULTOR_PNGI somente leitura.
-    Deleção exclusiva do GESTOR_PNGI.
-
-    Usa _load_vigencia_role_matrix() — matriz separada de _load_role_matrix()
-    para garantir que OPERADOR_ACAO nao herde permissao de escrita de Acoes.
+    A autorização de cada operação é determinada pela permission
+    efetiva correspondente:
+        view_vigenciapngi
+        add_vigenciapngi
+        change_vigenciapngi
+        delete_vigenciapngi
     """
 
     queryset = VigenciaPNGI.objects.all()
     serializer_class = VigenciaPNGISerializer
-    permission_classes = [IsAuthenticated, HasRolePermission]
 
-    def list(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ, matrix_fn=_load_vigencia_role_matrix)
-        return super().list(request, *args, **kwargs)
-
-    def retrieve(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ, matrix_fn=_load_vigencia_role_matrix)
-        return super().retrieve(request, *args, **kwargs)
-
-    def create(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE, matrix_fn=_load_vigencia_role_matrix)
-        return super().create(request, *args, **kwargs)
-
-    def update(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE, matrix_fn=_load_vigencia_role_matrix)
-        return super().update(request, *args, **kwargs)
-
-    def partial_update(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE, matrix_fn=_load_vigencia_role_matrix)
-        return super().partial_update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_DELETE, matrix_fn=_load_vigencia_role_matrix)
-        return super().destroy(request, *args, **kwargs)
+    permission_map = {
+        "list": "view_vigenciapngi",
+        "retrieve": "view_vigenciapngi",
+        "create": "add_vigenciapngi",
+        "update": "change_vigenciapngi",
+        "partial_update": "change_vigenciapngi",
+        "destroy": "delete_vigenciapngi",
+    }
 
 
 # ---------------------------------------------------------------------------
-# AcaoViewSet (CRUD completo com matrix de roles)
+# AcaoViewSet
 # ---------------------------------------------------------------------------
 
 
 @tag_all_actions("3 - Ações PNGI")
-class AcaoViewSet(AuditableMixin, viewsets.ModelViewSet):
+class AcaoViewSet(
+    PermissionedViewSetMixin,
+    AuditableMixin,
+    viewsets.ModelViewSet,
+):
     """
     Ações PNGI — entidade principal.
 
-    Acoes são independentes de orgão (iniciativas do programa PNGI).
+    Ações são independentes de órgão (iniciativas do programa PNGI).
     NÃO herda SecureQuerysetMixin.
-    Controle de acesso exclusivamente por roles via _load_role_matrix().
-    AuditableMixin preenche created_by_id/name e updated_by_id/name.
+
+    A autorização de cada operação é determinada pela permission
+    efetiva correspondente:
+
+        view_acoes
+        add_acoes
+        change_acoes
+        delete_acoes
+
+    O eventual controle ABAC sobre quais Ações um usuário pode
+    consultar ou alterar é uma camada adicional e não é tratado
+    neste mapeamento de permissions.
     """
 
     queryset = Acoes.objects.select_related(
@@ -289,36 +212,22 @@ class AcaoViewSet(AuditableMixin, viewsets.ModelViewSet):
         "ideixo",
     )
     serializer_class = AcoesSerializer
-    permission_classes = [IsAuthenticated, HasRolePermission]
 
-    def list(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ)
-        return super().list(request, *args, **kwargs)
-
-    def retrieve(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ)
-        return super().retrieve(request, *args, **kwargs)
-
-    def create(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE)
-        return super().create(request, *args, **kwargs)
-
-    def update(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE)
-        return super().update(request, *args, **kwargs)
-
-    def partial_update(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE)
-        return super().partial_update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_DELETE)
-        return super().destroy(request, *args, **kwargs)
+    permission_map = {
+        "list": "view_acoes",
+        "retrieve": "view_acoes",
+        "create": "add_acoes",
+        "update": "change_acoes",
+        "partial_update": "change_acoes",
+        "destroy": "delete_acoes",
+    }
 
 
 # ---------------------------------------------------------------------------
-# ViewSets nested em Acao
+# ViewSets nested em Ação
 # ---------------------------------------------------------------------------
+
+
 @extend_schema_view(
     list=extend_schema(parameters=[_ACAO_PK_PARAM]),
     create=extend_schema(parameters=[_ACAO_PK_PARAM]),
@@ -328,45 +237,34 @@ class AcaoViewSet(AuditableMixin, viewsets.ModelViewSet):
     destroy=extend_schema(parameters=[_ACAO_PK_PARAM]),
 )
 @tag_all_actions("3 - Ações PNGI")
-class AcaoPrazoViewSet(AuditableMixin, viewsets.ModelViewSet):
+class AcaoPrazoViewSet(
+    PermissionedViewSetMixin,
+    AuditableMixin,
+    viewsets.ModelViewSet,
+):
     """
     Prazos de uma Ação PNGI.
+
     Filtrado pelo idacao passado na URL.
     """
 
     serializer_class = AcaoPrazoSerializer
-    permission_classes = [IsAuthenticated, HasRolePermission]
-    queryset = (
-        AcaoPrazo.objects.all()
-    )  # ← usado apenas pelo drf-spectacular para introspecção
+
+    # Usado pelo drf-spectacular para introspecção.
+    queryset = AcaoPrazo.objects.all()
+
+    permission_map = {
+        "list": "view_acaoprazo",
+        "retrieve": "view_acaoprazo",
+        "create": "add_acaoprazo",
+        "update": "change_acaoprazo",
+        "partial_update": "change_acaoprazo",
+        "destroy": "delete_acaoprazo",
+    }
 
     def get_queryset(self):
         return AcaoPrazo.objects.filter(idacao_id=self.kwargs["acao_pk"])
 
-    def list(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ)
-        return super().list(request, *args, **kwargs)
-
-    def retrieve(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ)
-        return super().retrieve(request, *args, **kwargs)
-
-    def create(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE)
-        return super().create(request, *args, **kwargs)
-
-    def update(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE)
-        return super().update(request, *args, **kwargs)
-
-    def partial_update(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE)
-        return super().partial_update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_DELETE)
-        return super().destroy(request, *args, **kwargs)
-
 
 @extend_schema_view(
     list=extend_schema(parameters=[_ACAO_PK_PARAM]),
@@ -377,42 +275,33 @@ class AcaoPrazoViewSet(AuditableMixin, viewsets.ModelViewSet):
     destroy=extend_schema(parameters=[_ACAO_PK_PARAM]),
 )
 @tag_all_actions("3 - Ações PNGI")
-class AcaoDestaqueViewSet(AuditableMixin, viewsets.ModelViewSet):
+class AcaoDestaqueViewSet(
+    PermissionedViewSetMixin,
+    AuditableMixin,
+    viewsets.ModelViewSet,
+):
     """
     Destaques de uma Ação PNGI.
+
     Filtrado pelo idacao passado na URL.
     """
 
     serializer_class = AcaoDestaqueSerializer
-    permission_classes = [IsAuthenticated, HasRolePermission]
-    queryset = AcaoDestaque.objects.all()  # ← adicionar
+
+    # Usado pelo drf-spectacular para introspecção.
+    queryset = AcaoDestaque.objects.all()
+
+    permission_map = {
+        "list": "view_acaodestaque",
+        "retrieve": "view_acaodestaque",
+        "create": "add_acaodestaque",
+        "update": "change_acaodestaque",
+        "partial_update": "change_acaodestaque",
+        "destroy": "delete_acaodestaque",
+    }
 
     def get_queryset(self):
         return AcaoDestaque.objects.filter(idacao_id=self.kwargs["acao_pk"])
-
-    def list(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ)
-        return super().list(request, *args, **kwargs)
-
-    def retrieve(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ)
-        return super().retrieve(request, *args, **kwargs)
-
-    def create(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE)
-        return super().create(request, *args, **kwargs)
-
-    def update(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE)
-        return super().update(request, *args, **kwargs)
-
-    def partial_update(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE)
-        return super().partial_update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_DELETE)
-        return super().destroy(request, *args, **kwargs)
 
 
 @extend_schema_view(
@@ -424,39 +313,30 @@ class AcaoDestaqueViewSet(AuditableMixin, viewsets.ModelViewSet):
     destroy=extend_schema(parameters=[_ACAO_PK_PARAM]),
 )
 @tag_all_actions("3 - Ações PNGI")
-class AcaoAnotacaoViewSet(AuditableMixin, viewsets.ModelViewSet):
+class AcaoAnotacaoViewSet(
+    PermissionedViewSetMixin,
+    AuditableMixin,
+    viewsets.ModelViewSet,
+):
     """
     Anotações de alinhamento de uma Ação PNGI.
+
     Filtrado pelo idacao passado na URL.
     """
 
     serializer_class = AcaoAnotacaoAlinhamentoSerializer
-    permission_classes = [IsAuthenticated, HasRolePermission]
+
+    # Usado pelo drf-spectacular para introspecção.
     queryset = AcaoAnotacaoAlinhamento.objects.all()
+
+    permission_map = {
+        "list": "view_acaoanotacaoalinhamento",
+        "retrieve": "view_acaoanotacaoalinhamento",
+        "create": "add_acaoanotacaoalinhamento",
+        "update": "change_acaoanotacaoalinhamento",
+        "partial_update": "change_acaoanotacaoalinhamento",
+        "destroy": "delete_acaoanotacaoalinhamento",
+    }
 
     def get_queryset(self):
         return AcaoAnotacaoAlinhamento.objects.filter(idacao_id=self.kwargs["acao_pk"])
-
-    def list(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ)
-        return super().list(request, *args, **kwargs)
-
-    def retrieve(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_READ)
-        return super().retrieve(request, *args, **kwargs)
-
-    def create(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE)
-        return super().create(request, *args, **kwargs)
-
-    def update(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE)
-        return super().update(request, *args, **kwargs)
-
-    def partial_update(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_WRITE)
-        return super().partial_update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        _check_roles(request, _LEVEL_DELETE)
-        return super().destroy(request, *args, **kwargs)

@@ -1,7 +1,11 @@
 """
+
+conftest.py
+
 Conftest raíz do projeto GPP Plataform 2.0.
 Configurações globais de pytest que se aplicam a todas as apps.
 """
+
 # conftest.py (raiz do projeto)
 #
 # Necessário para que o unittest loader (Python 3.12+) resolva corretamente
@@ -12,6 +16,7 @@ Configurações globais de pytest que se aplicam a todas as apps.
 # parta sempre da raiz do projeto em ambos os runners.
 
 import re
+
 import pytest
 
 
@@ -81,8 +86,7 @@ def _clear_throttle_keys():
     raw = getattr(cache, "_cache", None)
     if raw is not None:
         throttle_keys = [
-            k for k in list(raw.keys())
-            if re.search(r"throttle", k, re.IGNORECASE)
+            k for k in list(raw.keys()) if re.search(r"throttle", k, re.IGNORECASE)
         ]
         for key in throttle_keys:
             cache.delete(key)

@@ -42,7 +42,8 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[])
 
 # ─── Applications ───────────────────────────────────────────────────────────
 DJANGO_APPS = [
-    "django.contrib.admin",
+    # "django.contrib.admin",
+    "common.admin_config.PortalAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",

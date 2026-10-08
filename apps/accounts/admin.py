@@ -4,8 +4,11 @@ from .models import (
     AccountsSession,
     Aplicacao,
     Attribute,
+    Capability,
     ClassificacaoUsuario,
+    Menu,
     Role,
+    RoleCapability,
     StatusUsuario,
     TipoUsuario,
     UserPermissionOverride,
@@ -147,6 +150,88 @@ class UserRoleAdmin(admin.ModelAdmin):
     @admin.display(description="Grupo Django (auth.Group)")
     def get_group(self, obj):
         return obj.role.group if obj.role else "-"
+
+
+# =====================
+# RECURSOS FUNCIONAIS
+# =====================
+
+
+@admin.register(Capability)
+class CapabilityAdmin(admin.ModelAdmin):
+    list_display = (
+        "codigo",
+        "nome",
+        "aplicacao",
+        "ativo",
+    )
+    list_filter = (
+        "aplicacao",
+        "ativo",
+    )
+    search_fields = (
+        "codigo",
+        "nome",
+        "descricao",
+    )
+    ordering = (
+        "aplicacao",
+        "codigo",
+    )
+
+
+@admin.register(RoleCapability)
+class RoleCapabilityAdmin(admin.ModelAdmin):
+    list_display = (
+        "aplicacao",
+        "role",
+        "capability",
+    )
+    list_filter = (
+        "aplicacao",
+        "role__aplicacao",
+        "capability__aplicacao",
+    )
+    search_fields = (
+        "role__codigoperfil",
+        "role__nomeperfil",
+        "capability__codigo",
+        "capability__nome",
+    )
+    ordering = (
+        "aplicacao",
+        "role__codigoperfil",
+        "capability__codigo",
+    )
+
+
+@admin.register(Menu)
+class MenuAdmin(admin.ModelAdmin):
+    list_display = (
+        "codigo",
+        "nome",
+        "aplicacao",
+        "parent",
+        "capability",
+        "ordem",
+        "ativo",
+    )
+    list_filter = (
+        "aplicacao",
+        "ativo",
+    )
+    search_fields = (
+        "codigo",
+        "nome",
+        "descricao",
+        "rota",
+    )
+    ordering = (
+        "aplicacao",
+        "parent_id",
+        "ordem",
+        "codigo",
+    )
 
 
 # =====================

@@ -4,4 +4,4 @@ from django.apps import AppConfig
 class CoreConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.core"
-    verbose_name = "Core"
+    verbose_name = "Núcleo do Sistema GPP Plataform 2.0"

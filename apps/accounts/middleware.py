@@ -8,6 +8,7 @@ FIX(Issue #22): _authenticate_any_cookie ordena por -created_at e filtra
 """
 
 from django.contrib.auth.models import AnonymousUser
+from django.db.models import Q
 from django.http import JsonResponse
 
 from .models import AccountsSession
@@ -116,20 +117,21 @@ class AppContextMiddleware:
         }
 
         if all_gpp_cookies:
-            # FIX: select_related não suporta reverse FK (userrole_set).
-            # A verificação de portal_admin é feita abaixo com query separada.
-            # ORDER BY -created_at garante resultado determinístico.
-            session = (
-                AccountsSession.objects.filter(
-                    session_key__in=list(all_gpp_cookies.values()),
-                    session_cookie_name__in=list(all_gpp_cookies.keys()),
-                    revoked=False,
-                    app_context__isnull=False,
-                )
-                .select_related("user")
-                .order_by("-created_at")
-                .first()
-            )
+
+            # # FIX: select_related não suporta reverse FK (userrole_set).
+            # # A verificação de portal_admin é feita abaixo com query separada.
+            # # ORDER BY -created_at garante resultado determinístico.
+            # session = (
+            #     AccountsSession.objects.filter(
+            #         session_key__in=list(all_gpp_cookies.values()),
+            #         session_cookie_name__in=list(all_gpp_cookies.keys()),
+            #         revoked=False,
+            #         app_context__isnull=False,
+            #     )
+            #     .select_related("user")
+            #     .order_by("-created_at")
+            #     .first()
+            # )
             if session:
                 user = session.user
                 from apps.accounts.models import UserRole
@@ -146,6 +148,25 @@ class AppContextMiddleware:
                     request.app_context = app_context
                     request.user = user
                     return self.get_response(request)
+
+            cookie_pairs = Q()
+
+            for cookie_name, session_key in all_gpp_cookies.items():
+                cookie_pairs |= Q(
+                    session_key=session_key,
+                    session_cookie_name=cookie_name,
+                )
+
+            session = (
+                AccountsSession.objects.filter(
+                    cookie_pairs,
+                    revoked=False,
+                    app_context__isnull=False,
+                )
+                .select_related("user")
+                .order_by("-created_at")
+                .first()
+            )
 
         # Nenhum cookie válido encontrado
         request.user = AnonymousUser()
@@ -172,15 +193,34 @@ class AppContextMiddleware:
             request.app_context = None
             return self.get_response(request)
 
+        # session = (
+        #     AccountsSession.objects.filter(
+        #         session_key__in=list(gpp_cookies.values()),
+        #         session_cookie_name__in=list(gpp_cookies.keys()),
+        #         revoked=False,
+        #         app_context__isnull=False,  # FIX: exclui sessões sem contexto
+        #     )
+        #     .select_related("user")
+        #     .order_by("-created_at")  # FIX: determinístico — sessão mais recente
+        #     .first()
+        # )
+
+        cookie_pairs = Q()
+
+        for cookie_name, session_key in gpp_cookies.items():
+            cookie_pairs |= Q(
+                session_key=session_key,
+                session_cookie_name=cookie_name,
+            )
+
         session = (
             AccountsSession.objects.filter(
-                session_key__in=list(gpp_cookies.values()),
-                session_cookie_name__in=list(gpp_cookies.keys()),
+                cookie_pairs,
                 revoked=False,
-                app_context__isnull=False,  # FIX: exclui sessões sem contexto
+                app_context__isnull=False,
             )
             .select_related("user")
-            .order_by("-created_at")  # FIX: determinístico — sessão mais recente
+            .order_by("-created_at")
             .first()
         )
 

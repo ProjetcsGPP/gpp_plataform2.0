@@ -1,4 +1,6 @@
 """
+apps/core/permissions.py
+
 GPP Plataform 2.0 — DRF Permission Classes
 
 Integração entre DRF e o AuthorizationService.
@@ -18,15 +20,16 @@ Uso nas views:
         # Opcional — contexto ABAC passado como atributo da view:
         permission_context = {"eixo": "A"}
 """
+
 import logging
 from functools import wraps
 
-from rest_framework.permissions import BasePermission
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 
-from apps.accounts.services.authorization_service import AuthorizationService
 from apps.accounts.services.application_registry import ApplicationRegistry
+from apps.accounts.services.authorization_service import AuthorizationService
 
 security_logger = logging.getLogger("gpp.security")
 
@@ -52,6 +55,7 @@ def _resolve_application(request: Request):
 
 # ─── HasRolePermission ──────────────────────────────────────────────────────
 
+
 class HasRolePermission(BasePermission):
     """
     Permite acesso somente se o usuário possui ao menos 1 UserRole
@@ -60,6 +64,7 @@ class HasRolePermission(BasePermission):
     Não exige permission específica — apenas a existência de role.
     Use como guarda de porta antes de permissões mais granulares.
     """
+
     message = "Você não possui um perfil de acesso para esta aplicação."
 
     def has_permission(self, request: Request, view) -> bool:
@@ -71,12 +76,14 @@ class HasRolePermission(BasePermission):
         if not result:
             security_logger.warning(
                 "DRF_DENY HasRolePermission user_id=%s path=%s",
-                request.user.id, request.path,
+                request.user.id,
+                request.path,
             )
         return result
 
 
 # ─── CanPermission ──────────────────────────────────────────────────────────
+
 
 class CanPermission(BasePermission):
     """
@@ -90,6 +97,7 @@ class CanPermission(BasePermission):
             permission_classes = [IsAuthenticated, CanPermission]
             required_permission = "view_acao"
     """
+
     message = "Você não tem permissão para executar esta ação."
 
     def has_permission(self, request: Request, view) -> bool:
@@ -111,18 +119,22 @@ class CanPermission(BasePermission):
         if not result:
             security_logger.warning(
                 "DRF_DENY CanPermission user_id=%s perm=%s path=%s",
-                request.user.id, permission_codename, request.path,
+                request.user.id,
+                permission_codename,
+                request.path,
             )
         return result
 
 
 # ─── IsPortalAdmin ──────────────────────────────────────────────────────────
 
+
 class IsPortalAdmin(BasePermission):
     """
     Permite acesso somente a usuários com role PORTAL_ADMIN.
     Adequado para views administrativas da plataforma.
     """
+
     message = "Acesso restrito a administradores da plataforma."
 
     def has_permission(self, request: Request, view) -> bool:
@@ -133,12 +145,14 @@ class IsPortalAdmin(BasePermission):
         if not result:
             security_logger.warning(
                 "DRF_DENY IsPortalAdmin user_id=%s path=%s",
-                request.user.id, request.path,
+                request.user.id,
+                request.path,
             )
         return result
 
 
 # ─── ObjectPermission (anti-IDOR) ───────────────────────────────────────────
+
 
 class ObjectPermission(BasePermission):
     """
@@ -155,6 +169,7 @@ class ObjectPermission(BasePermission):
             required_permission = "change_acao"
             object_owner_field = "responsavel"   # campo do modelo
     """
+
     message = "Acesso negado: você não é o proprietário deste recurso."
 
     def has_permission(self, request: Request, view) -> bool:
@@ -191,6 +206,7 @@ class ObjectPermission(BasePermission):
 
 # ─── Decorator para views funcionais ────────────────────────────────────────
 
+
 def require_permission(permission_codename: str, context: dict = None):
     """
     Decorator para views funcionais (function-based views) do Django/DRF.
@@ -210,6 +226,7 @@ def require_permission(permission_codename: str, context: dict = None):
         def list_acoes_eixo_a(request):
             ...
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(request, *args, **kwargs):
@@ -222,17 +239,22 @@ def require_permission(permission_codename: str, context: dict = None):
             if not service.can(permission_codename, context=context):
                 security_logger.warning(
                     "DRF_DENY require_permission user_id=%s perm=%s path=%s",
-                    request.user.id, permission_codename, request.path,
+                    request.user.id,
+                    permission_codename,
+                    request.path,
                 )
                 raise PermissionDenied(
                     f"Permissão '{permission_codename}' necessária para este recurso."
                 )
             return func(request, *args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
 # ─── CanCreateUser ──────────────────────────────────────────────────────────
+
 
 class CanCreateUser(BasePermission):
     """
@@ -247,6 +269,7 @@ class CanCreateUser(BasePermission):
         class UserCreateView(APIView):
             permission_classes = [IsAuthenticated, CanCreateUser]
     """
+
     message = "Você não tem permissão para criar usuários."
 
     def has_permission(self, request: Request, view) -> bool:
@@ -257,12 +280,14 @@ class CanCreateUser(BasePermission):
         if not result:
             security_logger.warning(
                 "DRF_DENY CanCreateUser user_id=%s path=%s",
-                request.user.id, request.path,
+                request.user.id,
+                request.path,
             )
         return result
 
 
 # ─── CanEditUser ────────────────────────────────────────────────────────────
+
 
 class CanEditUser(BasePermission):
     """
@@ -277,6 +302,7 @@ class CanEditUser(BasePermission):
         class UserProfileViewSet(ModelViewSet):
             permission_classes = [IsAuthenticated, CanEditUser]
     """
+
     message = "Você não tem permissão para editar usuários."
 
     def has_permission(self, request: Request, view) -> bool:
@@ -287,6 +313,7 @@ class CanEditUser(BasePermission):
         if not result:
             security_logger.warning(
                 "DRF_DENY CanEditUser user_id=%s path=%s",
-                request.user.id, request.path,
+                request.user.id,
+                request.path,
             )
         return result

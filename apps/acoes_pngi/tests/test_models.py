@@ -1,7 +1,10 @@
 """
+apps/acoes_pngi/tests/test_models.py
+
 Testes de constraints e estrutura dos models de acoes_pngi.
 Verifica integridade do banco diretamente via SQL.
 """
+
 import pytest
 from django.db import connection
 
