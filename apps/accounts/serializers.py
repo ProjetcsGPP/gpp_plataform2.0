@@ -47,8 +47,11 @@ from rest_framework import serializers
 
 from .models import (
     Aplicacao,
+    Capability,
     ClassificacaoUsuario,
+    Menu,
     Role,
+    RoleCapability,
     StatusUsuario,
     TipoUsuario,
     UserPermissionOverride,
@@ -279,6 +282,95 @@ class RoleSerializer(serializers.ModelSerializer):
             "group_id",
             "group_name",
         ]
+
+
+# ─── Recursos funcionais / navegação ────────────────────────────────────────
+
+
+class CapabilitySerializer(serializers.ModelSerializer):
+    """Representação somente leitura de uma capability funcional."""
+
+    aplicacao_id = serializers.IntegerField(
+        source="aplicacao.idaplicacao", read_only=True
+    )
+    aplicacao_codigo = serializers.CharField(
+        source="aplicacao.codigointerno", read_only=True
+    )
+
+    class Meta:
+        model = Capability
+        fields = [
+            "id",
+            "codigo",
+            "nome",
+            "descricao",
+            "ativo",
+            "aplicacao_id",
+            "aplicacao_codigo",
+        ]
+        read_only_fields = fields
+
+
+class RoleCapabilitySerializer(serializers.ModelSerializer):
+    """Representa a distribuição funcional de uma capability para uma role."""
+
+    aplicacao_codigo = serializers.CharField(
+        source="aplicacao.codigointerno", read_only=True
+    )
+    role_codigo = serializers.CharField(source="role.codigoperfil", read_only=True)
+    capability_codigo = serializers.CharField(
+        source="capability.codigo", read_only=True
+    )
+
+    class Meta:
+        model = RoleCapability
+        fields = [
+            "id",
+            "aplicacao",
+            "aplicacao_codigo",
+            "role",
+            "role_codigo",
+            "capability",
+            "capability_codigo",
+        ]
+        read_only_fields = fields
+
+
+class MenuSerializer(serializers.ModelSerializer):
+    """Item de navegação com filhos montados em memória pela view."""
+
+    aplicacao_codigo = serializers.CharField(
+        source="aplicacao.codigointerno", read_only=True
+    )
+    capability = serializers.SlugRelatedField(
+        slug_field="codigo",
+        read_only=True,
+        allow_null=True,
+    )
+    children = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Menu
+        fields = [
+            "id",
+            "codigo",
+            "nome",
+            "descricao",
+            "rota",
+            "icone",
+            "ordem",
+            "ativo",
+            "aplicacao_codigo",
+            "parent",
+            "capability",
+            "children",
+        ]
+        read_only_fields = fields
+
+    def get_children(self, obj) -> list[dict]:
+        children_by_parent = self.context.get("children_by_parent", {})
+        children = children_by_parent.get(obj.pk, [])
+        return MenuSerializer(children, many=True, context=self.context).data
 
 
 # ─── UserRole ─────────────────────────────────────────────────────────────────────────

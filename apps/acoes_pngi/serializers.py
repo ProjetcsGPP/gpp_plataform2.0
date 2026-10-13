@@ -25,7 +25,7 @@ from .models import (
 
 
 # ---------------------------------------------------------------------------
-# Serializers de referência (sem AuditableModel)
+# Serializers de referência
 # ---------------------------------------------------------------------------
 
 class EixoSerializer(serializers.ModelSerializer):
@@ -55,7 +55,24 @@ class EixoSerializer(serializers.ModelSerializer):
 class SituacaoAcaoSerializer(serializers.ModelSerializer):
     class Meta:
         model = SituacaoAcao
-        fields = ["idsituacaoacao", "strdescricaosituacao"]
+        fields = [
+            "idsituacaoacao",
+            "strdescricaosituacao",
+            "created_by_id",
+            "created_by_name",
+            "updated_by_id",
+            "updated_by_name",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "created_by_id",
+            "created_by_name",
+            "updated_by_id",
+            "updated_by_name",
+            "created_at",
+            "updated_at",
+        ]
 
 
 class TipoEntraveAlertaSerializer(serializers.ModelSerializer):

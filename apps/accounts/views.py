@@ -58,6 +58,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.db import DatabaseError, IntegrityError, OperationalError, transaction
+from django.db.models import Q
 from django.middleware.csrf import rotate_token
 from django.utils import timezone as dj_timezone
 from drf_spectacular.utils import (
@@ -68,7 +69,7 @@ from drf_spectacular.utils import (
     inline_serializer,
 )
 from rest_framework import serializers as drf_serializers
-from rest_framework import status, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -88,6 +89,8 @@ from common.schema import tag_all_actions
 from .models import (
     AccountsSession,
     Aplicacao,
+    Capability,
+    Menu,
     Role,
     UserAuthzState,
     UserPermissionOverride,
@@ -97,6 +100,8 @@ from .models import (
 from .serializers import (
     AplicacaoPublicaSerializer,
     AplicacaoSerializer,
+    CapabilitySerializer,
+    MenuSerializer,
     MePermissionSerializer,
     MeSerializer,
     RoleSerializer,
@@ -3330,3 +3335,153 @@ class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):
             isappproductionready=True,
             idaplicacao__in=user_app_ids,
         ).order_by("nomeaplicacao")
+
+
+# ─── Recursos funcionais / navegação ────────────────────────────────────────
+
+
+class FunctionalResourceScopeMixin:
+    """Escopo comum dos recursos funcionais para a aplicação da request."""
+
+    permission_classes = [IsAuthenticated, HasRolePermission]
+    pagination_class = None
+    http_method_names = ["get", "head", "options"]
+
+    def get_application(self):
+        return getattr(self.request, "application", None)
+
+    def is_privileged(self) -> bool:
+        user = self.request.user
+        return bool(
+            user.is_superuser or getattr(self.request, "is_portal_admin", False)
+        )
+
+    def get_role_ids(self):
+        application = self.get_application()
+        if application is None:
+            return Role.objects.none().values_list("pk", flat=True)
+        return UserRole.objects.filter(
+            user=self.request.user,
+            aplicacao=application,
+        ).values_list("role_id", flat=True)
+
+    def get_capability_queryset(self):
+        application = self.get_application()
+        if application is None:
+            return Capability.objects.none()
+
+        queryset = Capability.objects.filter(
+            aplicacao=application,
+            ativo=True,
+        ).select_related("aplicacao")
+
+        if self.is_privileged():
+            return queryset
+
+        return queryset.filter(
+            role_capabilities__role_id__in=self.get_role_ids(),
+            role_capabilities__aplicacao=application,
+        ).distinct()
+
+
+@tag_all_actions("6 - Recursos Funcionais")
+class CapabilityViewSet(
+    FunctionalResourceScopeMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Capabilities ativas distribuídas ao usuário na aplicação atual."""
+
+    queryset = Capability.objects.all()
+    serializer_class = CapabilitySerializer
+
+    @extend_schema(
+        summary="Listar capabilities da aplicação atual",
+        description=(
+            "Retorna as capabilities funcionais ativas distribuídas à role do "
+            "usuário no `app_context` atual. Capabilities não substituem as "
+            "permissões técnicas do RBAC/ABAC."
+        ),
+        responses={200: CapabilitySerializer(many=True)},
+        tags=["6 - Recursos Funcionais"],
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return self.get_capability_queryset().order_by("codigo")
+
+
+@tag_all_actions("6 - Recursos Funcionais")
+class MenuViewSet(
+    FunctionalResourceScopeMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Árvore de navegação funcional da aplicação atual."""
+
+    queryset = Menu.objects.all()
+    serializer_class = MenuSerializer
+
+    @extend_schema(
+        summary="Obter navegação da aplicação atual",
+        description=(
+            "Retorna uma árvore de menus ativos do `app_context` atual. Menus "
+            "vinculados a capability somente aparecem quando essa capability "
+            "foi distribuída à role do usuário. A resposta não representa nem "
+            "substitui autorização técnica."
+        ),
+        responses={
+            200: inline_serializer(
+                name="MenuNavigationResponse",
+                fields={
+                    "app_context": drf_serializers.CharField(),
+                    "items": MenuSerializer(many=True),
+                },
+            )
+        },
+        tags=["6 - Recursos Funcionais"],
+    )
+    def list(self, request, *args, **kwargs):
+        application = self.get_application()
+        menus = list(self.get_queryset())
+        children_by_parent = {}
+
+        for menu in menus:
+            children_by_parent.setdefault(menu.parent_id, []).append(menu)
+
+        serializer = self.get_serializer(
+            children_by_parent.get(None, []),
+            many=True,
+            context={
+                **self.get_serializer_context(),
+                "children_by_parent": children_by_parent,
+            },
+        )
+        return Response(
+            {
+                "app_context": application.codigointerno if application else None,
+                "items": serializer.data,
+            }
+        )
+
+    def get_queryset(self):
+        application = self.get_application()
+        if application is None:
+            return Menu.objects.none()
+
+        queryset = (
+            Menu.objects.filter(aplicacao=application, ativo=True)
+            .select_related("aplicacao", "capability", "parent")
+            .order_by("parent_id", "ordem", "codigo")
+        )
+
+        if self.is_privileged():
+            return queryset.filter(
+                Q(capability__isnull=True) | Q(capability__ativo=True)
+            )
+
+        capability_ids = self.get_capability_queryset().values_list("pk", flat=True)
+        return queryset.filter(
+            Q(capability__isnull=True) | Q(capability_id__in=capability_ids)
+        )

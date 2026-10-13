@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import viewsets
+from rest_framework.filters import OrderingFilter
 from rest_framework.permissions import IsAuthenticated
 
 from apps.core.permissions import CanPermission
@@ -99,44 +100,138 @@ _ACAO_PK_PARAM = OpenApiParameter(
 
 
 # ---------------------------------------------------------------------------
+# Ordenação segura e determinística
+# ---------------------------------------------------------------------------
+
+
+class DeterministicOrderingFilter(OrderingFilter):
+    """Sanitiza a ordenação e acrescenta o desempate definido pela view."""
+
+    def get_ordering(self, request, queryset, view):
+        ordering = list(super().get_ordering(request, queryset, view) or [])
+        tie_breaker = view.ordering_tie_breaker
+
+        if not any(field.lstrip("-") == tie_breaker for field in ordering):
+            ordering.append(tie_breaker)
+
+        return ordering
+
+
+# ---------------------------------------------------------------------------
 # ViewSets de referência
 # ---------------------------------------------------------------------------
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="ordering",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Ordenação composta por campos separados por vírgula. "
+                    "Use o prefixo `-` para ordem decrescente. Campos permitidos: "
+                    "`strdescricaoeixo`, `stralias`, `updated_by_name`, "
+                    "`updated_at` e `ideixo`. O campo `ideixo` é acrescentado "
+                    "automaticamente como desempate quando omitido. Exemplos: "
+                    "`stralias`, `-updated_at` e "
+                    "`strdescricaoeixo,-updated_at,ideixo`."
+                ),
+            )
+        ]
+    )
+)
 @tag_all_actions("3 - Ações PNGI")
-class EixoViewSet(PermissionedViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class EixoViewSet(
+    PermissionedViewSetMixin,
+    AuditableMixin,
+    viewsets.ModelViewSet,
+):
     """
     Eixos temáticos do programa PNGI.
 
-    Atualmente somente leitura através da API.
+    Disponibiliza CRUD completo, com autorização por permissão efetiva e
+    preenchimento automático dos campos de auditoria nas escritas.
     """
 
     queryset = Eixo.objects.all()
     serializer_class = EixoSerializer
+    filter_backends = [DeterministicOrderingFilter]
+    ordering_fields = [
+        "strdescricaoeixo",
+        "stralias",
+        "updated_by_name",
+        "updated_at",
+        "ideixo",
+    ]
+    ordering = ["stralias", "ideixo"]
+    ordering_tie_breaker = "ideixo"
 
     permission_map = {
         "list": "view_eixo",
         "retrieve": "view_eixo",
+        "create": "add_eixo",
+        "update": "change_eixo",
+        "partial_update": "change_eixo",
+        "destroy": "delete_eixo",
     }
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="ordering",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Ordenação composta por campos separados por vírgula. "
+                    "Use o prefixo `-` para ordem decrescente. Campos permitidos: "
+                    "`strdescricaosituacao`, `updated_by_name`, `updated_at` e "
+                    "`idsituacaoacao`. O campo `idsituacaoacao` é acrescentado "
+                    "automaticamente como desempate quando omitido. Exemplos: "
+                    "`strdescricaosituacao`, `-updated_at` e "
+                    "`strdescricaosituacao,-updated_at,idsituacaoacao`."
+                ),
+            )
+        ]
+    )
+)
 @tag_all_actions("3 - Ações PNGI")
 class SituacaoAcaoViewSet(
     PermissionedViewSetMixin,
-    viewsets.ReadOnlyModelViewSet,
+    AuditableMixin,
+    viewsets.ModelViewSet,
 ):
     """
     Situações possíveis de uma Ação PNGI.
 
-    Atualmente somente leitura através da API.
+    Disponibiliza CRUD completo, com autorização por permissão efetiva,
+    auditoria automática e ordenação segura.
     """
 
     queryset = SituacaoAcao.objects.all()
     serializer_class = SituacaoAcaoSerializer
+    filter_backends = [DeterministicOrderingFilter]
+    ordering_fields = [
+        "strdescricaosituacao",
+        "updated_by_name",
+        "updated_at",
+        "idsituacaoacao",
+    ]
+    ordering = ["strdescricaosituacao", "idsituacaoacao"]
+    ordering_tie_breaker = "idsituacaoacao"
 
     permission_map = {
         "list": "view_situacaoacao",
         "retrieve": "view_situacaoacao",
+        "create": "add_situacaoacao",
+        "update": "change_situacaoacao",
+        "partial_update": "change_situacaoacao",
+        "destroy": "delete_situacaoacao",
     }
 
 

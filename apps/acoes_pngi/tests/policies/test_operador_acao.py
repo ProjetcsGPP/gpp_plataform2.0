@@ -1,5 +1,5 @@
 """
-Policy tests: OPERADOR_ACAO tem READ + WRITE, sem DELETE.
+Policy tests: OPERADOR_ACAO visualiza e atualiza ações, sem criar ou excluir.
 """
 import pytest
 
@@ -7,17 +7,17 @@ from apps.acoes_pngi.tests.conftest import ACOES_URL
 
 
 class TestOperadorAcao:
-    """OPERADOR_ACAO pode ler e escrever, mas nao pode deletar."""
+    """OPERADOR_ACAO pode ler e atualizar, mas nao criar ou deletar."""
 
     @pytest.mark.django_db(transaction=True)
     def test_pode_listar_acoes(self, client_operador):
         assert client_operador.get(ACOES_URL).status_code == 200
 
     @pytest.mark.django_db(transaction=True)
-    def test_pode_criar_acao(self, client_operador, payload_acao):
+    def test_nao_pode_criar_acao(self, client_operador, payload_acao):
         payload_acao["strapelido"] = "ACAO-OPER-POL"
         resp = client_operador.post(ACOES_URL, payload_acao, format="json")
-        assert resp.status_code == 201
+        assert resp.status_code == 403
 
     @pytest.mark.django_db(transaction=True)
     def test_pode_atualizar_acao(self, client_operador, acao):

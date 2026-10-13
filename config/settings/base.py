@@ -328,6 +328,10 @@ SPECTACULAR_SETTINGS = {
             "description": "Carga de organogramas e loteamentos",
         },
         {"name": "5 - Utilitários", "description": "Health check e logs de frontend"},
+        {
+            "name": "6 - Recursos Funcionais",
+            "description": "Capabilities e navegação funcional por aplicação",
+        },
     ],
     # Filtra paths que não devem aparecer na documentação
     "PREPROCESSING_HOOKS": [

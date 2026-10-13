@@ -217,23 +217,24 @@ Usam a mesma matriz de roles de `Acoes`.
 
 ### Matriz de Permissões Detalhada
 
-**Acoes, Eixo, SituacaoAcao, Prazos, Destaques, Anotações** (`_load_role_matrix`):
+**Ações** (`PermissionedViewSetMixin.permission_map`):
 
 | Role | READ | WRITE | DELETE |
 |---|---|---|---|
 | `GESTOR_PNGI` | ✅ | ✅ | ✅ |
 | `COORDENADOR_PNGI` | ✅ | ✅ | ❌ |
-| `OPERADOR_ACAO` | ✅ | ✅ | ❌ |
-| `CONSULTOR_PNGI` | ✅ | ❌ | ❌ |
+| `OPERADOR_ACAO` | ✅ | somente atualização | ❌ |
 
-**VigenciaPNGI** (`_load_vigencia_role_matrix`) — OPERADOR_ACAO só lê:
+**VigenciaPNGI** (`PermissionedViewSetMixin.permission_map`):
 
 | Role | READ | WRITE | DELETE |
 |---|---|---|---|
 | `GESTOR_PNGI` | ✅ | ✅ | ✅ |
-| `COORDENADOR_PNGI` | ✅ | ✅ | ❌ |
+| `COORDENADOR_PNGI` | ✅ | ❌ | ❌ |
 | `OPERADOR_ACAO` | ✅ | ❌ | ❌ |
-| `CONSULTOR_PNGI` | ✅ | ❌ | ❌ |
+
+Os demais recursos possuem mapas explícitos por ação nos respectivos ViewSets.
+`Capability` organiza a navegação funcional e não substitui essas permissões.
 
 ---
 
@@ -286,7 +287,6 @@ apps/acoes_pngi/tests/
     test_gestor_pngi.py
     test_coordenador_pngi.py
     test_operador_acao.py
-    test_consultor_pngi.py
 ```
 
 ### Regras Obrigatórias
@@ -297,7 +297,7 @@ apps/acoes_pngi/tests/
 
 # NUNCA force_authenticate ou force_login
 # SEMPRE autenticar via login real
-client.post("/api/accounts/auth/login/", {
+client.post("/api/accounts/login/", {
     "username": user.username,
     "password": "gpp@2026",
     "app_context": "ACOES_PNGI",
@@ -308,19 +308,18 @@ client.post("/api/accounts/auth/login/", {
 
 | Fixture | Descrição |
 |---|---|
-| `app_acoes_pngi` | `Aplicacao(codigointerno="ACOES_PNGI")` |
-| `role_gestor` | `Role(codigoperfil="GESTOR_PNGI")` |
-| `role_coordenador` | `Role(codigoperfil="COORDENADOR_PNGI")` |
-| `role_operador` | `Role(codigoperfil="OPERADOR_ACAO")` |
-| `role_consultor` | `Role(codigoperfil="CONSULTOR_PNGI")` |
-| `gestor_client` | `APIClient` autenticado como `GESTOR_PNGI` |
-| `consultor_client` | `APIClient` autenticado como `CONSULTOR_PNGI` |
+| `gestor_pngi` | Usuário com `Role(codigoperfil="GESTOR_PNGI")` |
+| `coordenador_pngi` | Usuário com `Role(codigoperfil="COORDENADOR_PNGI")` |
+| `operador_acao` | Usuário com `Role(codigoperfil="OPERADOR_ACAO")` |
+| `client_gestor` | `APIClient` autenticado como `GESTOR_PNGI` |
+| `client_coordenador` | `APIClient` autenticado como `COORDENADOR_PNGI` |
+| `client_operador` | `APIClient` autenticado como `OPERADOR_ACAO` |
 | `vigencia` | `VigenciaPNGI(strdescricao="PNGI 2025-2028", ...)` |
 | `acao` | `Acoes` básica vinculada à `vigencia` |
 
 ### Cenários Mínimos
 
-- 4 roles × 4 operações = 16 cenários de permissão
+- Cobertura das 3 roles vigentes nas operações permitidas e negadas
 - `401` para requisições sem autenticação
 - Confirmação de ausência de FK `auth_user` no banco (`tblacoes`)
 - Validação dos campos de auditoria via `information_schema`

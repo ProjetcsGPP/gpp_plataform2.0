@@ -31,7 +31,6 @@ Não são testados aqui:
 
 - _check_roles
 - matrizes de roles
-- CONSULTOR_PNGI
 - auth_user_groups como fonte de autorização
 - regras ABAC
 
@@ -91,6 +90,10 @@ class TestPermissionedViewSetMixin:
                 {
                     "list": "view_eixo",
                     "retrieve": "view_eixo",
+                    "create": "add_eixo",
+                    "update": "change_eixo",
+                    "partial_update": "change_eixo",
+                    "destroy": "delete_eixo",
                 },
             ),
             (
@@ -98,6 +101,10 @@ class TestPermissionedViewSetMixin:
                 {
                     "list": "view_situacaoacao",
                     "retrieve": "view_situacaoacao",
+                    "create": "add_situacaoacao",
+                    "update": "change_situacaoacao",
+                    "partial_update": "change_situacaoacao",
+                    "destroy": "delete_situacaoacao",
                 },
             ),
             (
@@ -165,8 +172,20 @@ class TestPermissionedViewSetMixin:
         [
             (EixoViewSet, "list", "view_eixo"),
             (EixoViewSet, "retrieve", "view_eixo"),
+            (EixoViewSet, "create", "add_eixo"),
+            (EixoViewSet, "update", "change_eixo"),
+            (EixoViewSet, "partial_update", "change_eixo"),
+            (EixoViewSet, "destroy", "delete_eixo"),
             (SituacaoAcaoViewSet, "list", "view_situacaoacao"),
             (SituacaoAcaoViewSet, "retrieve", "view_situacaoacao"),
+            (SituacaoAcaoViewSet, "create", "add_situacaoacao"),
+            (SituacaoAcaoViewSet, "update", "change_situacaoacao"),
+            (
+                SituacaoAcaoViewSet,
+                "partial_update",
+                "change_situacaoacao",
+            ),
+            (SituacaoAcaoViewSet, "destroy", "delete_situacaoacao"),
             (VigenciaPNGIViewSet, "list", "view_vigenciapngi"),
             (VigenciaPNGIViewSet, "retrieve", "view_vigenciapngi"),
             (VigenciaPNGIViewSet, "create", "add_vigenciapngi"),

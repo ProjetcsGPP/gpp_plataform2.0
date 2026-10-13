@@ -11,7 +11,7 @@ Cobre os grupos definidos na Issue #22:
 
 Referencia: docs/PERMISSIONS_ARCHITECTURE.md
   Regra: auth_user_user_permissions é a única fonte de verdade em runtime.
-  Fórmula: herdadas |= user_permissions |= grant -= revoke
+  Materialização: permissões herdadas + grants - revokes.
   ADR-PERM-01: auth_user_groups NÃO é populado neste sistema.
 """
 

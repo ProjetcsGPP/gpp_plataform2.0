@@ -28,12 +28,6 @@ def test_list_vigencias_gestor_retorna_200(client_gestor, vigencia):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_list_vigencias_consultor_retorna_200(client_consultor, vigencia):
-    resp = client_consultor.get(VIGENCIAS_URL)
-    assert resp.status_code == 200
-
-
-@pytest.mark.django_db(transaction=True)
 def test_create_vigencia_gestor_retorna_201(client_gestor):
     payload = {
         "strdescricao": "PNGI 2029-2032",
@@ -42,16 +36,6 @@ def test_create_vigencia_gestor_retorna_201(client_gestor):
     resp = client_gestor.post(VIGENCIAS_URL, payload, format="json")
     assert resp.status_code == 201
     assert resp.json()["strdescricao"] == "PNGI 2029-2032"
-
-
-@pytest.mark.django_db(transaction=True)
-def test_create_vigencia_consultor_retorna_403(client_consultor):
-    payload = {
-        "strdescricao": "PNGI 2033-2036",
-        "datiniciovigencia": "2033-01-01",
-    }
-    resp = client_consultor.post(VIGENCIAS_URL, payload, format="json")
-    assert resp.status_code == 403
 
 
 @pytest.mark.django_db(transaction=True)

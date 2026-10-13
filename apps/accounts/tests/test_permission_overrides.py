@@ -1,18 +1,13 @@
 """
-Testes das 3 lacunas de cobertura identificadas na auditoria (Issue #14).
+Testes de integração entre overrides e permissões materializadas.
 
 Lacuna 1: override ``grant`` — permissão não herdada pela role é concedida
 Lacuna 2: override ``revoke`` — permissão da role é removida
 Lacuna 3: ``user.user_permissions`` diretas são incluídas no set final
 
-Estratégia:
-  - Banco real (pytest.mark.django_db) — sem mocks no service.
-  - auth.Permission criada via ContentType genérico (ContentType do próprio
-    modelo User) para não depender de ContentType específico da aplicação.
-  - cache.clear() antes de cada teste para garantir cache miss.
-  - UserPermissionOverride criado via .objects.create() (invoca full_clean).
-  - Cada teste verifica o comportamento positivo E o negativo quando
-    relevança (ex: sem override a permissão NÃO aparece; com override, aparece).
+O AuthorizationService consulta exclusivamente auth_user_user_permissions.
+Por isso, alterações diretas em UserPermissionOverride feitas nestes testes
+precisam passar pelo orquestrador oficial antes da verificação em runtime.
 """
 
 import pytest
@@ -22,6 +17,7 @@ from django.core.cache import cache
 
 from apps.accounts.models import UserPermissionOverride
 from apps.accounts.services.authorization_service import AuthorizationService
+from apps.accounts.services.permission_sync import sync_user_permissions
 
 # CORRIGIDO (Issue #22 Falha 2): pytestmark no nível de módulo não é herdado
 # por classes em pytest — o marcador precisa estar em cada classe ou método.
@@ -36,6 +32,11 @@ def _make_permission(codename: str, name: str = None) -> Permission:
         defaults={"name": name or codename},
     )
     return perm
+
+
+def _sync(user) -> None:
+    sync_user_permissions(user)
+    cache.clear()
 
 
 @pytest.mark.django_db
@@ -60,7 +61,7 @@ class TestOverrideGrant:
             mode=UserPermissionOverride.MODE_GRANT,
             defaults={"source": "teste lacuna 1"},
         )
-        cache.clear()
+        _sync(gestor_pngi)
         service = AuthorizationService(gestor_pngi)
         perms = service._load_permissions()
         assert "perm_exclusiva_grant_test" in perms
@@ -73,7 +74,7 @@ class TestOverrideGrant:
             mode=UserPermissionOverride.MODE_GRANT,
             defaults={"source": "teste can + grant"},
         )
-        cache.clear()
+        _sync(gestor_pngi)
         service = AuthorizationService(gestor_pngi)
         assert service.can("perm_can_grant_test") is True
 
@@ -85,7 +86,7 @@ class TestOverrideGrant:
             mode=UserPermissionOverride.MODE_GRANT,
             defaults={"source": "isolamento"},
         )
-        cache.clear()
+        _sync(gestor_pngi)
         service_outro = AuthorizationService(operador_acao)
         perms = service_outro._load_permissions()
         assert "perm_isolada_por_usuario" not in perms
@@ -126,7 +127,7 @@ class TestOverrideRevoke:
             mode=UserPermissionOverride.MODE_REVOKE,
             defaults={"source": "teste lacuna 2"},
         )
-        cache.clear()
+        _sync(gestor_pngi)
         service = AuthorizationService(gestor_pngi)
         perms = service._load_permissions()
         assert "perm_herdada_revoke_test" not in perms
@@ -139,7 +140,7 @@ class TestOverrideRevoke:
             mode=UserPermissionOverride.MODE_REVOKE,
             defaults={"source": "teste can + revoke"},
         )
-        cache.clear()
+        _sync(gestor_pngi)
         service = AuthorizationService(gestor_pngi)
         assert service.can("perm_can_revoke_test") is False
 
@@ -154,6 +155,7 @@ class TestOverrideRevoke:
         )
         if op_role and op_role.role.group:
             op_role.role.group.permissions.add(perm)
+            _sync(operador_acao)
 
         UserPermissionOverride.objects.get_or_create(
             user=gestor_pngi,
@@ -161,7 +163,7 @@ class TestOverrideRevoke:
             mode=UserPermissionOverride.MODE_REVOKE,
             defaults={"source": "isolamento revoke"},
         )
-        cache.clear()
+        _sync(gestor_pngi)
         service_outro = AuthorizationService(operador_acao)
         perms = service_outro._load_permissions()
         assert "perm_revoke_isolamento" in perms
@@ -215,7 +217,7 @@ class TestUserPermissoesDiretas:
             mode=UserPermissionOverride.MODE_REVOKE,
             defaults={"source": "revoke sobre direta"},
         )
-        cache.clear()
+        _sync(operador_acao)
         service = AuthorizationService(operador_acao)
         perms = service._load_permissions()
         assert "perm_direta_override_revoke" not in perms
@@ -247,7 +249,7 @@ class TestInteracaoFontes:
             mode=UserPermissionOverride.MODE_GRANT,
             defaults={"source": "união teste"},
         )
-        cache.clear()
+        _sync(gestor_pngi)
         service = AuthorizationService(gestor_pngi)
         perms = service._load_permissions()
         assert "perm_grupo_union" in perms
@@ -271,7 +273,7 @@ class TestInteracaoFontes:
             mode=UserPermissionOverride.MODE_REVOKE,
             defaults={"source": "revoke vence grupo"},
         )
-        cache.clear()
+        _sync(gestor_pngi)
         service = AuthorizationService(gestor_pngi)
         perms = service._load_permissions()
         assert "perm_revoke_vence_grupo" not in perms
@@ -285,7 +287,7 @@ class TestInteracaoFontes:
             mode=UserPermissionOverride.MODE_REVOKE,
             defaults={"source": "revoke vence direta"},
         )
-        cache.clear()
+        _sync(operador_acao)
         service = AuthorizationService(operador_acao)
         perms = service._load_permissions()
         assert "perm_revoke_vence_direta" not in perms
@@ -304,7 +306,7 @@ class TestInteracaoFontes:
             mode=UserPermissionOverride.MODE_GRANT,
             defaults={"source": "pós-cache"},
         )
-        cache.clear()
+        _sync(gestor_pngi)
 
         service2 = AuthorizationService(gestor_pngi)
         perms2 = service2._load_permissions()

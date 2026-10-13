@@ -758,7 +758,7 @@ class Menu(models.Model):
         help_text="Código interno único do item de menu na aplicação.",
     )
     nome = models.CharField(
-        max_length=200,
+        max_length=30,
         help_text="Texto apresentado no menu.",
     )
     descricao = models.TextField(

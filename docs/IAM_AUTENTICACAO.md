@@ -317,12 +317,12 @@ Ver detalhes completos em [`ACOES_PNGI.md`](./ACOES_PNGI.md).
 |---|---|---|---|
 | `GESTOR_PNGI` | ✅ | ✅ | ✅ |
 | `COORDENADOR_PNGI` | ✅ | ✅ | ❌ |
-| `OPERADOR_ACAO` | ✅ | ✅ | ❌ |
-| `CONSULTOR_PNGI` | ✅ | ❌ | ❌ |
+| `OPERADOR_ACAO` | ✅ | somente atualização | ❌ |
 | (sem role) | ❌ | ❌ | ❌ |
 
-> `OPERADOR_ACAO` pode escrever `Acoes` mas **não pode escrever `VigenciaPNGI`**
-> (vigências são domínio exclusivo de `GESTOR_PNGI` e `COORDENADOR_PNGI`).
+> `OPERADOR_ACAO` pode atualizar ações no escopo permitido, mas não pode
+> criá-las. Configurações como `VigenciaPNGI` são administradas somente por
+> `GESTOR_PNGI`; coordenador e operador possuem apenas leitura nesse recurso.
 
 ---
 

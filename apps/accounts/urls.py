@@ -5,11 +5,13 @@ from .views import (
     AplicacaoPublicaViewSet,
     AplicacaoViewSet,
     AuthzVersionView,
+    CapabilityViewSet,
     LoginView,
     LogoutAppView,
     LogoutView,
     MePermissionView,
     MeView,
+    MenuViewSet,
     ResolveUserView,
     RoleViewSet,
     SwitchAppView,
@@ -29,6 +31,8 @@ router = DefaultRouter()
 router.register(r"aplicacoes", AplicacaoViewSet, basename="aplicacao")
 router.register(r"profiles", UserProfileViewSet, basename="userprofile")
 router.register(r"roles", RoleViewSet, basename="role")
+router.register(r"capabilities", CapabilityViewSet, basename="capability")
+router.register(r"menus", MenuViewSet, basename="menu")
 router.register(r"user-roles", UserRoleViewSet, basename="userrole")
 router.register(
     r"permission-overrides",

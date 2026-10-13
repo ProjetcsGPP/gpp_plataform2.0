@@ -86,7 +86,7 @@ class AuthorizationMiddlewareTest(TestCase):
         """Caso 6: Usuário sem nenhuma role requerida → 403."""
         mock_user = MagicMock()
         mock_user.id = 4
-        roles = [_make_user_role("CONSULTOR_PNGI")]  # não está na lista requerida
+        roles = [_make_user_role("OUTRA_ROLE")]  # não está na lista requerida
         request = self._make_request(path="/api/acoes-pngi/listar/", user=mock_user, user_roles=roles)
         with self.assertLogs("gpp.security", level="WARNING") as log_ctx:
             response = self.middleware(request)

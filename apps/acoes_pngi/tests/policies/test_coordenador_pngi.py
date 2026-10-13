@@ -1,5 +1,5 @@
 """
-Policy tests: COORDENADOR_PNGI tem READ + WRITE, sem DELETE.
+Policy tests: COORDENADOR_PNGI gerencia ações, não configura vigências.
 """
 import pytest
 
@@ -37,7 +37,7 @@ class TestCoordenadorPNGI:
         assert client_coordenador.delete(f"{VIGENCIAS_URL}{vigencia.pk}/").status_code == 403
 
     @pytest.mark.django_db(transaction=True)
-    def test_pode_criar_vigencia(self, client_coordenador):
+    def test_nao_pode_criar_vigencia(self, client_coordenador):
         payload = {"strdescricao": "PNGI Coord", "datiniciovigencia": "2028-01-01"}
         resp = client_coordenador.post(VIGENCIAS_URL, payload, format="json")
-        assert resp.status_code == 201
+        assert resp.status_code == 403

@@ -43,13 +43,6 @@ def test_list_acoes_gestor_retorna_200(client_gestor):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_list_acoes_consultor_retorna_200(client_consultor):
-    """CONSULTOR_PNGI pode listar acoes."""
-    resp = client_consultor.get(ACOES_URL)
-    assert resp.status_code == 200
-
-
-@pytest.mark.django_db(transaction=True)
 def test_list_acoes_retorna_lista(client_gestor, acao):
     """
     List deve retornar estrutura paginada valida com pelo menos 1 item.
@@ -87,13 +80,6 @@ def test_retrieve_acao_gestor(client_gestor, acao):
     assert resp.json()["idacao"] == acao.pk
 
 
-@pytest.mark.django_db(transaction=True)
-def test_retrieve_acao_consultor(client_consultor, acao):
-    """CONSULTOR_PNGI pode recuperar acao (read-only)."""
-    resp = client_consultor.get(f"{ACOES_URL}{acao.pk}/")
-    assert resp.status_code == 200
-
-
 # ---------------------------------------------------------------------------
 # Create
 # ---------------------------------------------------------------------------
@@ -115,17 +101,10 @@ def test_create_acao_coordenador_retorna_201(client_coordenador, payload_acao):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_create_acao_operador_retorna_201(client_operador, payload_acao):
-    """OPERADOR_ACAO pode criar Acao."""
+def test_create_acao_operador_retorna_403(client_operador, payload_acao):
+    """OPERADOR_ACAO não pode criar Acao."""
     payload_acao["strapelido"] = "ACAO-OPER-001"
     resp = client_operador.post(ACOES_URL, payload_acao, format="json")
-    assert resp.status_code == 201
-
-
-@pytest.mark.django_db(transaction=True)
-def test_create_acao_consultor_retorna_403(client_consultor, payload_acao):
-    """CONSULTOR_PNGI NAO pode criar Acao — 403."""
-    resp = client_consultor.post(ACOES_URL, payload_acao, format="json")
     assert resp.status_code == 403
 
 
@@ -184,17 +163,6 @@ def test_partial_update_acao_operador_retorna_200(client_operador, acao):
     assert resp.status_code == 200
 
 
-@pytest.mark.django_db(transaction=True)
-def test_update_acao_consultor_retorna_403(client_consultor, acao):
-    """CONSULTOR_PNGI NAO pode atualizar Acao — 403."""
-    resp = client_consultor.patch(
-        f"{ACOES_URL}{acao.pk}/",
-        {"strdescricaoentrega": "tentativa"},
-        format="json",
-    )
-    assert resp.status_code == 403
-
-
 # ---------------------------------------------------------------------------
 # Destroy
 # ---------------------------------------------------------------------------
@@ -217,11 +185,4 @@ def test_delete_acao_operador_retorna_403(client_operador, acao):
 def test_delete_acao_coordenador_retorna_403(client_coordenador, acao):
     """COORDENADOR_PNGI NAO pode deletar Acao — 403."""
     resp = client_coordenador.delete(f"{ACOES_URL}{acao.pk}/")
-    assert resp.status_code == 403
-
-
-@pytest.mark.django_db(transaction=True)
-def test_delete_acao_consultor_retorna_403(client_consultor, acao):
-    """CONSULTOR_PNGI NAO pode deletar Acao — 403."""
-    resp = client_consultor.delete(f"{ACOES_URL}{acao.pk}/")
     assert resp.status_code == 403

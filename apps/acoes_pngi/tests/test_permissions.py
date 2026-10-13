@@ -25,8 +25,6 @@ OPERADOR_ACAO
   - pode alterar Acoes somente quando o escopo ABAC permitir
   - nao pode excluir Acoes
 
-CONSULTOR_PNGI
-  - nao existe mais
 """
 
 import pytest
