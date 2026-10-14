@@ -10,6 +10,7 @@ O que faz:
   3. Cria UserProfile para o superuser (caso não exista)
   4. Atribui a role PORTAL_ADMIN ao superuser na aplicação 'portal'
   5. Atribui permissões (por codename) a cada auth.Group — idempotente
+  6. Sincroniza capabilities, role capabilities e menus
 
 Uso:
     python manage.py setup_gpp
@@ -73,10 +74,22 @@ GROUP_PERMISSIONS = {
         "view_produto",
         "add_produtohistorico", "change_produtohistorico", "delete_produtohistorico", "view_produtohistorico",
     ],
-    # OPERADOR_ACAO e GESTOR_CARGA: sem permissões definidas ainda.
-    # Adicione os codenames aqui quando a matriz for definida.
+    # OPERADOR_ACAO permanece sem permissões próprias nesta etapa.
     "OPERADOR_ACAO": [],
-    "GESTOR_CARGA": [],
+    "GESTOR_CARGA": [
+        "add_statuscarga", "change_statuscarga", "delete_statuscarga", "view_statuscarga",
+        "add_statusprogresso", "change_statusprogresso", "delete_statusprogresso", "view_statusprogresso",
+        "add_tipocarga", "change_tipocarga", "delete_tipocarga", "view_tipocarga",
+        "add_patriarca", "change_patriarca", "delete_patriarca", "view_patriarca",
+        "add_importacaoplanilha", "change_importacaoplanilha",
+        "delete_importacaoplanilha", "view_importacaoplanilha",
+        "add_itemorganograma", "change_itemorganograma",
+        "delete_itemorganograma", "view_itemorganograma",
+        "add_tokenenviocarga", "change_tokenenviocarga",
+        "delete_tokenenviocarga", "view_tokenenviocarga",
+        "add_detalhestatuscarga", "change_detalhestatuscarga",
+        "delete_detalhestatuscarga", "view_detalhestatuscarga",
+    ],
 }
 
 
@@ -89,7 +102,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING("=" * 60))
 
         # ── 1. Carregar fixture ───────────────────────────────────────────
-        self.stdout.write("\n[1/5] Carregando fixture initial_data.json...")
+        self.stdout.write("\n[1/6] Carregando fixture initial_data.json...")
         call_command(
             "loaddata",
             "apps/accounts/fixtures/initial_data.json",
@@ -98,7 +111,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("    ✔ Fixture carregada."))
 
         # ── 2. Criar superuser ────────────────────────────────────────────
-        self.stdout.write("\n[2/5] Verificando superuser...")
+        self.stdout.write("\n[2/6] Verificando superuser...")
         username = os.environ.get("GPP_ADMIN_USERNAME", "admin")
         email = os.environ.get("GPP_ADMIN_EMAIL", "admin@gpp.local")
         password = os.environ.get("GPP_ADMIN_PASSWORD")
@@ -124,7 +137,7 @@ class Command(BaseCommand):
             self.stdout.write(f"    • Superuser '{username}' já existe (mantido).")
 
         # ── 3. Criar UserProfile ──────────────────────────────────────────
-        self.stdout.write("\n[3/5] Verificando UserProfile do superuser...")
+        self.stdout.write("\n[3/6] Verificando UserProfile do superuser...")
         from apps.accounts.models import UserProfile
 
         profile, profile_created = UserProfile.objects.get_or_create(
@@ -142,7 +155,7 @@ class Command(BaseCommand):
             self.stdout.write("    • UserProfile já existe (mantido).")
 
         # ── 4. Atribuir role PORTAL_ADMIN ─────────────────────────────────
-        self.stdout.write("\n[4/5] Atribuindo role PORTAL_ADMIN ao superuser...")
+        self.stdout.write("\n[4/6] Atribuindo role PORTAL_ADMIN ao superuser...")
         from apps.accounts.models import Aplicacao, Role, UserRole
 
         try:
@@ -163,7 +176,7 @@ class Command(BaseCommand):
             )
 
         # ── 5. Seed de permissões por grupo (via codename) ────────────────
-        self.stdout.write("\n[5/5] Sincronizando permissões dos grupos...")
+        self.stdout.write("\n[5/6] Sincronizando permissões dos grupos...")
         from django.contrib.auth.models import Group, Permission
 
         total_atribuidas = 0
@@ -202,6 +215,10 @@ class Command(BaseCommand):
                 self.stdout.write(
                     self.style.SUCCESS(f"    ✔ {group_name}: {encontradas} permissão(ões) atribuída(s).")
                 )
+
+        # ── 6. Sincronizar recursos funcionais e menus ───────────────────
+        self.stdout.write("\n[6/6] Sincronizando recursos funcionais e menus...")
+        call_command("seed_functional_resources")
 
         # ── Resumo ────────────────────────────────────────────────────────
         from apps.accounts.models import Aplicacao, Role, UserRole

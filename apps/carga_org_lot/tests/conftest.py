@@ -46,6 +46,45 @@ def _ensure_base_data_carga(db):
     _bootstrap_all()
 
 
+@pytest.fixture(autouse=True)
+def _clean_carga_org_lot_tables(_ensure_base_data_carga):
+    """
+    Isola as tabelas do schema ``carga_org_lot`` entre os testes.
+
+    O ``flush`` padrão do Django inspeciona apenas o search path principal e
+    não encontra de forma confiável tabelas cujo ``db_table`` contém o schema
+    explicitamente. A limpeza manual evita vazamento de registros no banco de
+    teste reutilizado por ``--reuse-db``.
+    """
+    from apps.carga_org_lot.models import (
+        DetalheStatusCarga,
+        ImportacaoPlanilha,
+        ItemOrganograma,
+        Patriarca,
+        StatusCarga,
+        StatusProgresso,
+        TipoCarga,
+        TokenEnvioCarga,
+    )
+
+    def clean():
+        DetalheStatusCarga.objects.all().delete()
+        TokenEnvioCarga.objects.all().delete()
+        ItemOrganograma.objects.all().delete()
+        ImportacaoPlanilha.objects.filter(
+            idimportacaoorganograma__isnull=False
+        ).delete()
+        ImportacaoPlanilha.objects.all().delete()
+        Patriarca.objects.all().delete()
+        StatusCarga.objects.all().delete()
+        TipoCarga.objects.all().delete()
+        StatusProgresso.objects.all().delete()
+
+    clean()
+    yield
+    clean()
+
+
 @pytest.fixture
 def gestor_carga_lot(db):
     """Usuário com perfil GESTOR_CARGA (Role pk=6, CARGA_ORG_LOT)."""

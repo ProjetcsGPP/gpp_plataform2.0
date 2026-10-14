@@ -39,10 +39,11 @@ def gpp_exception_handler(exc, context):
         )
 
     if response is not None:
+        errors = getattr(exc, "structured_errors", response.data)
         response.data = {
             "success": False,
             "status_code": response.status_code,
-            "errors": response.data,
+            "errors": errors,
         }
 
     return response

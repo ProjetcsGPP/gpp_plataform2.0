@@ -130,6 +130,12 @@ DATABASES = {
 
 DATABASE_ROUTERS = ["config.routers.SchemaRouter"]
 
+# Limite de cada planilha armazenada no banco pela aplicação Carga Org/Lot.
+CARGA_ORG_LOT_MAX_UPLOAD_BYTES = env.int(
+    "CARGA_ORG_LOT_MAX_UPLOAD_BYTES",
+    default=20 * 1024 * 1024,
+)
+
 # ─── Cache (Memcached) ──────────────────────────────────────────────────────────────
 CACHES = {
     "default": {
