@@ -26,3 +26,19 @@ class OrganogramSheetSelectionRequired(APIException):
     def __init__(self, report: dict):
         self.structured_errors = {"arquivo": report}
         super().__init__(self.default_detail, self.default_code)
+
+
+class SubtreeDeletionConfirmationRequired(APIException):
+    """Exige confirmação explícita antes de excluir uma subárvore."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "confirmacao_exclusao_subarvore_obrigatoria"
+    default_detail = "A unidade possui unidades subordinadas. Confirme a exclusão."
+
+    def __init__(self, impact: dict):
+        self.structured_errors = {
+            "code": self.default_code,
+            "message": self.default_detail,
+            "impacto": impact,
+        }
+        super().__init__(self.default_detail, self.default_code)

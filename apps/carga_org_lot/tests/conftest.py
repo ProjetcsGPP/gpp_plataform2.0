@@ -57,10 +57,23 @@ def _clean_carga_org_lot_tables(_ensure_base_data_carga):
     teste reutilizado por ``--reuse-db``.
     """
     from apps.carga_org_lot.models import (
+        AlternativaResolucaoValidacao,
+        CasoValidacaoImportacao,
+        ConjuntoLotacao,
         DetalheStatusCarga,
+        EnvioOrganogramaProdest,
+        EventoIntegracaoProdest,
+        HistoricoProcessoCargaInicial,
+        HistoricoConjuntoLotacao,
         ImportacaoPlanilha,
+        ItemLotacao,
+        ItemLotacaoImportado,
         ItemOrganograma,
+        OcorrenciaValidacaoImportacao,
         Patriarca,
+        ProcessoCargaInicial,
+        RelatorioValidacaoImportacao,
+        ResolucaoValidacao,
         StatusCarga,
         StatusProgresso,
         TipoCarga,
@@ -70,11 +83,25 @@ def _clean_carga_org_lot_tables(_ensure_base_data_carga):
     def clean():
         DetalheStatusCarga.objects.all().delete()
         TokenEnvioCarga.objects.all().delete()
+        EventoIntegracaoProdest.objects.all().delete()
+        EnvioOrganogramaProdest.objects.all().delete()
+        ResolucaoValidacao.objects.all().delete()
+        AlternativaResolucaoValidacao.objects.all().delete()
+        CasoValidacaoImportacao.objects.all().delete()
+        ItemLotacao.objects.all().delete()
+        ItemLotacaoImportado.objects.all().delete()
+        OcorrenciaValidacaoImportacao.objects.all().delete()
+        RelatorioValidacaoImportacao.objects.all().delete()
+        HistoricoConjuntoLotacao.objects.all().delete()
         ItemOrganograma.objects.all().delete()
         ImportacaoPlanilha.objects.filter(
             idimportacaoorganograma__isnull=False
         ).delete()
+        ConjuntoLotacao.objects.update(idconjuntoanterior=None)
+        ConjuntoLotacao.objects.all().delete()
         ImportacaoPlanilha.objects.all().delete()
+        HistoricoProcessoCargaInicial.objects.all().delete()
+        ProcessoCargaInicial.objects.all().delete()
         Patriarca.objects.all().delete()
         StatusCarga.objects.all().delete()
         TipoCarga.objects.all().delete()

@@ -42,6 +42,8 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[])
 
 # ─── Applications ───────────────────────────────────────────────────────────
 DJANGO_APPS = [
+    # Deve preceder staticfiles para fornecer o runserver ASGI.
+    "daphne",
     # "django.contrib.admin",
     "common.admin_config.PortalAdminConfig",
     "django.contrib.auth",
@@ -52,6 +54,7 @@ DJANGO_APPS = [
 ]
 
 THIRD_PARTY_APPS = [
+    "channels",
     "rest_framework",
     "corsheaders",
     "django_extensions",
@@ -135,6 +138,67 @@ CARGA_ORG_LOT_MAX_UPLOAD_BYTES = env.int(
     "CARGA_ORG_LOT_MAX_UPLOAD_BYTES",
     default=20 * 1024 * 1024,
 )
+
+# Integração servidor-servidor com o CargaRH/PRODEST. As credenciais nunca
+# devem ser persistidas nos modelos nem devolvidas ao frontend.
+CARGARH_ENVIRONMENT = env("CARGARH_ENVIRONMENT", default="HML").upper()
+CARGARH_TOKEN_URL = env("CARGARH_TOKEN_URL", default="").strip()
+CARGARH_API_BASE_URL = env("CARGARH_API_BASE_URL", default="").strip().rstrip("/")
+CARGARH_CLIENT_ID = env("CARGARH_CLIENT_ID", default="").strip()
+CARGARH_CLIENT_SECRET = env("CARGARH_CLIENT_SECRET", default="").strip()
+CARGARH_CLIENT_SCOPE = env("CARGARH_CLIENT_SCOPE", default="").strip()
+CARGARH_TARGET_ENVIRONMENT = env(
+    "CARGARH_TARGET_ENVIRONMENT",
+    default="",
+).strip()
+CARGARH_CONNECT_TIMEOUT_SECONDS = env.float(
+    "CARGARH_CONNECT_TIMEOUT_SECONDS",
+    default=10,
+)
+CARGARH_READ_TIMEOUT_SECONDS = env.float(
+    "CARGARH_READ_TIMEOUT_SECONDS",
+    default=60,
+)
+CARGARH_TOKEN_SAFETY_MARGIN_SECONDS = env.int(
+    "CARGARH_TOKEN_SAFETY_MARGIN_SECONDS",
+    default=60,
+)
+CARGARH_GET_MAX_RETRIES = env.int("CARGARH_GET_MAX_RETRIES", default=2)
+CARGARH_RETRY_BACKOFF_SECONDS = env.float(
+    "CARGARH_RETRY_BACKOFF_SECONDS",
+    default=0.5,
+)
+
+# Processamento assíncrono e atualização em tempo real da Carga Org/Lot.
+CELERY_BROKER_URL = env(
+    "CELERY_BROKER_URL",
+    default="redis://127.0.0.1:6379/0",
+)
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_SERIALIZER = "json"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TIMEZONE = "America/Sao_Paulo"
+CARGA_ORG_LOT_MONITOR_INTERVAL_SECONDS = env.int(
+    "CARGA_ORG_LOT_MONITOR_INTERVAL_SECONDS",
+    default=60,
+)
+CELERY_BEAT_SCHEDULE = {
+    "monitorar-envios-organograma-prodest": {
+        "task": "carga_org_lot.monitorar_envios_organograma",
+        "schedule": CARGA_ORG_LOT_MONITOR_INTERVAL_SECONDS,
+    }
+}
+
+CHANNEL_REDIS_URL = env(
+    "CHANNEL_REDIS_URL",
+    default="redis://127.0.0.1:6379/1",
+)
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {"hosts": [CHANNEL_REDIS_URL]},
+    }
+}
 
 # ─── Cache (Memcached) ──────────────────────────────────────────────────────────────
 CACHES = {
@@ -372,6 +436,7 @@ APPLICATION_DOMAIN_MAP = {
 # Prefixos: qualquer path que COMECE com estes valores é liberado pelo
 # AuthorizationMiddleware sem checagem de autenticação/roles.
 AUTHORIZATION_EXEMPT_PATHS = [
+    "/api/public/carga-org-lot/dashboard/",
     "/api/accounts/login/",  # login via sessão
     "/api/accounts/logout/",  # logout (IsAuthenticated no DRF, mas sem roles)
     "/api/accounts/auth/",  # AplicacaoPublicaViewSet (AllowAny) — seletor de login

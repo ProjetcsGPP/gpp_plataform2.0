@@ -12,6 +12,10 @@ import pandas as pd
 
 
 ORGANOGRAMA_TYPE_ID = 3
+ORGAN_NAME_MAX_LENGTH = 100
+ORGAN_ACRONYM_MAX_LENGTH = 20
+UNIT_NAME_MAX_LENGTH = 100
+UNIT_ACRONYM_MAX_LENGTH = 25
 
 
 def _key(value) -> str:
@@ -68,6 +72,8 @@ class OrganogramaValidationReport:
     total_abas_lidas: int = 0
     total_linhas_lidas: int = 0
     leitura_completa: bool = True
+    criar_unidades_espelho: bool = False
+    total_unidades_espelho_criadas: int = 0
 
     @property
     def valid(self) -> bool:
@@ -92,6 +98,10 @@ class OrganogramaValidationReport:
             "total_abas_lidas": self.total_abas_lidas,
             "total_linhas_lidas": self.total_linhas_lidas,
             "total_erros": len(self.issues),
+            "criar_unidades_espelho": self.criar_unidades_espelho,
+            "total_unidades_espelho_criadas": (
+                self.total_unidades_espelho_criadas
+            ),
             "erros": [issue.as_dict() for issue in self.issues],
         }
 
@@ -103,7 +113,11 @@ class OrganogramaRow:
     acronym: str
     parent: str
     number: str
+    responsible: str = ""
+    position: str = ""
     resolved_parent: str = ""
+    resolved_parent_line: int | None = None
+    generated_automatically: bool = False
 
 
 NAME_HEADERS = {
@@ -138,6 +152,20 @@ NUMBER_HEADERS = {
     "nivel hierarquico",
     "codigo hierarquico",
 }
+RESPONSIBLE_HEADERS = {
+    "responsavel",
+    "nome do responsavel",
+    "responsavel pela unidade",
+    "responsavel pelo orgao",
+    "titular",
+}
+POSITION_HEADERS = {
+    "cargo",
+    "cargo do responsavel",
+    "funcao",
+    "funcao do responsavel",
+    "cargo funcao",
+}
 NUMBER_PATTERN = re.compile(r"\d+(?:\.\d+)*")
 
 
@@ -146,9 +174,12 @@ def validate_organogram_spreadsheet(
     extension: str,
     expected_root_acronym: str,
     selected_sheet: str = "",
+    criar_unidades_espelho: bool = False,
 ) -> OrganogramaValidationReport:
     """Seleciona e valida integralmente uma aba de organograma."""
-    report = OrganogramaValidationReport()
+    report = OrganogramaValidationReport(
+        criar_unidades_espelho=criar_unidades_espelho
+    )
     try:
         sheets = pd.read_excel(
             BytesIO(content),
@@ -224,9 +255,9 @@ def _engine_for(extension: str) -> str:
 
 
 def _find_header(dataframe: pd.DataFrame):
-    for position in range(min(len(dataframe), 25)):
+    for header_position in range(min(len(dataframe), 25)):
         values = {
-            column: _header_key(dataframe.iloc[position, column])
+            column: _header_key(dataframe.iloc[header_position, column])
             for column in range(len(dataframe.columns))
         }
         name = next((col for col, value in values.items() if value in NAME_HEADERS), None)
@@ -244,9 +275,29 @@ def _find_header(dataframe: pd.DataFrame):
             (col for col, value in values.items() if value in NUMBER_HEADERS),
             None,
         )
+        responsible = next(
+            (col for col, value in values.items() if value in RESPONSIBLE_HEADERS),
+            None,
+        )
+        position_col = next(
+            (col for col, value in values.items() if value in POSITION_HEADERS),
+            None,
+        )
         if number is None:
-            number = _infer_number_column(dataframe, position, {name, acronym, parent})
-        return position, name, acronym, parent, number
+            number = _infer_number_column(
+                dataframe,
+                header_position,
+                {name, acronym, parent, responsible, position_col},
+            )
+        return (
+            header_position,
+            name,
+            acronym,
+            parent,
+            number,
+            responsible,
+            position_col,
+        )
     return None
 
 
@@ -281,7 +332,15 @@ def _validate_sheet(sheet, dataframe, expected_root, report):
         )
         return []
 
-    header_position, name_col, acronym_col, parent_col, number_col = header
+    (
+        header_position,
+        name_col,
+        acronym_col,
+        parent_col,
+        number_col,
+        responsible_col,
+        position_col,
+    ) = header
     if parent_col is None and number_col is None:
         report.issues.append(
             OrganogramaIssue(
@@ -302,6 +361,8 @@ def _validate_sheet(sheet, dataframe, expected_root, report):
         acronym_col,
         parent_col,
         number_col,
+        responsible_col,
+        position_col,
     )
     report.total_linhas_lidas += len(rows)
     if not rows:
@@ -314,20 +375,35 @@ def _validate_sheet(sheet, dataframe, expected_root, report):
         )
         return []
 
-    _validate_required_and_duplicates(sheet, rows, report)
+    _validate_required_fields(sheet, rows, report)
+    has_composed_number = any("." in row.number for row in rows if row.number)
     if number_col is not None:
         _validate_numbers(sheet, rows, report)
-    if parent_col is not None:
-        _validate_explicit_parents(sheet, rows, report)
-        if number_col is not None:
-            _validate_number_parent_agreement(sheet, rows, report)
-    else:
+    if number_col is not None and (parent_col is None or has_composed_number):
         _validate_number_hierarchy(sheet, rows, report)
-    _validate_root(sheet, rows, parent_col is not None, expected_root, report)
+    if parent_col is not None and not has_composed_number:
+        _validate_explicit_parents(sheet, rows, report)
+    elif parent_col is not None:
+        _validate_number_parent_agreement(sheet, rows, report)
+    _validate_cycles(sheet, rows, report)
+    _validate_root(sheet, rows, expected_root, report)
+    _validate_prodest_limits(sheet, rows, report)
+    if report.criar_unidades_espelho:
+        _ensure_mirror_units(sheet, rows, report)
+    _validate_scoped_duplicates(sheet, rows, report)
     return rows
 
 
-def _extract_rows(dataframe, header, name_col, acronym_col, parent_col, number_col):
+def _extract_rows(
+    dataframe,
+    header,
+    name_col,
+    acronym_col,
+    parent_col,
+    number_col,
+    responsible_col,
+    position_col,
+):
     rows = []
     relevant = {name_col, acronym_col, parent_col, number_col} - {None}
     for position in range(header + 1, len(dataframe)):
@@ -341,12 +417,22 @@ def _extract_rows(dataframe, header, name_col, acronym_col, parent_col, number_c
                 acronym=_key(values.iloc[acronym_col]),
                 parent=_key(values.iloc[parent_col]) if parent_col is not None else "",
                 number=_number(values.iloc[number_col]) if number_col is not None else "",
+                responsible=(
+                    _key(values.iloc[responsible_col])
+                    if responsible_col is not None
+                    else ""
+                ),
+                position=(
+                    _key(values.iloc[position_col])
+                    if position_col is not None
+                    else ""
+                ),
             )
         )
     return rows
 
 
-def _validate_required_and_duplicates(sheet, rows, report):
+def _validate_required_fields(sheet, rows, report):
     for row in rows:
         if not row.name:
             _add(report, "nome_obrigatorio", "O nome é obrigatório.", sheet, row, "nome")
@@ -360,23 +446,6 @@ def _validate_required_and_duplicates(sheet, rows, report):
                 sheet,
                 row,
                 "sigla",
-            )
-    _report_duplicates(sheet, rows, "name", "nome_duplicado", "nome", report)
-    _report_duplicates(sheet, rows, "acronym", "sigla_duplicada", "sigla", report)
-
-
-def _report_duplicates(sheet, rows, attribute, code, field_name, report):
-    counts = Counter(getattr(row, attribute) for row in rows if getattr(row, attribute))
-    duplicated = {value for value, count in counts.items() if count > 1}
-    for row in rows:
-        if getattr(row, attribute) in duplicated:
-            _add(
-                report,
-                code,
-                f'O valor informado em "{field_name}" está duplicado.',
-                sheet,
-                row,
-                field_name,
             )
 
 
@@ -405,14 +474,16 @@ def _validate_numbers(sheet, rows, report):
 
 
 def _validate_explicit_parents(sheet, rows, report):
-    acronyms = {row.acronym: row for row in rows if row.acronym}
-    name_counts = Counter(row.name for row in rows if row.name)
-    names = {row.name: row for row in rows if row.name and name_counts[row.name] == 1}
     for row in rows:
         if not row.parent:
             continue
-        parent = acronyms.get(row.parent) or names.get(row.parent)
-        if parent is None:
+        candidates = [
+            candidate
+            for candidate in rows
+            if candidate.line != row.line
+            and row.parent in {candidate.acronym, candidate.name}
+        ]
+        if not candidates:
             _add(
                 report,
                 "pai_inexistente",
@@ -422,27 +493,32 @@ def _validate_explicit_parents(sheet, rows, report):
                 "pai",
             )
             continue
-        row.resolved_parent = parent.acronym
-        if row.acronym and row.resolved_parent == row.acronym:
+        if len(candidates) > 1:
             _add(
                 report,
-                "pai_de_si_mesmo",
-                "Uma unidade não pode ser pai de si mesma.",
+                "pai_ambiguo",
+                (
+                    "O pai informado corresponde a mais de uma unidade. "
+                    "Use numeração hierárquica para diferenciá-las."
+                ),
                 sheet,
                 row,
                 "pai",
             )
-    _validate_cycles(sheet, rows, report)
+            continue
+        parent = candidates[0]
+        row.resolved_parent = parent.acronym
+        row.resolved_parent_line = parent.line
 
 
 def _validate_cycles(sheet, rows, report):
-    by_acronym = {row.acronym: row for row in rows if row.acronym}
+    by_line = {row.line: row for row in rows}
     reported = set()
     for row in rows:
         current = row
         visited = set()
-        while current and current.acronym:
-            if current.acronym in visited:
+        while current is not None:
+            if current.line in visited:
                 if row.line not in reported:
                     _add(
                         report,
@@ -454,8 +530,8 @@ def _validate_cycles(sheet, rows, report):
                     )
                     reported.add(row.line)
                 break
-            visited.add(current.acronym)
-            current = by_acronym.get(current.resolved_parent)
+            visited.add(current.line)
+            current = by_line.get(current.resolved_parent_line)
 
 
 def _validate_number_hierarchy(sheet, rows, report):
@@ -478,6 +554,7 @@ def _validate_number_hierarchy(sheet, rows, report):
         for row in valid_rows:
             if "." not in row.number:
                 row.resolved_parent = root.acronym if root else ""
+                row.resolved_parent_line = root.line if root else None
                 continue
             parent_number = row.number.rsplit(".", 1)[0]
             parent = by_number.get(parent_number)
@@ -485,6 +562,7 @@ def _validate_number_hierarchy(sheet, rows, report):
                 _missing_number_parent(sheet, row, report)
             else:
                 row.resolved_parent = parent.acronym
+                row.resolved_parent_line = parent.line
         return
 
     top_level = [row for row in valid_rows if "." not in row.number]
@@ -499,6 +577,7 @@ def _validate_number_hierarchy(sheet, rows, report):
                 _missing_number_parent(sheet, row, report)
             else:
                 row.resolved_parent = parent.acronym
+                row.resolved_parent_line = parent.line
     else:
         for row in top_level:
             _add(
@@ -523,19 +602,15 @@ def _missing_number_parent(sheet, row, report):
 
 
 def _validate_number_parent_agreement(sheet, rows, report):
-    by_number = {
-        row.number: row
-        for row in rows
-        if row.number and NUMBER_PATTERN.fullmatch(row.number)
-    }
+    by_line = {row.line: row for row in rows}
     for row in rows:
-        if not row.parent or "." not in row.number or not row.resolved_parent:
+        numbered_parent = by_line.get(row.resolved_parent_line)
+        if not row.parent and numbered_parent is None:
             continue
-        parent_number = row.number.rsplit(".", 1)[0]
-        numbered_parent = by_number.get(parent_number)
-        if numbered_parent is None:
-            _missing_number_parent(sheet, row, report)
-        elif numbered_parent.acronym != row.resolved_parent:
+        if numbered_parent is None or row.parent not in {
+            numbered_parent.acronym,
+            numbered_parent.name,
+        }:
             _add(
                 report,
                 "pai_divergente_da_numeracao",
@@ -546,12 +621,8 @@ def _validate_number_parent_agreement(sheet, rows, report):
             )
 
 
-def _validate_root(sheet, rows, explicit_parent, expected_root, report):
-    roots = (
-        [row for row in rows if not row.parent]
-        if explicit_parent
-        else [row for row in rows if not row.resolved_parent]
-    )
+def _validate_root(sheet, rows, expected_root, report):
+    roots = [row for row in rows if row.resolved_parent_line is None]
     if len(roots) != 1:
         report.issues.append(
             OrganogramaIssue(
@@ -571,6 +642,232 @@ def _validate_root(sheet, rows, explicit_parent, expected_root, report):
             roots[0],
             "sigla",
         )
+
+
+def _validate_scoped_duplicates(sheet, rows, report):
+    by_line = {row.line: row for row in rows}
+    roots = [row for row in rows if row.resolved_parent_line is None]
+    root_line = roots[0].line if len(roots) == 1 else None
+    sibling_groups = {}
+    for row in rows:
+        sibling_groups.setdefault(row.resolved_parent_line, []).append(row)
+
+    for parent_line, siblings in sibling_groups.items():
+        parent = by_line.get(parent_line)
+        if parent is not None and parent.resolved_parent_line is None:
+            _report_sibling_duplicates(
+                sheet,
+                siblings,
+                "acronym",
+                "sigla_duplicada_entre_irmaos",
+                "sigla",
+                report,
+            )
+        _report_sibling_duplicates(
+            sheet,
+            siblings,
+            "name",
+            "nome_duplicado_entre_irmaos",
+            "nome",
+            report,
+        )
+
+    units_by_organ = {}
+    if root_line is not None:
+        for row in rows:
+            organ_line = _owning_organ_line(row, by_line, root_line)
+            if organ_line is not None:
+                units_by_organ.setdefault(organ_line, []).append(row)
+    for units in units_by_organ.values():
+        counts = Counter(row.acronym for row in units if row.acronym)
+        for row in units:
+            if row.acronym and counts[row.acronym] > 1:
+                _add(
+                    report,
+                    "sigla_duplicada_no_orgao",
+                    "A sigla da unidade deve ser única dentro do órgão.",
+                    sheet,
+                    row,
+                    "sigla",
+                )
+
+    for row in rows:
+        parent = by_line.get(row.resolved_parent_line)
+        if parent is None or parent.resolved_parent_line is not None:
+            continue
+        if row.acronym and row.acronym == parent.acronym:
+            _add(
+                report,
+                "sigla_igual_ao_pai_no_nivel_2",
+                "Um órgão do nível 2 não pode repetir a sigla do Patriarca.",
+                sheet,
+                row,
+                "sigla",
+            )
+
+
+def _validate_prodest_limits(sheet, rows, report):
+    by_line = {row.line: row for row in rows}
+    roots = [row for row in rows if row.resolved_parent_line is None]
+    if len(roots) != 1:
+        return
+
+    root_line = roots[0].line
+    for row in rows:
+        if row.line == root_line:
+            continue
+        is_organ = row.resolved_parent_line == root_line
+        if is_organ:
+            limits = (
+                ("name", ORGAN_NAME_MAX_LENGTH, "nome_orgao_muito_longo", "nome"),
+                (
+                    "acronym",
+                    ORGAN_ACRONYM_MAX_LENGTH,
+                    "sigla_orgao_muito_longa",
+                    "sigla",
+                ),
+            )
+            entity = "órgão"
+        elif _owning_organ_line(row, by_line, root_line) is not None:
+            limits = (
+                (
+                    "name",
+                    UNIT_NAME_MAX_LENGTH,
+                    "nome_unidade_muito_longo",
+                    "nome",
+                ),
+                (
+                    "acronym",
+                    UNIT_ACRONYM_MAX_LENGTH,
+                    "sigla_unidade_muito_longa",
+                    "sigla",
+                ),
+            )
+            entity = "unidade"
+        else:
+            continue
+
+        for attribute, maximum, code, field_name in limits:
+            if len(getattr(row, attribute)) > maximum:
+                _add(
+                    report,
+                    code,
+                    (
+                        f"O {field_name} do {entity} deve ter no máximo "
+                        f"{maximum} caracteres."
+                    ),
+                    sheet,
+                    row,
+                    field_name,
+                )
+
+
+def _owning_organ_line(row, by_line, root_line):
+    """Retorna o órgão que contém a unidade; órgãos e raiz retornam None."""
+    parent = by_line.get(row.resolved_parent_line)
+    visited = set()
+    while parent is not None and parent.line not in visited:
+        if parent.resolved_parent_line == root_line:
+            return parent.line
+        if parent.line == root_line:
+            return None
+        visited.add(parent.line)
+        parent = by_line.get(parent.resolved_parent_line)
+    return None
+
+
+def _ensure_mirror_units(sheet, rows, report):
+    roots = [row for row in rows if row.resolved_parent_line is None]
+    if len(roots) != 1:
+        return
+
+    root = roots[0]
+    organs = [row for row in rows if row.resolved_parent_line == root.line]
+    original_has_composed_number = any("." in row.number for row in rows if row.number)
+    root_without_number = not root.number
+    next_synthetic_line = max((row.line for row in rows), default=0) + 1
+
+    for organ in organs:
+        children = [row for row in rows if row.resolved_parent_line == organ.line]
+        if any(
+            child.name == organ.name and child.acronym == organ.acronym
+            for child in children
+        ):
+            continue
+
+        conflicting_child = next(
+            (
+                child
+                for child in children
+                if child.name == organ.name or child.acronym == organ.acronym
+            ),
+            None,
+        )
+        if conflicting_child is not None:
+            _add(
+                report,
+                "conflito_unidade_espelho",
+                (
+                    "Não foi possível criar automaticamente a unidade do órgão: "
+                    "já existe uma unidade filha com o mesmo nome ou a mesma sigla."
+                ),
+                sheet,
+                conflicting_child,
+                "sigla",
+            )
+            continue
+
+        number = ""
+        if organ.number and (original_has_composed_number or root_without_number):
+            number = _next_child_number(organ, children)
+        rows.append(
+            OrganogramaRow(
+                line=next_synthetic_line,
+                name=organ.name,
+                acronym=organ.acronym,
+                parent=organ.acronym,
+                number=number,
+                resolved_parent=organ.acronym,
+                resolved_parent_line=organ.line,
+                generated_automatically=True,
+            )
+        )
+        next_synthetic_line += 1
+        report.total_unidades_espelho_criadas += 1
+
+
+def _next_child_number(organ, children) -> str:
+    prefix = f"{organ.number}."
+    used_suffixes = []
+    for child in children:
+        if not child.number.startswith(prefix):
+            continue
+        suffix = child.number[len(prefix) :]
+        if suffix.isdecimal() and "." not in suffix:
+            used_suffixes.append(int(suffix))
+    return f"{prefix}{max(used_suffixes, default=0) + 1}"
+
+
+def _report_sibling_duplicates(
+    sheet,
+    rows,
+    attribute,
+    code,
+    field_name,
+    report,
+):
+    counts = Counter(getattr(row, attribute) for row in rows if getattr(row, attribute))
+    for row in rows:
+        value = getattr(row, attribute)
+        if value and counts[value] > 1:
+            _add(
+                report,
+                code,
+                f'O valor informado em "{field_name}" está repetido entre irmãos.',
+                sheet,
+                row,
+                field_name,
+            )
 
 
 def _add(report, code, message, sheet, row, field_name):

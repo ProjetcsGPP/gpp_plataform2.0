@@ -40,6 +40,12 @@ CACHES = {
     }
 }
 
+CELERY_TASK_ALWAYS_EAGER = True
+CELERY_TASK_EAGER_PROPAGATES = True
+CHANNEL_LAYERS = {
+    "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}
+}
+
 # ---------------------------------------------------------------------------
 # 2. Throttle — limites absurdamente altos para nunca bloquear testes
 # ---------------------------------------------------------------------------

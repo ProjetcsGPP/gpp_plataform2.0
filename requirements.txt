@@ -3,8 +3,12 @@ astroid==3.3.11
 attrs==26.1.0
 cfgv==3.5.0
 colorama==0.4.6
+celery==5.6.3
+channels==4.3.2
+channels-redis==4.3.0
 coverage==7.8.0
 defusedxml==0.7.1
+daphne==4.2.3
 dill==0.4.1
 distlib==0.4.0
 Django==5.2
@@ -43,6 +47,8 @@ pylint==3.3.9
 pylint-django==2.6.1
 pylint-plugin-utils==0.9.0
 pymemcache==4.0.0
+requests==2.32.5
+redis==6.4.0
 pytest==9.0.2
 pytest-cov==6.1.0
 pytest-django==4.12.0
@@ -57,5 +63,6 @@ tomlkit==0.14.0
 typing_extensions==4.15.0
 tzdata==2025.3
 uritemplate==4.2.0
+validate-docbr==2.0.1
 virtualenv==21.2.0
 xlrd==2.0.2

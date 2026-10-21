@@ -64,6 +64,11 @@ htmlcov/
 .coverage
 
 # =========================
+# Celery local state
+# =========================
+celerybeat-schedule*
+
+# =========================
 # Logs de segurança
 # =========================
 logs/

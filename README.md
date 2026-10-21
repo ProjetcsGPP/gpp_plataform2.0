@@ -164,9 +164,24 @@ CORS_ALLOWED_ORIGINS=http://localhost:3000
 
 # CSRF
 CSRF_TRUSTED_ORIGINS=http://localhost:3000
+
+# CargaRH / PRODEST (credenciais exclusivamente no backend)
+CARGARH_ENVIRONMENT=HML
+CARGARH_TOKEN_URL=https://servidor-de-autenticacao/token
+CARGARH_API_BASE_URL=https://api.cargarh.es.gov.br
+CARGARH_CLIENT_ID=identificador-do-cliente
+CARGARH_CLIENT_SECRET=segredo-do-cliente
+CARGARH_CLIENT_SCOPE=escopos-separados-por-espaco
+CARGARH_CONNECT_TIMEOUT_SECONDS=10
+CARGARH_READ_TIMEOUT_SECONDS=60
+CARGARH_TOKEN_SAFETY_MARGIN_SECONDS=60
+CARGARH_GET_MAX_RETRIES=2
+CARGARH_RETRY_BACKOFF_SECONDS=0.5
 ```
 
 > **Nunca commite o arquivo `.env`.** Ele já está no `.gitignore`.
+> O access token do CargaRH é temporário e deve permanecer somente no cache;
+> nunca o grave no banco, envie ao frontend ou inclua em logs.
 
 ---
 
