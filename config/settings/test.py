@@ -28,7 +28,11 @@ Diferencas em relacao a development.py:
      loggers de seguranca (AUTHZ_APP_VIEW_DENY, etc.).
 """
 
+# O settings de teste especializa deliberadamente todo o namespace de development.
+# pylint: disable=wildcard-import,unused-wildcard-import
 from .development import *  # noqa: F401, F403
+
+# pylint: enable=wildcard-import,unused-wildcard-import
 
 # ---------------------------------------------------------------------------
 # 1. Cache — LocMemCache (in-process, zerado a cada run)
@@ -49,6 +53,8 @@ CHANNEL_LAYERS = {
 # ---------------------------------------------------------------------------
 # 2. Throttle — limites absurdamente altos para nunca bloquear testes
 # ---------------------------------------------------------------------------
+LOGIN_THROTTLE_RATE = "999999/min"
+
 REST_FRAMEWORK = {
     **REST_FRAMEWORK,  # noqa: F405
     "DEFAULT_THROTTLE_RATES": {

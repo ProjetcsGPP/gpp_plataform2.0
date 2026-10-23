@@ -24,13 +24,10 @@ FIX-TESTS: pagination_class = None nos dois AplicacaoViewSets para evitar
            resp.data paginado (dict) nos testes — retorna lista plana diretamente.
 FIX-THROTTLE: throttle_classes = [] em AplicacaoPublicaViewSet — endpoint público
               não deve ser limitado por AnonRateThrottle; evita 429 nos testes.
-FIX-THROTTLE-2: throttle_scope removido de LoginView — o rate limit de login é
-                controlado globalmente via DEFAULT_THROTTLE_CLASSES no settings.
-                O conftest raiz zera as classes em tempo de teste, garantindo
-                que nenhum login seja bloqueado por 429 durante a suite completa.
+SEC-PUB-008: LoginView usa LoginRateThrottle dedicado por IP, independente de
+             cookies autenticados, configurado por LOGIN_THROTTLE_RATE.
 MULTI-COOKIE: cada app possui sessão independente (gpp_session_{APP}).
-              SwitchAppView removida — obsoleta neste modelo; o frontend
-              simplesmente faz um segundo login na app destino.
+              SwitchAppView cria um cookie adicional após validar o destino.
 FIX-ME-PERMISSIONS: MePermissionView agora lê request.app_context (definido pelo
               AppContextMiddleware) em vez de request.session.get('app_context').
               O middleware não usa o sistema de sessão Django padrão — ele resolve
@@ -56,10 +53,10 @@ import logging
 from datetime import timedelta
 
 from django.conf import settings
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.db import DatabaseError, IntegrityError, OperationalError, transaction
 from django.db.models import Q
-from django.middleware.csrf import rotate_token
+from django.middleware.csrf import get_token, rotate_token
 from django.utils import timezone as dj_timezone
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -68,8 +65,9 @@ from drf_spectacular.utils import (
     extend_schema,
     inline_serializer,
 )
+from rest_framework import mixins
 from rest_framework import serializers as drf_serializers
-from rest_framework import mixins, status, viewsets
+from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -86,6 +84,7 @@ from common.permissions import (
 )
 from common.schema import tag_all_actions
 
+from .authentication import enforce_csrf
 from .models import (
     AccountsSession,
     Aplicacao,
@@ -112,6 +111,7 @@ from .serializers import (
     UserRoleSerializer,
 )
 from .services.permission_sync import sync_user_permissions
+from .throttling import LoginRateThrottle
 from .utils import get_client_ip
 
 security_logger = logging.getLogger("gpp.security")
@@ -129,21 +129,23 @@ class LoginView(APIView):
     POST /api/accounts/login/
     Realiza autenticação via sessão (cookie HttpOnly).
 
-    Payload: { "username": "...", "password": "...", "app_context": "PORTAL" }
+    Payload: { "identifier": "...", "password": "...", "app_context": "PORTAL" }
 
-    Rate limit: controlado via DEFAULT_THROTTLE_CLASSES no settings.
-    Em testes, o conftest raiz zera as classes — sem throttle_scope fixo aqui.
+    Rate limit: throttle específico por IP, inclusive quando a requisição já
+    carrega outro cookie autenticado.
     """
 
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     @extend_schema(
         summary="Login via sessão",
         description=(
             "Autentica o usuário e cria uma sessão por aplicação `gpp_session_<app_context>` "
             "(ex: `gpp_session_PORTAL`). "
-            "Requer `username`, `password` e `app_context`.\n\n"
+            "Requer `identifier`, `password` e `app_context`. O identificador pode "
+            "ser username ou e-mail e nunca é resolvido por endpoint separado.\n\n"
             "**Autenticação via cookie HttpOnly:** após o login bem-sucedido, o servidor "
             "retorna o header `Set-Cookie: gpp_session_<APP>=<session_key>; HttpOnly; SameSite=Lax`. "
             "O frontend **deve** usar `withCredentials: true` (axios) ou `credentials: 'include'` "
@@ -157,11 +159,11 @@ class LoginView(APIView):
             "application/json": {
                 "type": "object",
                 "properties": {
-                    "username": {"type": "string", "example": "joao.silva"},
+                    "identifier": {"type": "string", "example": "joao.silva"},
                     "password": {"type": "string", "example": "senha123"},
                     "app_context": {"type": "string", "example": "PORTAL"},
                 },
-                "required": ["username", "password", "app_context"],
+                "required": ["identifier", "password", "app_context"],
             }
         },
         responses={
@@ -194,7 +196,11 @@ class LoginView(APIView):
         examples=[
             OpenApiExample(
                 "Request — login no PORTAL",
-                value={"username": "joao.silva", "password": "senha123", "app_context": "PORTAL"},
+                value={
+                    "identifier": "joao.silva",
+                    "password": "senha123",
+                    "app_context": "PORTAL",
+                },
                 request_only=True,
             ),
             OpenApiExample(
@@ -205,25 +211,37 @@ class LoginView(APIView):
             ),
             OpenApiExample(
                 "400 — Campos ausentes",
-                value={"detail": "Credenciais ou app_context não informados.", "code": "invalid_request"},
+                value={
+                    "detail": "Credenciais ou app_context não informados.",
+                    "code": "invalid_request",
+                },
                 response_only=True,
                 status_codes=["400"],
             ),
             OpenApiExample(
                 "401 — Credenciais inválidas",
-                value={"detail": "Credenciais inválidas.", "code": "invalid_credentials"},
+                value={
+                    "detail": "Credenciais inválidas.",
+                    "code": "invalid_credentials",
+                },
                 response_only=True,
                 status_codes=["401"],
             ),
             OpenApiExample(
                 "403 — Aplicação inválida",
-                value={"detail": "Aplicação inválida ou bloqueada.", "code": "invalid_app"},
+                value={
+                    "detail": "Aplicação inválida ou bloqueada.",
+                    "code": "invalid_app",
+                },
                 response_only=True,
                 status_codes=["403"],
             ),
             OpenApiExample(
                 "403 — Sem role na aplicação",
-                value={"detail": "Usuário sem acesso à aplicação informada.", "code": "no_role"},
+                value={
+                    "detail": "Usuário sem acesso à aplicação informada.",
+                    "code": "no_role",
+                },
                 response_only=True,
                 status_codes=["403"],
             ),
@@ -231,11 +249,15 @@ class LoginView(APIView):
         tags=["0 - Autenticação"],
     )
     def post(self, request):
-        username = request.data.get("username")
+        enforce_csrf(request)
+
+        # `username` permanece como alias temporário para clientes existentes;
+        # novos clientes devem enviar `identifier`.
+        identifier = request.data.get("identifier") or request.data.get("username")
         password = request.data.get("password")
         app_context = request.data.get("app_context")
 
-        if not all([username, password, app_context]):
+        if not all([identifier, password, app_context]):
             return Response(
                 {
                     "detail": "Credenciais ou app_context não informados.",
@@ -244,8 +266,27 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        identifier = str(identifier).strip()
+        username = identifier
+
+        if "@" in identifier:
+            User = get_user_model()
+            matching_usernames = list(
+                User.objects.filter(email__iexact=identifier).values_list(
+                    "username", flat=True
+                )[:2]
+            )
+            if len(matching_usernames) == 1:
+                username = matching_usernames[0]
+
         user = authenticate(request, username=username, password=password)
         if not user:
+            security_logger.warning(
+                "LOGIN_DENIED identifier_type=%s app_context=%s reason=invalid_credentials ip=%s",
+                "email" if "@" in identifier else "username",
+                app_context,
+                get_client_ip(request),
+            )
             return Response(
                 {"detail": "Credenciais inválidas.", "code": "invalid_credentials"},
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -334,162 +375,36 @@ class LoginView(APIView):
             key=cookie_name,
             value=session_key,
             max_age=settings.SESSION_COOKIE_AGE,
-            httponly=True,
-            samesite="Lax",
+            httponly=settings.SESSION_COOKIE_HTTPONLY,
+            samesite=settings.SESSION_COOKIE_SAMESITE,
             secure=getattr(settings, "SESSION_COOKIE_SECURE", False),
         )
         return response
 
 
-class ResolveUserView(APIView):
-    """
-    POST /api/accounts/auth/resolve-user/
-    Recebe username ou email e retorna o username canônico do Django.
-
-    Usado pelo frontend antes do login para normalizar o identificador
-    digitado pelo usuário (email ou username) para o username correto.
-
-    Regras de segurança:
-    R-01: AllowAny — endpoint público, sem autenticação.
-    R-02: Retorna 404 genérico para email/username não encontrado,
-          sem confirmar se o email existe no sistema (evita user enumeration).
-    R-03: Apenas usuários ativos (is_active=True) são resolvidos —
-          conta desativada retorna 404 como se não existisse.
-    R-04: Sem rate limit próprio — controlado via DEFAULT_THROTTLE_CLASSES.
-    R-05: Log de tentativas para auditoria de segurança.
-    """
+class CsrfTokenView(APIView):
+    """Emite o cookie CSRF antes do login ou de outra mutação."""
 
     authentication_classes = []
     permission_classes = [AllowAny]
 
     @extend_schema(
-        summary="Resolve username a partir de email ou username",
+        summary="Inicializa a proteção CSRF",
         description=(
-            "Recebe um identificador (email ou username) e retorna o username canônico. "
-            "Usado pelo frontend antes do login para normalizar o campo digitado pelo usuário.\n\n"
-            "**Anti-enumeração (R-02):** o `404` é retornado tanto para identificadores "
-            "inexistentes quanto para contas desativadas — sem distinguir os dois casos — "
-            "para evitar que um atacante confirme a existência de um e-mail no sistema.\n\n"
-            "Este endpoint é público (`AllowAny`). O frontend **não** precisa enviar cookie "
-            "nem `withCredentials: true` nesta chamada."
+            "Emite o cookie `csrftoken`. O cliente deve reenviar seu valor no "
+            "header `X-CSRFToken` em login e demais requisições mutantes."
         ),
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "identifier": {"type": "string", "example": "joao@gov.br"},
-                },
-                "required": ["identifier"],
-            }
-        },
         responses={
             200: inline_serializer(
-                name="ResolveUserSuccessResponse",
-                fields={"username": drf_serializers.CharField()},
-            ),
-            400: inline_serializer(
-                name="ResolveUserBadRequestResponse",
-                fields={
-                    "detail": drf_serializers.CharField(),
-                    "code": drf_serializers.CharField(),
-                },
-            ),
-            404: inline_serializer(
-                name="ResolveUserNotFoundResponse",
-                fields={
-                    "detail": drf_serializers.CharField(),
-                    "code": drf_serializers.CharField(),
-                },
-            ),
+                name="CsrfTokenResponse",
+                fields={"detail": drf_serializers.CharField()},
+            )
         },
-        examples=[
-            OpenApiExample(
-                "Request — por e-mail",
-                value={"identifier": "joao@gov.br"},
-                request_only=True,
-            ),
-            OpenApiExample(
-                "Request — por username",
-                value={"identifier": "joao.silva"},
-                request_only=True,
-            ),
-            OpenApiExample(
-                "200 — Username resolvido",
-                value={"username": "joao.silva"},
-                response_only=True,
-                status_codes=["200"],
-            ),
-            OpenApiExample(
-                "400 — Identificador vazio",
-                value={"detail": "Identificador não informado.", "code": "invalid_request"},
-                response_only=True,
-                status_codes=["400"],
-            ),
-            OpenApiExample(
-                "400 — Identificador muito longo",
-                value={"detail": "Identificador inválido.", "code": "invalid_request"},
-                response_only=True,
-                status_codes=["400"],
-            ),
-            OpenApiExample(
-                "404 — Não encontrado",
-                value={"detail": "Usuário não encontrado.", "code": "user_not_found"},
-                response_only=True,
-                status_codes=["404"],
-            ),
-        ],
         tags=["0 - Autenticação"],
     )
-    def post(self, request):
-        from django.contrib.auth import get_user_model
-
-        User = get_user_model()
-
-        identifier = (request.data.get("identifier") or "").strip()
-
-        if not identifier:
-            return Response(
-                {"detail": "Identificador não informado.", "code": "invalid_request"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if len(identifier) > 254:
-            return Response(
-                {"detail": "Identificador inválido.", "code": "invalid_request"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        is_email = "@" in identifier
-
-        if is_email:
-            user = User.objects.filter(
-                email__iexact=identifier,
-                is_active=True,
-            ).first()
-        else:
-            user = User.objects.filter(
-                username=identifier,
-                is_active=True,
-            ).first()
-
-        if not user:
-            security_logger.warning(
-                "RESOLVE_USER_NOT_FOUND identifier_type=%s ip=%s",
-                "email" if is_email else "username",
-                get_client_ip(request),
-            )
-            return Response(
-                {"detail": "Usuário não encontrado.", "code": "user_not_found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        security_logger.info(
-            "RESOLVE_USER_SUCCESS user_id=%s identifier_type=%s ip=%s",
-            user.id,
-            "email" if is_email else "username",
-            get_client_ip(request),
-        )
-        return Response({"username": user.username})
+    def get(self, request):
+        get_token(request)
+        return Response({"detail": "CSRF cookie inicializado."})
 
 
 class LogoutView(APIView):
@@ -539,7 +454,9 @@ class LogoutView(APIView):
             ),
             OpenApiExample(
                 "403 — Não autenticado (sessão expirada ou cookie ausente)",
-                value={"detail": "As credenciais de autenticação não foram fornecidas."},
+                value={
+                    "detail": "As credenciais de autenticação não foram fornecidas."
+                },
                 response_only=True,
                 status_codes=["403"],
             ),
@@ -578,7 +495,8 @@ class LogoutAppView(APIView):
             "Este endpoint **não exige autenticação** — a identificação da sessão é feita "
             "diretamente pelo cookie `gpp_session_<APP>` presente na requisição. "
             "O frontend deve enviar `credentials: 'include'` para que o browser inclua "
-            "o cookie automaticamente.\n\n"
+            "o cookie automaticamente. O cookie/header CSRF continua obrigatório, "
+            "inclusive para limpar uma sessão inválida.\n\n"
             "Se o cookie não estiver presente, o endpoint retorna `200` com mensagem "
             "indicando que não havia sessão ativa — não retorna erro."
         ),
@@ -593,7 +511,9 @@ class LogoutAppView(APIView):
         ],
         request=None,
         responses={
-            200: OpenApiResponse(description="Logout realizado ou sessão já inexistente"),
+            200: OpenApiResponse(
+                description="Logout realizado ou sessão já inexistente"
+            ),
             400: inline_serializer(
                 name="LogoutAppBadRequestResponse",
                 fields={
@@ -625,6 +545,8 @@ class LogoutAppView(APIView):
         tags=["0 - Autenticação"],
     )
     def post(self, request, app_slug):
+        enforce_csrf(request)
+
         registry = ApplicationRegistry()
         # O endpoint recebe o slug da URL (ex.: "acoes-pngi"),
         # enquanto o ApplicationRegistry trabalha com codigointerno
@@ -728,7 +650,6 @@ class SwitchAppView(APIView):
         ],
         tags=["0 - Autenticação"],
     )
-
     def post(self, request):
         app_context = request.data.get("app_context")
 
@@ -803,6 +724,7 @@ class SwitchAppView(APIView):
 
 # ─── Me View ────────────────────────────────────────────────────────────────
 
+
 class MeView(APIView):
     """
     GET /api/accounts/me/
@@ -824,7 +746,9 @@ class MeView(APIView):
         ),
         responses={
             200: MeSerializer,
-            401: OpenApiResponse(description="Não autenticado — sessão ausente ou expirada."),
+            401: OpenApiResponse(
+                description="Não autenticado — sessão ausente ou expirada."
+            ),
         },
         examples=[
             OpenApiExample(
@@ -923,8 +847,12 @@ class MePermissionView(APIView):
         responses={
             200: MePermissionSerializer,
             400: OpenApiResponse(description="Sem app_context na sessão."),
-            401: OpenApiResponse(description="Não autenticado — sessão ausente ou expirada."),
-            404: OpenApiResponse(description="App não encontrada ou bloqueada, ou usuário sem role na aplicação."),
+            401: OpenApiResponse(
+                description="Não autenticado — sessão ausente ou expirada."
+            ),
+            404: OpenApiResponse(
+                description="App não encontrada ou bloqueada, ou usuário sem role na aplicação."
+            ),
         },
         examples=[
             OpenApiExample(
@@ -1062,7 +990,9 @@ class AuthzVersionView(APIView):
                     ),
                 },
             ),
-            401: OpenApiResponse(description="Não autenticado — sessão ausente ou expirada."),
+            401: OpenApiResponse(
+                description="Não autenticado — sessão ausente ou expirada."
+            ),
         },
         examples=[
             OpenApiExample(
@@ -2132,6 +2062,7 @@ class UserRoleViewSet(AuditableMixin, viewsets.ModelViewSet):
 
         return response
 
+
 @tag_all_actions("1 - Usuários")
 class UserPermissionOverrideViewSet(AuditableMixin, viewsets.ModelViewSet):
     """
@@ -2859,6 +2790,7 @@ class UserPermissionOverrideViewSet(AuditableMixin, viewsets.ModelViewSet):
 
         return response
 
+
 @tag_all_actions("5 - Utilitários")
 class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -3047,6 +2979,7 @@ class AplicacaoPublicaViewSet(viewsets.ReadOnlyModelViewSet):
             isappbloqueada=False,
             isappproductionready=True,
         ).order_by("nomeaplicacao")
+
 
 @tag_all_actions("1 - Usuários")
 class AplicacaoViewSet(viewsets.ReadOnlyModelViewSet):

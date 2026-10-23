@@ -3,7 +3,7 @@ GPP Plataform 2.0 — Base Settings
 Compartilhado entre development e production.
 Nunca usar diretamente — sempre usar development.py ou production.py.
 
-FASE-0: JWT/simplejwt removidos; SessionAuthentication como padrão DRF;
+FASE-0: JWT/simplejwt removidos; AppContextAuthentication como padrão DRF;
         configurações de sessão, CSRF, CSP e AppContextMiddleware adicionados.
         CSP no formato django-csp >= 4.0 (CONTENT_SECURITY_POLICY dict).
 FIX: AUTHORIZATION_EXEMPT_PATHS expandido para incluir /api/accounts/auth/
@@ -260,6 +260,9 @@ CSRF_TRUSTED_ORIGINS = env.list(
 # CSRF_COOKIE_SECURE — definido por ambiente (False em dev, True em prod)
 
 # ─── DRF ──────────────────────────────────────────────────────────────────────────────
+LOGIN_THROTTLE_RATE = env("LOGIN_THROTTLE_RATE", default="5/min")
+DRF_NUM_PROXIES = env.int("DRF_NUM_PROXIES", default=0)
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "apps.accounts.authentication.AppContextAuthentication",
@@ -274,8 +277,11 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": "20/min",
         "user": "200/min",
-        "login": "5/min",
+        "login": LOGIN_THROTTLE_RATE,
     },
+    # Só confia em X-Forwarded-For quando a quantidade exata de proxies
+    # institucionais for configurada. O default usa REMOTE_ADDR e evita spoof.
+    "NUM_PROXIES": DRF_NUM_PROXIES,
     "DEFAULT_PAGINATION_CLASS": "common.pagination.StandardResultsSetPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_RENDERER_CLASSES": [

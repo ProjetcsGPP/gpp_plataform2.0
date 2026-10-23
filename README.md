@@ -237,7 +237,7 @@ POST /api/accounts/login/
 Content-Type: application/json
 
 {
-  "username": "usuario",
+  "identifier": "usuario-ou-email",
   "password": "senha",
   "app_context": "ACOES_PNGI"
 }
@@ -299,6 +299,7 @@ As seguintes fixtures estão disponíveis globalmente via `conftest.py`:
 | Método | Endpoint | Descrição | Auth |
 |---|---|---|---|
 | `POST` | `/api/accounts/login/` | Login por app_context | ❌ |
+| `GET` | `/api/accounts/auth/csrf/` | Bootstrap do cookie CSRF | ❌ |
 | `POST` | `/api/accounts/logout/<slug>/` | Logout seletivo por app | ❌ |
 | `GET` | `/api/accounts/me/` | Perfil do usuário logado | ✅ |
 | `GET` | `/api/accounts/users/` | Lista usuários (admin) | ✅ |
@@ -432,7 +433,8 @@ O projeto implementa as seguintes camadas de segurança:
 - **RBAC hierárquico:** permissões granulares por recurso, verificadas via `policies/`
 - **CSP (Content Security Policy):** configurado via `django-csp` ≥ 4.0
 - **CORS restrito:** apenas origens explicitamente listadas em `CORS_ALLOWED_ORIGINS`
-- **CSRF:** habilitado para todas as mutações via DRF `SessionAuthentication`
+- **CSRF:** imposto pelo `AppContextAuthentication` nas mutações autenticadas e
+  explicitamente no login após bootstrap em `/api/accounts/auth/csrf/`
 - **Rate limiting:** throttle por usuário (`200/min`) e anônimo (`20/min`), com rate específico para login (`5/min`)
 - **Security headers:** `X-Frame-Options: DENY`, `X-Content-Type-Options`, `XSS-Protection`
 - **Cookies `HttpOnly` e `SameSite=Lax`** em todos os ambientes; `Secure=True` em produção

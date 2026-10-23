@@ -1,68 +1,68 @@
-# Autenticação e troca de contexto no GPP
+# Autenticação Next.js — contrato do backend
 
-## Objetivo
+**Última revisão:** 2026-10-23
+**Matriz compartilhada:** `PUB-008` e `PUB-015`
 
-Este documento descreve como o frontend deve integrar com o backend Django do GPP usando autenticação por sessão e troca de contexto por aplicação.
+## Contrato atual
 
-## Regras do backend
+- autenticação humana usa sessão Django, nunca JWT ou Bearer token;
+- cada aplicação possui cookie `gpp_session_<APP_CONTEXT>` independente;
+- cookies de sessão são `HttpOnly`, `SameSite=Lax` e `Secure=True` em produção;
+- mutações autenticadas e login exigem CSRF;
+- sessão somente é aceita quando não revogada, não expirada, pertence ao mesmo
+  contexto indicado pelo cookie e o usuário continua ativo;
+- login tem throttle dedicado por IP, configurado por
+  `LOGIN_THROTTLE_RATE`;
+- `X-Forwarded-For` só participa do throttle quando `DRF_NUM_PROXIES` contém a
+  quantidade exata de proxies confiáveis;
+- falha de credencial não revela se username, e-mail ou conta existem.
 
-- O backend autentica exclusivamente por sessão Django.
-- O cookie de sessão é `gpp_session`.
-- A revogação real da sessão é controlada por `accounts_session`.
-- O backend injeta `request.user`, `request.application`, `request.user_roles` e `request.is_portal_admin` em cada request.
+## Login
 
-## Fluxos suportados
+1. Chamar `GET /api/accounts/auth/csrf/` com credenciais habilitadas.
+2. Ler o cookie `csrftoken`.
+3. Chamar `POST /api/accounts/login/`, enviando o cookie e o header
+   `X-CSRFToken` com o mesmo valor.
 
-### 1. Login direto em uma aplicação
+Payload:
 
-Usuário informa credenciais e o `app_context` da aplicação desejada.
-Se ele tiver role nessa aplicação, a sessão é criada já contextualizada.
+```json
+{
+  "identifier": "usuario-ou-email",
+  "password": "senha",
+  "app_context": "PORTAL"
+}
+```
 
-### 2. Login no Portal
+`username` permanece temporariamente aceito como alias para clientes antigos.
+Novas integrações devem usar exclusivamente `identifier`.
 
-`PORTAL` é um contexto especial.
-Somente usuários com `PORTAL_ADMIN` ou superuser conseguem entrar nele.
+Em sucesso, a resposta define `gpp_session_PORTAL` ou o cookie correspondente
+à aplicação. O frontend não lê esse cookie; o browser o envia com
+`credentials: include` ou `withCredentials: true`.
 
-### 3. Troca de contexto depois do login
+O endpoint `/api/accounts/auth/resolve-user/` foi descontinuado. Clientes não
+devem tentar resolver o identificador antes do login.
 
-Se o usuário entrar no Portal e depois escolher outra aplicação permitida, o frontend deve chamar o endpoint de switch de aplicação.
-O cookie permanece o mesmo, mas o `app_context` da sessão muda e o backend passa a carregar as roles daquela aplicação.
+## Requisições posteriores
 
-## O que muda no switch de contexto
+- `GET`, `HEAD` e `OPTIONS` não exigem header CSRF.
+- `POST`, `PUT`, `PATCH` e `DELETE` autenticados enviam `X-CSRFToken`.
+- após o login, o token CSRF pode ser rotacionado; o cliente deve reler o
+  cookie antes de cada mutação, como já faz o interceptor compartilhado.
+- resposta `401` significa sessão ausente/inválida no contrato autenticado;
+  chamadas públicas devem possuir tratamento próprio no frontend.
 
-- O cookie `gpp_session` não muda.
-- A sessão Django continua autenticada.
-- O backend troca o `app_context` armazenado na sessão.
-- Uma nova `AccountsSession` é criada para o novo contexto.
-- As próximas chamadas passam a obedecer às permissões da aplicação escolhida.
+## Troca e isolamento de aplicações
 
-## Situações suportadas
+O endpoint autenticado `POST /api/accounts/switch-app/` cria a sessão/cookie da
+aplicação de destino após validar acesso. O cookie de uma aplicação não pode ser
+reaproveitado com registro de contexto divergente. Logout seletivo revoga apenas
+a sessão indicada e exige `X-CSRFToken`, inclusive quando a sessão a limpar já
+estiver inválida.
 
-- Login direto em `ACOES_PNGI`.
-- Login direto em `CARGA_ORG_LOT`.
-- Login no `PORTAL` por `PORTAL_ADMIN`.
-- Entrar no Portal e depois alternar para outra aplicação autorizada.
-- Alternar entre aplicações permitidas sem relogar.
+## Referências
 
-## Situações não suportadas
-
-- Login no `PORTAL` por usuário sem `PORTAL_ADMIN`.
-- Trocar para uma aplicação na qual o usuário não possui role.
-- Acessar uma aplicação sem autenticação válida.
-- Tentar tratar `gpp_session` como JWT ou token Bearer.
-
-## Padrão de consumo no frontend
-
-- Sempre enviar `credentials: 'include'` nas requisições.
-- Sempre usar o mesmo backend base URL.
-- Após login ou switch, chamar um endpoint de estado, como `me`, para atualizar o contexto da interface.
-- Exibir somente as aplicações retornadas pelo backend para o usuário autenticado.
-
-## Fluxo recomendado
-
-1. Buscar as aplicações públicas para preencher o seletor de login.
-2. Fazer login com `username`, `password` e `app_context`.
-3. Ler o usuário autenticado com `me`.
-4. Se for Portal Admin, listar apps disponíveis pós-login.
-5. Ao trocar de app, chamar switch de contexto.
-6. Recarregar estado e permissões após o switch.
+- [Contrato completo da API](./API_CONTRACT.md)
+- [IAM e autenticação](./IAM_AUTENTICACAO.md)
+- [Matriz compartilhada](./SHARED/PUBLICACOES_INTEGRATION_MATRIX.md)

@@ -14,7 +14,7 @@ Views cobertas:
   LoginView               (POST /api/accounts/login/)
   LogoutView              (POST /api/accounts/logout/)
   LogoutAppView           (POST /api/accounts/logout/{app_slug}/)
-  ResolveUserView         (POST /api/accounts/auth/resolve-user/)
+  CsrfTokenView           (GET  /api/accounts/auth/csrf/)
   MeView                  (GET  /api/accounts/me/)
   MePermissionView        (GET  /api/accounts/me/permissions/)
   UserCreateView          (POST /api/accounts/users/)
@@ -60,7 +60,7 @@ PROFILES_URL = "/api/accounts/profiles/"
 ROLES_URL = "/api/accounts/roles/"
 USER_ROLES_URL = "/api/accounts/user-roles/"
 OVERRIDES_URL = "/api/accounts/permission-overrides/"
-RESOLVE_URL = "/api/accounts/auth/resolve-user/"
+CSRF_URL = "/api/accounts/auth/csrf/"
 
 
 def _make_perm(codename: str) -> Permission:
@@ -181,58 +181,17 @@ class TestLogoutViews:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# ResolveUserView
+# CsrfTokenView
 # ════════════════════════════════════════════════════════════════════════════
 
 
 @pytest.mark.django_db
-class TestResolveUserView:
-    def test_resolve_por_username(self, _ensure_base_data, portal_admin):
+class TestCsrfTokenView:
+    def test_emite_cookie_csrf(self, _ensure_base_data):
         client = APIClient()
-        resp = client.post(
-            RESOLVE_URL, {"identifier": "portal_admin_test"}, format="json"
-        )
+        resp = client.get(CSRF_URL)
         assert resp.status_code == 200
-        assert resp.data["username"] == "portal_admin_test"
-
-    def test_resolve_por_email(self, _ensure_base_data):
-        user = _make_user("resolve_email_test")
-        user.email = "resolve@test.com"
-        user.save(update_fields=["email"])
-        client = APIClient()
-        resp = client.post(
-            RESOLVE_URL, {"identifier": "resolve@test.com"}, format="json"
-        )
-        assert resp.status_code == 200
-        assert resp.data["username"] == "resolve_email_test"
-
-    def test_resolve_usuario_nao_encontrado(self, _ensure_base_data):
-        client = APIClient()
-        resp = client.post(
-            RESOLVE_URL, {"identifier": "naoexiste@test.com"}, format="json"
-        )
-        assert resp.status_code == 404
-        assert resp.data["code"] == "user_not_found"
-
-    def test_resolve_sem_identifier(self, _ensure_base_data):
-        client = APIClient()
-        resp = client.post(RESOLVE_URL, {}, format="json")
-        assert resp.status_code == 400
-
-    def test_resolve_identifier_muito_longo(self, _ensure_base_data):
-        client = APIClient()
-        resp = client.post(RESOLVE_URL, {"identifier": "a" * 255}, format="json")
-        assert resp.status_code == 400
-
-    def test_resolve_usuario_inativo_retorna_404(self, _ensure_base_data):
-        user = _make_user("inativo_resolve")
-        user.is_active = False
-        user.save(update_fields=["is_active"])
-        client = APIClient()
-        resp = client.post(
-            RESOLVE_URL, {"identifier": "inativo_resolve"}, format="json"
-        )
-        assert resp.status_code == 404
+        assert "csrftoken" in resp.cookies
 
 
 # ════════════════════════════════════════════════════════════════════════════

@@ -6,6 +6,8 @@ from apps.accounts.services.authorization_service import AuthorizationService
 
 
 class CargaOrgLotConsumer(AsyncJsonWebsocketConsumer):
+    group_name: str | None = None
+
     async def connect(self):
         if not await self._authorized():
             await self.close(code=4403)
@@ -20,8 +22,9 @@ class CargaOrgLotConsumer(AsyncJsonWebsocketConsumer):
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
 
-    async def disconnect(self, close_code):
-        if hasattr(self, "group_name"):
+    async def disconnect(self, code):
+        del code
+        if self.group_name is not None:
             await self.channel_layer.group_discard(
                 self.group_name,
                 self.channel_name,
@@ -36,6 +39,4 @@ class CargaOrgLotConsumer(AsyncJsonWebsocketConsumer):
         if not user or not user.is_authenticated:
             return False
         application = ApplicationRegistry().get("CARGA_ORG_LOT")
-        return AuthorizationService(user, application).can(
-            "view_importacaoplanilha"
-        )
+        return AuthorizationService(user, application).can("view_importacaoplanilha")
