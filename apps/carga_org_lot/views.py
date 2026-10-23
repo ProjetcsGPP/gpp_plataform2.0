@@ -29,7 +29,7 @@ from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -167,34 +167,6 @@ class DashboardCargaOrgLotView(APIView):
                 "processos_em_andamento": EnvioOrganogramaProdestSerializer(
                     active, many=True
                 ).data,
-            }
-        )
-
-
-class DashboardPublicoCargaOrgLotView(APIView):
-    authentication_classes = []
-    permission_classes = [AllowAny]
-
-    @extend_schema(responses={200: dict})
-    def get(self, request):
-        active = EnvioOrganogramaProdest.objects.select_related(
-            "idimportacaoplanilha__idpatriarca"
-        ).filter(strstatus__in=["SOLICITANDO", "PROCESSANDO"])
-        return Response(
-            {
-                "gerado_em": timezone.now(),
-                "processos_em_andamento": [
-                    {
-                        "patriarca_nome": item.idimportacaoplanilha.idpatriarca.strnome,
-                        "tipo_carga": "ORGANOGRAMA",
-                        "modo": "SIMULACAO" if item.flgdryrun else "DEFINITIVO",
-                        "fase_atual": item.strfaseatual,
-                        "fase_atual_nome": item.get_strfaseatual_display(),
-                        "status_atual": item.strstatusoperacional,
-                        "datultimaatividade": item.datultimaatividade,
-                    }
-                    for item in active
-                ],
             }
         )
 

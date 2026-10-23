@@ -436,7 +436,6 @@ APPLICATION_DOMAIN_MAP = {
 # Prefixos: qualquer path que COMECE com estes valores é liberado pelo
 # AuthorizationMiddleware sem checagem de autenticação/roles.
 AUTHORIZATION_EXEMPT_PATHS = [
-    "/api/public/carga-org-lot/dashboard/",
     "/api/accounts/login/",  # login via sessão
     "/api/accounts/logout/",  # logout (IsAuthenticated no DRF, mas sem roles)
     "/api/accounts/auth/",  # AplicacaoPublicaViewSet (AllowAny) — seletor de login

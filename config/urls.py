@@ -10,14 +10,7 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
-from apps.carga_org_lot.views import DashboardPublicoCargaOrgLotView
-
 urlpatterns = [
-    path(
-        "api/public/carga-org-lot/dashboard/",
-        DashboardPublicoCargaOrgLotView.as_view(),
-        name="dashboard-publico-carga-org-lot",
-    ),
     # Admin
     path("admin/", admin.site.urls),
     # ── Apps ──────────────────────────────────────────────────────────────

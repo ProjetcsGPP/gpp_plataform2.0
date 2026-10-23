@@ -8,6 +8,7 @@ import pytest
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.urls import Resolver404, resolve
 from django.utils import timezone
 from openpyxl import Workbook, load_workbook
 
@@ -71,6 +72,18 @@ CARGAS_URL = f"{BASE_URL}/cargas/"
 HISTORICO_URL = f"{BASE_URL}/historico-cargas/"
 ENVIOS_ORGANOGRAMA_URL = f"{BASE_URL}/envios-organograma-prodest/"
 EVENTOS_INTEGRACAO_URL = f"{BASE_URL}/eventos-integracao-prodest/"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/public/carga-org-lot/dashboard/",
+        f"{BASE_URL}/dashboard-publico/",
+    ],
+)
+def test_dashboard_publico_descontinuado(path):
+    with pytest.raises(Resolver404):
+        resolve(path)
 
 
 @pytest.fixture

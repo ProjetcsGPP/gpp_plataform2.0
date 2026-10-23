@@ -10,7 +10,6 @@ from .views import (
     ConjuntoLotacaoViewSet,
     CargaOrgLotViewSet,
     DashboardCargaOrgLotView,
-    DashboardPublicoCargaOrgLotView,
     EnvioOrganogramaProdestViewSet,
     EventoIntegracaoProdestViewSet,
     HistoricoCargaViewSet,
@@ -116,10 +115,5 @@ router.register(
 
 urlpatterns = [
     path("dashboard/", DashboardCargaOrgLotView.as_view(), name="dashboard"),
-    path(
-        "dashboard-publico/",
-        DashboardPublicoCargaOrgLotView.as_view(),
-        name="dashboard-publico",
-    ),
     path("", include(router.urls)),
 ]
