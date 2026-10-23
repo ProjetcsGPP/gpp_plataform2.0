@@ -10,7 +10,7 @@ from ..models import (
     ImportacaoPlanilha,
     Patriarca,
 )
-from ..services.lotacao_sets import validate_set_organogram
+from ..services.lotacao_sets import available_set_actions, validate_set_organogram
 
 
 class HistoricoConjuntoLotacaoSerializer(AuditableModelSerializer):
@@ -46,6 +46,9 @@ class ConjuntoLotacaoSerializer(AuditableModelSerializer):
     total_registros_descartados = serializers.SerializerMethodField()
     idconjuntosubstituto = serializers.SerializerMethodField()
     download_consolidado_url = serializers.SerializerMethodField()
+    patriarca_resumo = serializers.SerializerMethodField()
+    organograma_resumo = serializers.SerializerMethodField()
+    acoes_disponiveis = serializers.SerializerMethodField()
 
     class Meta(AuditableModelSerializer.Meta):
         model = ConjuntoLotacao
@@ -67,6 +70,9 @@ class ConjuntoLotacaoSerializer(AuditableModelSerializer):
             "total_registros_descartados",
             "idconjuntosubstituto",
             "download_consolidado_url",
+            "patriarca_resumo",
+            "organograma_resumo",
+            "acoes_disponiveis",
         ]
         read_only_fields = AuditableModelSerializer.Meta.read_only_fields + [
             "idconjuntolotacao",
@@ -83,6 +89,9 @@ class ConjuntoLotacaoSerializer(AuditableModelSerializer):
             "total_registros_descartados",
             "idconjuntosubstituto",
             "download_consolidado_url",
+            "patriarca_resumo",
+            "organograma_resumo",
+            "acoes_disponiveis",
         ]
 
     def validate(self, attrs):
@@ -136,6 +145,29 @@ class ConjuntoLotacaoSerializer(AuditableModelSerializer):
         )
         request = self.context.get("request")
         return request.build_absolute_uri(path) if request else path
+
+    @staticmethod
+    def get_patriarca_resumo(instance) -> dict:
+        return {
+            "idpatriarca": instance.idpatriarca_id,
+            "sigla": instance.idpatriarca.strsiglapatriarca,
+            "nome": instance.idpatriarca.strnome,
+        }
+
+    @staticmethod
+    def get_organograma_resumo(instance) -> dict:
+        organogram = instance.idimportacaoorganograma
+        return {
+            "idimportacaoplanilha": organogram.pk,
+            "referencia": organogram.strreferencia,
+            "nome_arquivo": organogram.strnomearquivo,
+            "status": organogram.strstatusimportacao,
+            "data_importacao": organogram.datimportacao,
+        }
+
+    @staticmethod
+    def get_acoes_disponiveis(instance) -> dict:
+        return available_set_actions(instance)
 
 
 class AcaoConjuntoLotacaoSerializer(serializers.Serializer):

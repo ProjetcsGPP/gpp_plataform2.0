@@ -58,6 +58,7 @@ def _clean_carga_org_lot_tables(_ensure_base_data_carga):
     """
     from apps.carga_org_lot.models import (
         AlternativaResolucaoValidacao,
+        CargoReferenciaGlobal,
         CasoValidacaoImportacao,
         ConjuntoLotacao,
         DetalheStatusCarga,
@@ -69,6 +70,8 @@ def _clean_carga_org_lot_tables(_ensure_base_data_carga):
         ItemLotacao,
         ItemLotacaoImportado,
         ItemOrganograma,
+        MapeamentoCargoPatriarca,
+        OcorrenciaCargoImportacao,
         OcorrenciaValidacaoImportacao,
         Patriarca,
         ProcessoCargaInicial,
@@ -78,6 +81,7 @@ def _clean_carga_org_lot_tables(_ensure_base_data_carga):
         StatusProgresso,
         TipoCarga,
         TokenEnvioCarga,
+        VariacaoCargoGlobal,
     )
 
     def clean():
@@ -90,6 +94,8 @@ def _clean_carga_org_lot_tables(_ensure_base_data_carga):
         CasoValidacaoImportacao.objects.all().delete()
         ItemLotacao.objects.all().delete()
         ItemLotacaoImportado.objects.all().delete()
+        MapeamentoCargoPatriarca.objects.all().delete()
+        OcorrenciaCargoImportacao.objects.all().delete()
         OcorrenciaValidacaoImportacao.objects.all().delete()
         RelatorioValidacaoImportacao.objects.all().delete()
         HistoricoConjuntoLotacao.objects.all().delete()
@@ -103,6 +109,8 @@ def _clean_carga_org_lot_tables(_ensure_base_data_carga):
         HistoricoProcessoCargaInicial.objects.all().delete()
         ProcessoCargaInicial.objects.all().delete()
         Patriarca.objects.all().delete()
+        VariacaoCargoGlobal.objects.all().delete()
+        CargoReferenciaGlobal.objects.all().delete()
         StatusCarga.objects.all().delete()
         TipoCarga.objects.all().delete()
         StatusProgresso.objects.all().delete()

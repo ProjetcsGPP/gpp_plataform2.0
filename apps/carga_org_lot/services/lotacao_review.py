@@ -25,6 +25,7 @@ from apps.carga_org_lot.models import (
     StatusItemLotacaoImportado,
 )
 from apps.carga_org_lot.services.lotacao import normalize_cpf
+from apps.carga_org_lot.services.cargos import learn_position_resolution
 from apps.carga_org_lot.services.lotacao_sets import sync_lotation_set
 from apps.carga_org_lot.services.workflow import AuditActor, register_lotation_import
 
@@ -240,10 +241,17 @@ def _update_item_states(importacao):
             item.strsituacao = status
             item.save(update_fields=["strsituacao", "updated_at"])
 
-    if importacao.relatorio_validacao.casos.filter(
+    pending_cases = importacao.relatorio_validacao.casos.filter(
         strstatus=StatusCasoValidacao.PENDENTE
-    ).exists():
-        importacao.strstatusimportacao = StatusImportacaoLocal.AGUARDANDO_REVISAO
+    )
+    if pending_cases.exists():
+        importacao.strstatusimportacao = (
+            StatusImportacaoLocal.AGUARDANDO_REVISAO_CARGOS
+            if not pending_cases.exclude(
+                strcodigo="cargo_correspondencia_sugerida"
+            ).exists()
+            else StatusImportacaoLocal.AGUARDANDO_REVISAO
+        )
     elif importacao.itens_lotacao_importados.exclude(
         strsituacao=StatusItemLotacaoImportado.DESCARTADO
     ).exists():
@@ -262,6 +270,8 @@ def resolve_validation_case(
     justification: str = "",
     alternative: AlternativaResolucaoValidacao | None = None,
     changes: list[dict] | None = None,
+    position_scope: str = "GLOBAL",
+    remember_position: bool = False,
 ) -> CasoValidacaoImportacao:
     case = CasoValidacaoImportacao.objects.select_for_update().get(pk=case.pk)
     if case.strstatus != StatusCasoValidacao.PENDENTE:
@@ -354,6 +364,16 @@ def resolve_validation_case(
         )
         _validate_case_resolution(case, items)
 
+    learn_position_resolution(
+        case,
+        items,
+        action=action,
+        alternative=alternative,
+        actor=actor,
+        scope=position_scope,
+        remember=remember_position,
+    )
+    items = list(case.itens.all())
     case.strstatus = new_status
     case.datresolucao = timezone.now()
     case.updated_by_id = actor.user_id
@@ -436,6 +456,7 @@ def incorporate_lotation(importacao: ImportacaoPlanilha, actor: AuditActor) -> i
             idimportacaoplanilha=importacao,
             idorgaoorganograma=item.idorgaoorganograma,
             idunidadeorganograma=item.idunidadeorganograma,
+            idcargoreferencia=item.idcargoreferencia,
             strsiglaorgao=item.strsiglaorgao,
             strnomeorgao=item.strnomeorgao,
             strnomeservidor=item.strnomeservidor,

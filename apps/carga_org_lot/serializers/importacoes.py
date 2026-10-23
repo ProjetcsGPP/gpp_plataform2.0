@@ -42,6 +42,7 @@ from ..services.lotacao import (
     RULES_VERSION as LOTACAO_RULES_VERSION,
     validate_lotation_spreadsheet,
 )
+from ..services.cargos import analyze_imported_positions
 from ..services.lotacao_sets import (
     create_lotation_set,
     ensure_set_accepts_import,
@@ -715,6 +716,33 @@ class ImportacaoPlanilhaSerializer(AuditableModelSerializer):
                 relatorio_lotacao,
                 validated_data,
             )
+            instance.strstatusimportacao = StatusImportacaoLocal.ANALISANDO_CARGOS
+            instance.save(update_fields=["strstatusimportacao", "updated_at"])
+            analyze_imported_positions(
+                instance,
+                relatorio_lotacao,
+                staged_items,
+                validated_data,
+            )
+            cargo_issues = [
+                issue
+                for issue in relatorio_lotacao.issues
+                if issue.codigo == "cargo_correspondencia_sugerida"
+            ]
+            other_pending = [
+                issue
+                for issue in relatorio_lotacao.errors + relatorio_lotacao.warnings
+                if issue.codigo != "cargo_correspondencia_sugerida"
+            ]
+            if other_pending:
+                instance.strstatusimportacao = StatusImportacaoLocal.AGUARDANDO_REVISAO
+            elif cargo_issues:
+                instance.strstatusimportacao = (
+                    StatusImportacaoLocal.AGUARDANDO_REVISAO_CARGOS
+                )
+            else:
+                instance.strstatusimportacao = StatusImportacaoLocal.INCORPORADA
+            instance.save(update_fields=["strstatusimportacao", "updated_at"])
             self._create_lotation_validation_report(
                 instance,
                 relatorio_lotacao,
@@ -736,7 +764,10 @@ class ImportacaoPlanilhaSerializer(AuditableModelSerializer):
                 actor=actor,
                 pending_review=(
                     instance.strstatusimportacao
-                    == StatusImportacaoLocal.AGUARDANDO_REVISAO
+                    in {
+                        StatusImportacaoLocal.AGUARDANDO_REVISAO,
+                        StatusImportacaoLocal.AGUARDANDO_REVISAO_CARGOS,
+                    }
                 ),
             )
             register_set_import(conjunto, instance, actor=actor)
@@ -821,6 +852,7 @@ class ImportacaoPlanilhaSerializer(AuditableModelSerializer):
                     idimportacaoplanilha=importacao,
                     idorgaoorganograma=item.idorgaoorganograma,
                     idunidadeorganograma=item.idunidadeorganograma,
+                    idcargoreferencia=item.idcargoreferencia,
                     strsiglaorgao=item.strsiglaorgao,
                     strnomeorgao=item.strnomeorgao,
                     strnomeservidor=item.strnomeservidor,
@@ -917,6 +949,8 @@ class ImportacaoPlanilhaSerializer(AuditableModelSerializer):
                     f"cpf_duplicado:{issue.valor_original}:"
                     f"{organ_key}:{unit_key}"
                 )
+            elif issue.codigo == "cargo_correspondencia_sugerida":
+                grouping_key = f"cargo:{issue.valor_normalizado}"
             else:
                 grouping_key = (
                     f"{issue.codigo}:{issue.aba or ''}:{issue.linha or 0}"
@@ -960,9 +994,11 @@ class ImportacaoPlanilhaSerializer(AuditableModelSerializer):
             alternatives.append(
                 AlternativaResolucaoValidacao(
                     idcasovalidacao=case,
+                    idcargoreferencia_id=suggestion.get("cargo_referencia_id"),
                     stracao=AcaoResolucaoValidacao.APLICAR_SUGESTAO,
                     strdescricao=suggestion["descricao"],
                     jsonpayload=suggestion.get("alteracoes", {}),
+                    decconfianca=suggestion.get("confianca"),
                     flgrecomendada=True,
                     **audit_fields,
                 )

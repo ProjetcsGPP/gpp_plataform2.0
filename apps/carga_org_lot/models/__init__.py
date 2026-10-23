@@ -6,6 +6,7 @@ Os reexports preservam os imports históricos da aplicação e das migrações.
 from .catalogs import StatusCarga, StatusProgresso, TipoCarga
 from .choices import (
     AcaoResolucaoValidacao,
+    EscopoMapeamentoCargo,
     FaseIntegracaoProdest,
     FaseProcessoCargaInicial,
     OperacaoIntegracaoProdest,
@@ -15,14 +16,22 @@ from .choices import (
     StatusEnvioOrganograma,
     StatusEventoOperacional,
     StatusImportacaoLocal,
+    StatusCargoReferencia,
     StatusItemLotacaoImportado,
     StatusCasoValidacao,
+    StatusVariacaoCargo,
     StatusLotacaoProcesso,
     StatusOrganogramaProcesso,
     TipoCargaIntegracao,
     TipoOperacaoImportacaoLotacao,
     VisibilidadeEventoIntegracao,
     SituacaoConjuntoLotacao,
+)
+from .cargos import (
+    CargoReferenciaGlobal,
+    MapeamentoCargoPatriarca,
+    OcorrenciaCargoImportacao,
+    VariacaoCargoGlobal,
 )
 from .conjunto_lotacao import ConjuntoLotacao, HistoricoConjuntoLotacao
 from .cargas import DetalheStatusCarga, TokenEnvioCarga
@@ -51,9 +60,11 @@ __all__ = [
     "AcaoResolucaoValidacao",
     "AlternativaResolucaoValidacao",
     "CasoValidacaoImportacao",
+    "CargoReferenciaGlobal",
     "ConjuntoLotacao",
     "DetalheStatusCarga",
     "EnvioOrganogramaProdest",
+    "EscopoMapeamentoCargo",
     "EventoIntegracaoProdest",
     "FaseIntegracaoProdest",
     "FaseProcessoCargaInicial",
@@ -63,6 +74,8 @@ __all__ = [
     "ItemLotacao",
     "ItemLotacaoImportado",
     "ItemOrganograma",
+    "MapeamentoCargoPatriarca",
+    "OcorrenciaCargoImportacao",
     "OcorrenciaValidacaoImportacao",
     "OperacaoIntegracaoProdest",
     "Patriarca",
@@ -76,8 +89,10 @@ __all__ = [
     "StatusEnvioOrganograma",
     "StatusEventoOperacional",
     "StatusImportacaoLocal",
+    "StatusCargoReferencia",
     "StatusItemLotacaoImportado",
     "StatusCasoValidacao",
+    "StatusVariacaoCargo",
     "SituacaoConjuntoLotacao",
     "StatusLotacaoProcesso",
     "StatusOrganogramaProcesso",
@@ -87,4 +102,5 @@ __all__ = [
     "TipoOperacaoImportacaoLotacao",
     "TokenEnvioCarga",
     "VisibilidadeEventoIntegracao",
+    "VariacaoCargoGlobal",
 ]

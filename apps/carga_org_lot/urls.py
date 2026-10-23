@@ -6,6 +6,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     AlternativaResolucaoValidacaoViewSet,
     CasoValidacaoImportacaoViewSet,
+    CargoReferenciaGlobalViewSet,
     ConjuntoLotacaoViewSet,
     CargaOrgLotViewSet,
     DashboardCargaOrgLotView,
@@ -17,12 +18,15 @@ from .views import (
     ItemLotacaoViewSet,
     ItemLotacaoImportadoViewSet,
     ItemOrganogramaViewSet,
+    MapeamentoCargoPatriarcaViewSet,
+    OcorrenciaCargoImportacaoViewSet,
     PatriarcaViewSet,
     ProcessoCargaInicialViewSet,
     ResolucaoValidacaoViewSet,
     StatusCargaViewSet,
     StatusProgressoViewSet,
     TipoCargaViewSet,
+    VariacaoCargoGlobalViewSet,
 )
 
 app_name = "carga_org_lot"
@@ -39,6 +43,26 @@ router.register(
     r"status-progresso", StatusProgressoViewSet, basename="status-progresso"
 )
 router.register(r"tipos-carga", TipoCargaViewSet, basename="tipo-carga")
+router.register(
+    r"cargos-referencia",
+    CargoReferenciaGlobalViewSet,
+    basename="cargo-referencia",
+)
+router.register(
+    r"variacoes-cargo",
+    VariacaoCargoGlobalViewSet,
+    basename="variacao-cargo",
+)
+router.register(
+    r"ocorrencias-cargo",
+    OcorrenciaCargoImportacaoViewSet,
+    basename="ocorrencia-cargo",
+)
+router.register(
+    r"mapeamentos-cargo-patriarca",
+    MapeamentoCargoPatriarcaViewSet,
+    basename="mapeamento-cargo-patriarca",
+)
 router.register(r"importacoes", ImportacaoPlanilhaViewSet, basename="importacao")
 router.register(
     r"conjuntos-lotacao",

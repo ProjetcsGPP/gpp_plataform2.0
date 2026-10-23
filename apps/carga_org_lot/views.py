@@ -6,11 +6,21 @@ from uuid import UUID
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
-from django.db.models import Count, IntegerField, OuterRef, Prefetch, Subquery, Value
+from django.db.models import (
+    Count,
+    F,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Q,
+    Subquery,
+    Value,
+)
 from django.db.models.deletion import ProtectedError
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.utils.http import content_disposition_header
 from django.utils.text import get_valid_filename
 from drf_spectacular.types import OpenApiTypes
@@ -34,6 +44,7 @@ from .exceptions import (
 )
 from .models import (
     AlternativaResolucaoValidacao,
+    CargoReferenciaGlobal,
     CasoValidacaoImportacao,
     ConjuntoLotacao,
     DetalheStatusCarga,
@@ -43,21 +54,26 @@ from .models import (
     ItemLotacao,
     ItemLotacaoImportado,
     ItemOrganograma,
+    MapeamentoCargoPatriarca,
+    OcorrenciaCargoImportacao,
     Patriarca,
     ProcessoCargaInicial,
     RelatorioValidacaoImportacao,
     ResolucaoValidacao,
     StatusCarga,
     StatusImportacaoLocal,
+    StatusItemLotacaoImportado,
     SituacaoConjuntoLotacao,
     StatusProgresso,
     TipoCarga,
     TokenEnvioCarga,
+    VariacaoCargoGlobal,
 )
 from .serializers import (
     AlternativaResolucaoValidacaoSerializer,
     AcaoConjuntoLotacaoSerializer,
     CasoValidacaoImportacaoSerializer,
+    CargoReferenciaGlobalSerializer,
     ConjuntoLotacaoSerializer,
     ConsultarCargasIniciaisProdestSerializer,
     CriarOrganogramaInicialSerializer,
@@ -68,8 +84,11 @@ from .serializers import (
     ImportacaoPlanilhaSerializer,
     HistoricoConjuntoLotacaoSerializer,
     ItemLotacaoSerializer,
+    ItemLotacaoDescartadoSerializer,
     ItemLotacaoImportadoSerializer,
     ItemOrganogramaSerializer,
+    MapeamentoCargoPatriarcaSerializer,
+    OcorrenciaCargoImportacaoSerializer,
     PatriarcaSerializer,
     ProcessoCargaInicialSerializer,
     RelatorioValidacaoImportacaoSerializer,
@@ -80,15 +99,22 @@ from .serializers import (
     StatusProgressoSerializer,
     TipoCargaSerializer,
     TokenEnvioCargaSerializer,
+    VariacaoCargoGlobalSerializer,
 )
 from .services.organograma import ORGANOGRAMA_TYPE_ID
 from .services.lotacao_review import incorporate_lotation, resolve_validation_case
+from .services.lotacao_pending_report import build_pending_lotation_report_xlsx
 from .services.lotacao_sets import (
     activate_lotation_set,
     build_consolidated_lotation_xlsx,
     cancel_lotation_set,
     create_lotation_set,
     homologate_lotation_set,
+)
+from .services.validation_cases import (
+    SUBJECT_LABELS,
+    validation_case_subject,
+    validation_subject_query,
 )
 from .services.organograma_editing import (
     build_initial_organogram_xlsx,
@@ -330,6 +356,161 @@ class TipoCargaViewSet(BaseCatalogViewSet):
     }
 
 
+class CargoCatalogPermissionMixin:
+    permission_map = {
+        "list": "view_importacaoplanilha",
+        "retrieve": "view_importacaoplanilha",
+        "create": "add_importacaoplanilha",
+        "update": "change_importacaoplanilha",
+        "partial_update": "change_importacaoplanilha",
+        "destroy": "delete_importacaoplanilha",
+    }
+
+
+@tag_all_actions("4 - Carga Org/Lot")
+class CargoReferenciaGlobalViewSet(
+    CargoCatalogPermissionMixin,
+    PermissionedViewSetMixin,
+    ProtectedDestroyMixin,
+    AuditableMixin,
+    viewsets.ModelViewSet,
+):
+    queryset = CargoReferenciaGlobal.objects.all()
+    serializer_class = CargoReferenciaGlobalSerializer
+    filter_backends = [DeterministicOrderingFilter]
+    ordering_fields = ["strnome", "strstatus", "created_at", "idcargoreferencia"]
+    ordering = ["strnome", "idcargoreferencia"]
+    ordering_tie_breaker = "idcargoreferencia"
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        status_value = self.request.query_params.get("status")
+        if status_value:
+            queryset = queryset.filter(strstatus=status_value)
+        active = self.request.query_params.get("ativo")
+        if active is not None:
+            if active.lower() not in {"true", "false"}:
+                raise serializers.ValidationError({"ativo": "Informe true ou false."})
+            queryset = queryset.filter(flgativo=active.lower() == "true")
+        search = self.request.query_params.get("q", "").strip()
+        if search:
+            queryset = queryset.filter(strnome__icontains=search)
+        return queryset
+
+
+@tag_all_actions("4 - Carga Org/Lot")
+class VariacaoCargoGlobalViewSet(
+    CargoCatalogPermissionMixin,
+    PermissionedViewSetMixin,
+    ProtectedDestroyMixin,
+    AuditableMixin,
+    viewsets.ModelViewSet,
+):
+    queryset = VariacaoCargoGlobal.objects.select_related("idcargoreferencia").all()
+    serializer_class = VariacaoCargoGlobalSerializer
+    filter_backends = [DeterministicOrderingFilter]
+    ordering_fields = [
+        "strdescricao",
+        "strstatus",
+        "inttotalocorrencias",
+        "datultimaocorrencia",
+        "idvariacaocargo",
+    ]
+    ordering = ["-inttotalocorrencias", "idvariacaocargo"]
+    ordering_tie_breaker = "idvariacaocargo"
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        for parameter, field in {
+            "status": "strstatus",
+            "cargo_referencia": "idcargoreferencia_id",
+        }.items():
+            value = self.request.query_params.get(parameter)
+            if value:
+                if parameter == "cargo_referencia" and not value.isdecimal():
+                    raise serializers.ValidationError(
+                        {parameter: "Informe um identificador numérico válido."}
+                    )
+                queryset = queryset.filter(**{field: value})
+        search = self.request.query_params.get("q", "").strip()
+        if search:
+            queryset = queryset.filter(strdescricao__icontains=search)
+        return queryset
+
+
+@tag_all_actions("4 - Carga Org/Lot")
+class OcorrenciaCargoImportacaoViewSet(
+    PermissionedViewSetMixin,
+    viewsets.ReadOnlyModelViewSet,
+):
+    queryset = OcorrenciaCargoImportacao.objects.select_related(
+        "idvariacaocargo__idcargoreferencia",
+        "idimportacaoplanilha",
+        "idpatriarca",
+    ).all()
+    serializer_class = OcorrenciaCargoImportacaoSerializer
+    filter_backends = [DeterministicOrderingFilter]
+    ordering_fields = ["created_at", "intquantidade", "idocorrenciacargo"]
+    ordering = ["-created_at", "-idocorrenciacargo"]
+    ordering_tie_breaker = "idocorrenciacargo"
+    permission_map = {
+        "list": "view_importacaoplanilha",
+        "retrieve": "view_importacaoplanilha",
+    }
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        for parameter, field in {
+            "importacao": "idimportacaoplanilha_id",
+            "patriarca": "idpatriarca_id",
+            "variacao": "idvariacaocargo_id",
+        }.items():
+            value = self.request.query_params.get(parameter)
+            if value is not None:
+                if not value.isdecimal():
+                    raise serializers.ValidationError(
+                        {parameter: "Informe um identificador numérico válido."}
+                    )
+                queryset = queryset.filter(**{field: int(value)})
+        return queryset
+
+
+@tag_all_actions("4 - Carga Org/Lot")
+class MapeamentoCargoPatriarcaViewSet(
+    CargoCatalogPermissionMixin,
+    PermissionedViewSetMixin,
+    ProtectedDestroyMixin,
+    AuditableMixin,
+    viewsets.ModelViewSet,
+):
+    queryset = MapeamentoCargoPatriarca.objects.select_related(
+        "idpatriarca",
+        "idvariacaocargo",
+        "idcargoreferencia",
+    ).all()
+    serializer_class = MapeamentoCargoPatriarcaSerializer
+    filter_backends = [DeterministicOrderingFilter]
+    ordering_fields = ["created_at", "idmapeamentocargo"]
+    ordering = ["-created_at", "-idmapeamentocargo"]
+    ordering_tie_breaker = "idmapeamentocargo"
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        for parameter, field in {
+            "patriarca": "idpatriarca_id",
+            "variacao": "idvariacaocargo_id",
+            "cargo_referencia": "idcargoreferencia_id",
+        }.items():
+            value = self.request.query_params.get(parameter)
+            if value is not None:
+                if not value.isdecimal():
+                    raise serializers.ValidationError(
+                        {parameter: "Informe um identificador numérico válido."}
+                    )
+                queryset = queryset.filter(**{field: int(value)})
+        return queryset
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -507,6 +688,7 @@ class ImportacaoPlanilhaViewSet(
         "upload": "add_importacaoplanilha",
         "criar_organograma_inicial": "add_importacaoplanilha",
         "download": "view_importacaoplanilha",
+        "download_pendencias": "view_importacaoplanilha",
         "download_organograma_atualizado": "view_importacaoplanilha",
         "relatorio": "view_importacaoplanilha",
         "update": "change_importacaoplanilha",
@@ -659,6 +841,47 @@ class ImportacaoPlanilhaViewSet(
             (status.HTTP_200_OK, "application/octet-stream"): OpenApiTypes.BINARY
         },
         description=(
+            "Gera uma planilha objetiva com todas as ocorrências dos casos de "
+            "validação que ainda estão pendentes na importação de lotação."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="pendencias/download")
+    def download_pendencias(self, request, *args, **kwargs):
+        importacao = self.get_object()
+        if importacao.idtipocarga_id not in {4, 5}:
+            raise NotFound("A importação informada não é uma lotação.")
+        try:
+            content, summary = build_pending_lotation_report_xlsx(importacao)
+        except RelatorioValidacaoImportacao.DoesNotExist as exc:
+            raise NotFound(
+                "A importação ainda não possui relatório de validação."
+            ) from exc
+        if summary["total"] == 0:
+            raise serializers.ValidationError(
+                {"pendencias": "A importação não possui pendências em aberto."}
+            )
+
+        filename = get_valid_filename(
+            "pendencias_"
+            f"{importacao.idpatriarca.strsiglapatriarca}_"
+            f"{importacao.pk}.xlsx"
+        )
+        response = HttpResponse(
+            content,
+            content_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+        )
+        response["Content-Disposition"] = content_disposition_header(True, filename)
+        response["Content-Length"] = len(content)
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
+
+    @extend_schema(
+        responses={
+            (status.HTTP_200_OK, "application/octet-stream"): OpenApiTypes.BINARY
+        },
+        description=(
             "Gera o organograma atualizado a partir dos itens persistidos. "
             "Disponível após edição manual ou geração automática de unidades."
         ),
@@ -757,7 +980,13 @@ class ConjuntoLotacaoViewSet(
     )
     serializer_class = ConjuntoLotacaoSerializer
     filter_backends = [DeterministicOrderingFilter]
-    ordering_fields = ["created_at", "updated_at", "idconjuntolotacao"]
+    ordering_fields = [
+        "strreferencia",
+        "strsituacao",
+        "created_at",
+        "updated_at",
+        "idconjuntolotacao",
+    ]
     ordering = ["-created_at", "-idconjuntolotacao"]
     ordering_tie_breaker = "idconjuntolotacao"
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -771,6 +1000,7 @@ class ConjuntoLotacaoViewSet(
         "cancelar": "change_importacaoplanilha",
         "download_consolidado": "view_importacaoplanilha",
         "historico": "view_importacaoplanilha",
+        "resumo": "view_importacaoplanilha",
         "resumo_organograma": "view_importacaoplanilha",
     }
 
@@ -803,6 +1033,22 @@ class ConjuntoLotacaoViewSet(
                     {"situacao": "Informe uma situação de conjunto válida."}
                 )
             queryset = queryset.filter(strsituacao=situation)
+        reference = self.request.query_params.get("referencia", "").strip()
+        if reference:
+            queryset = queryset.filter(strreferencia__icontains=reference)
+        for parameter, lookup in {
+            "data_inicio": "created_at__date__gte",
+            "data_fim": "created_at__date__lte",
+        }.items():
+            value = self.request.query_params.get(parameter)
+            if not value:
+                continue
+            parsed = parse_date(value)
+            if parsed is None:
+                raise serializers.ValidationError(
+                    {parameter: "Informe uma data válida no formato AAAA-MM-DD."}
+                )
+            queryset = queryset.filter(**{lookup: parsed})
         return queryset
 
     def create(self, request, *args, **kwargs):
@@ -922,6 +1168,28 @@ class ConjuntoLotacaoViewSet(
         return Response(serializer.data)
 
     @extend_schema(responses={status.HTTP_200_OK: dict})
+    @action(detail=False, methods=["get"])
+    def resumo(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        counts = {
+            entry["strsituacao"]: entry["total"]
+            for entry in queryset.values("strsituacao").annotate(total=Count("pk"))
+        }
+        return Response(
+            {
+                "total_conjuntos": sum(counts.values()),
+                "por_situacao": [
+                    {
+                        "situacao": value,
+                        "nome": label,
+                        "total": counts.get(value, 0),
+                    }
+                    for value, label in SituacaoConjuntoLotacao.choices
+                ],
+            }
+        )
+
+    @extend_schema(responses={status.HTTP_200_OK: dict})
     @action(detail=False, methods=["get"], url_path="resumo-organograma")
     def resumo_organograma(self, request, *args, **kwargs):
         organograma = request.query_params.get("organograma")
@@ -933,6 +1201,10 @@ class ConjuntoLotacaoViewSet(
             idimportacaoorganograma_id=int(organograma)
         )
         active = queryset.filter(strsituacao=SituacaoConjuntoLotacao.ATIVO).first()
+        situation_counts = {
+            entry["strsituacao"]: entry["total"]
+            for entry in queryset.values("strsituacao").annotate(total=Count("pk"))
+        }
         return Response(
             {
                 "idimportacaoorganograma": int(organograma),
@@ -946,6 +1218,14 @@ class ConjuntoLotacaoViewSet(
                 "conjuntos_com_pendencias": queryset.filter(
                     strsituacao=SituacaoConjuntoLotacao.COM_PENDENCIAS
                 ).count(),
+                "por_situacao": [
+                    {
+                        "situacao": value,
+                        "nome": label,
+                        "total": situation_counts.get(value, 0),
+                    }
+                    for value, label in SituacaoConjuntoLotacao.choices
+                ],
                 "conjunto_ativo": (
                     self.get_serializer(active).data if active is not None else None
                 ),
@@ -1117,8 +1397,10 @@ class ItemLotacaoViewSet(
         "idimportacaoplanilha",
         "idimportacaoplanilha__idpatriarca",
         "idimportacaoplanilha__idimportacaoorganograma",
+        "idimportacaoplanilha__idconjuntolotacao",
         "idorgaoorganograma",
         "idunidadeorganograma",
+        "idcargoreferencia",
     ).all()
     serializer_class = ItemLotacaoSerializer
     filter_backends = [DeterministicOrderingFilter]
@@ -1146,6 +1428,9 @@ class ItemLotacaoViewSet(
             "orgao": "idorgaoorganograma_id",
             "unidade": "idunidadeorganograma_id",
             "conjunto_lotacao": "idimportacaoplanilha__idconjuntolotacao_id",
+            "patriarca": "idimportacaoplanilha__idpatriarca_id",
+            "organograma": "idimportacaoplanilha__idimportacaoorganograma_id",
+            "cargo_referencia": "idcargoreferencia_id",
         }
         for parameter, field_name in integer_filters.items():
             value = self.request.query_params.get(parameter)
@@ -1164,6 +1449,22 @@ class ItemLotacaoViewSet(
             value = self.request.query_params.get(parameter)
             if value:
                 queryset = queryset.filter(**{field_name: value.strip()})
+        person_name = self.request.query_params.get("nome", "").strip()
+        if person_name:
+            queryset = queryset.filter(strnomeservidor__icontains=person_name)
+        position = self.request.query_params.get("cargo", "").strip()
+        if position:
+            queryset = queryset.filter(
+                Q(strcargooriginal__icontains=position)
+                | Q(strcargonormalizado__icontains=position)
+                | Q(idcargoreferencia__strnome__icontains=position)
+            )
+        search = self.request.query_params.get("q", "").strip()
+        if search:
+            queryset = queryset.filter(
+                Q(strnomeservidor__icontains=search)
+                | Q(strcpf__icontains=search)
+            )
         vigente = self.request.query_params.get("vigente")
         if vigente is not None:
             if vigente.lower() not in {"true", "false"}:
@@ -1189,9 +1490,15 @@ class ItemLotacaoImportadoViewSet(
 ):
     queryset = ItemLotacaoImportado.objects.select_related(
         "idimportacaoplanilha",
+        "idimportacaoplanilha__idpatriarca",
+        "idimportacaoplanilha__idimportacaoorganograma",
+        "idimportacaoplanilha__idconjuntolotacao",
         "idorgaoorganograma",
         "idunidadeorganograma",
-    ).all()
+        "idcargoreferencia",
+    ).prefetch_related(
+        "casos_validacao__resolucoes",
+    )
     serializer_class = ItemLotacaoImportadoSerializer
     filter_backends = [DeterministicOrderingFilter]
     ordering_fields = [
@@ -1207,21 +1514,78 @@ class ItemLotacaoImportadoViewSet(
     permission_map = {
         "list": "view_importacaoplanilha",
         "retrieve": "view_importacaoplanilha",
+        "descartados": "view_importacaoplanilha",
     }
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        importacao = self.request.query_params.get("importacao")
-        if importacao is not None:
-            if not importacao.isdecimal():
+        for parameter, field in {
+            "importacao": "idimportacaoplanilha_id",
+            "conjunto": "idimportacaoplanilha__idconjuntolotacao_id",
+            "patriarca": "idimportacaoplanilha__idpatriarca_id",
+            "organograma": "idimportacaoplanilha__idimportacaoorganograma_id",
+        }.items():
+            value = self.request.query_params.get(parameter)
+            if value is None:
+                continue
+            if not value.isdecimal():
                 raise serializers.ValidationError(
-                    {"importacao": "Informe um identificador numérico válido."}
+                    {parameter: "Informe um identificador numérico válido."}
                 )
-            queryset = queryset.filter(idimportacaoplanilha_id=int(importacao))
+            queryset = queryset.filter(**{field: int(value)})
         situacao = self.request.query_params.get("situacao")
         if situacao:
             queryset = queryset.filter(strsituacao=situacao)
-        return queryset
+        code = self.request.query_params.get("codigo", "").strip()
+        if code:
+            queryset = queryset.filter(casos_validacao__strcodigo=code)
+        discarded_by = self.request.query_params.get("descartado_por")
+        if discarded_by is not None:
+            if not discarded_by.isdecimal():
+                raise serializers.ValidationError(
+                    {"descartado_por": "Informe um identificador numérico válido."}
+                )
+            queryset = queryset.filter(
+                casos_validacao__resolucoes__stracao="DESCARTAR_LINHAS",
+                casos_validacao__resolucoes__created_by_id=int(discarded_by),
+            )
+        for parameter, lookup in {
+            "data_inicio": "casos_validacao__resolucoes__datresolucao__date__gte",
+            "data_fim": "casos_validacao__resolucoes__datresolucao__date__lte",
+        }.items():
+            value = self.request.query_params.get(parameter)
+            if not value:
+                continue
+            parsed = parse_date(value)
+            if parsed is None:
+                raise serializers.ValidationError(
+                    {parameter: "Informe uma data válida no formato AAAA-MM-DD."}
+                )
+            queryset = queryset.filter(**{lookup: parsed})
+        return queryset.distinct()
+
+    @extend_schema(
+        responses={
+            status.HTTP_200_OK: ItemLotacaoDescartadoSerializer(many=True),
+        }
+    )
+    @action(detail=False, methods=["get"])
+    def descartados(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(
+            self.get_queryset().filter(
+                strsituacao=StatusItemLotacaoImportado.DESCARTADO,
+                casos_validacao__resolucoes__stracao="DESCARTAR_LINHAS",
+            )
+        ).distinct()
+        page = self.paginate_queryset(queryset)
+        serializer = ItemLotacaoDescartadoSerializer(
+            page if page is not None else queryset,
+            many=True,
+            context=self.get_serializer_context(),
+        )
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
 
 @tag_all_actions("4 - Carga Org/Lot")
@@ -1231,6 +1595,9 @@ class CasoValidacaoImportacaoViewSet(
 ):
     queryset = CasoValidacaoImportacao.objects.select_related(
         "idrelatoriovalidacao__idimportacaoplanilha",
+        "idrelatoriovalidacao__idimportacaoplanilha__idpatriarca",
+        "idrelatoriovalidacao__idimportacaoplanilha__idimportacaoorganograma",
+        "idrelatoriovalidacao__idimportacaoplanilha__idconjuntolotacao",
     ).prefetch_related("itens", "ocorrencias", "alternativas", "resolucoes")
     serializer_class = CasoValidacaoImportacaoSerializer
     filter_backends = [DeterministicOrderingFilter]
@@ -1244,28 +1611,148 @@ class CasoValidacaoImportacaoViewSet(
     permission_map = {
         "list": "view_importacaoplanilha",
         "retrieve": "view_importacaoplanilha",
+        "resumo": "view_importacaoplanilha",
         "resolver": "change_importacaoplanilha",
     }
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        importacao = self.request.query_params.get("importacao")
-        if importacao is not None:
-            if not importacao.isdecimal():
+        for parameter, field in {
+            "importacao": "idrelatoriovalidacao__idimportacaoplanilha_id",
+            "patriarca": (
+                "idrelatoriovalidacao__idimportacaoplanilha__idpatriarca_id"
+            ),
+            "organograma": (
+                "idrelatoriovalidacao__idimportacaoplanilha__"
+                "idimportacaoorganograma_id"
+            ),
+            "conjunto": (
+                "idrelatoriovalidacao__idimportacaoplanilha__idconjuntolotacao_id"
+            ),
+        }.items():
+            value = self.request.query_params.get(parameter)
+            if value is None:
+                continue
+            if not value.isdecimal():
                 raise serializers.ValidationError(
-                    {"importacao": "Informe um identificador numérico válido."}
+                    {parameter: "Informe um identificador numérico válido."}
                 )
-            queryset = queryset.filter(
-                idrelatoriovalidacao__idimportacaoplanilha_id=int(importacao)
-            )
+            queryset = queryset.filter(**{field: int(value)})
         for parameter, field in {
             "status": "strstatus",
             "severidade": "strseveridade",
+            "codigo": "strcodigo",
         }.items():
             value = self.request.query_params.get(parameter)
             if value:
                 queryset = queryset.filter(**{field: value})
-        return queryset
+        subject = self.request.query_params.get("assunto")
+        if subject:
+            try:
+                queryset = queryset.filter(validation_subject_query(subject))
+            except ValueError as exc:
+                raise serializers.ValidationError(
+                    {"assunto": f"{exc} Opções: {', '.join(SUBJECT_LABELS)}."}
+                ) from exc
+        resolved_by = self.request.query_params.get("resolvido_por")
+        if resolved_by is not None:
+            if not resolved_by.isdecimal():
+                raise serializers.ValidationError(
+                    {"resolvido_por": "Informe um identificador numérico válido."}
+                )
+            queryset = queryset.filter(resolucoes__created_by_id=int(resolved_by))
+        for parameter, lookup in {
+            "data_inicio": "created_at__date__gte",
+            "data_fim": "created_at__date__lte",
+        }.items():
+            value = self.request.query_params.get(parameter)
+            if not value:
+                continue
+            parsed = parse_date(value)
+            if parsed is None:
+                raise serializers.ValidationError(
+                    {parameter: "Informe uma data válida no formato AAAA-MM-DD."}
+                )
+            queryset = queryset.filter(**{lookup: parsed})
+        search = self.request.query_params.get("q", "").strip()
+        if search:
+            importation_prefix = "idrelatoriovalidacao__idimportacaoplanilha__"
+            queryset = queryset.filter(
+                Q(strtitulo__icontains=search)
+                | Q(strmensagem__icontains=search)
+                | Q(**{f"{importation_prefix}strreferencia__icontains": search})
+                | Q(**{f"{importation_prefix}strnomearquivo__icontains": search})
+                | Q(
+                    **{
+                        f"{importation_prefix}idpatriarca__strnome__icontains": (
+                            search
+                        )
+                    }
+                )
+            )
+        return queryset.distinct()
+
+    @extend_schema(responses={status.HTTP_200_OK: dict})
+    @action(detail=False, methods=["get"])
+    def resumo(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        code_counts = queryset.values("strcodigo").annotate(total=Count("pk"))
+        subject_counts = {key: 0 for key in SUBJECT_LABELS}
+        for entry in code_counts:
+            subject_counts[validation_case_subject(entry["strcodigo"])] += entry[
+                "total"
+            ]
+
+        importation = "idrelatoriovalidacao__idimportacaoplanilha"
+        return Response(
+            {
+                "total": queryset.count(),
+                "por_assunto": [
+                    {
+                        "assunto": key,
+                        "nome": label,
+                        "total": subject_counts[key],
+                    }
+                    for key, label in SUBJECT_LABELS.items()
+                ],
+                "por_severidade": list(
+                    queryset.values(severidade=F("strseveridade")).annotate(
+                        total=Count("pk")
+                    )
+                ),
+                "por_status": list(
+                    queryset.values(status=F("strstatus")).annotate(
+                        total=Count("pk")
+                    )
+                ),
+                "por_patriarca": list(
+                    queryset.values(
+                        idpatriarca=F(f"{importation}__idpatriarca_id"),
+                        nome=F(f"{importation}__idpatriarca__strnome"),
+                    ).annotate(total=Count("pk"))
+                ),
+                "por_organograma": list(
+                    queryset.values(
+                        idimportacaoorganograma=F(
+                            f"{importation}__idimportacaoorganograma_id"
+                        ),
+                        referencia=F(
+                            f"{importation}__idimportacaoorganograma__strreferencia"
+                        ),
+                    ).annotate(total=Count("pk"))
+                ),
+                "por_conjunto": list(
+                    queryset.values(
+                        idconjuntolotacao=F(
+                            f"{importation}__idconjuntolotacao_id"
+                        ),
+                        referencia=F(
+                            f"{importation}__idconjuntolotacao__strreferencia"
+                        ),
+                    ).annotate(total=Count("pk"))
+                ),
+            }
+        )
 
     @extend_schema(
         request=ResolverCasoValidacaoSerializer,
@@ -1287,6 +1774,8 @@ class CasoValidacaoImportacaoViewSet(
             justification=request_serializer.validated_data["justificativa"],
             alternative=request_serializer.validated_data.get("alternativa"),
             changes=request_serializer.validated_data["alteracoes"],
+            position_scope=request_serializer.validated_data["escopo_cargo"],
+            remember_position=request_serializer.validated_data["memorizar_cargo"],
         )
         return Response(self.get_serializer(case).data)
 

@@ -8,6 +8,7 @@ from ..models import (
     AcaoResolucaoValidacao,
     AlternativaResolucaoValidacao,
     CasoValidacaoImportacao,
+    EscopoMapeamentoCargo,
     ItemLotacao,
     ItemLotacaoImportado,
     ResolucaoValidacao,
@@ -19,6 +20,7 @@ class AlternativaResolucaoValidacaoSerializer(AuditableModelSerializer):
         model = AlternativaResolucaoValidacao
         fields = AuditableModelSerializer.Meta.fields + [
             "idalternativaresolucao",
+            "idcargoreferencia_id",
             "stracao",
             "strdescricao",
             "jsonpayload",
@@ -48,6 +50,12 @@ class ItemLotacaoImportadoSerializer(AuditableModelSerializer):
         source="get_strsituacao_display",
         read_only=True,
     )
+    cargo_referencia_nome = serializers.CharField(
+        source="idcargoreferencia.strnome",
+        read_only=True,
+        default=None,
+    )
+    contexto = serializers.SerializerMethodField()
 
     class Meta(AuditableModelSerializer.Meta):
         model = ItemLotacaoImportado
@@ -56,6 +64,9 @@ class ItemLotacaoImportadoSerializer(AuditableModelSerializer):
             "idimportacaoplanilha_id",
             "idorgaoorganograma_id",
             "idunidadeorganograma_id",
+            "idvariacaocargo_id",
+            "idcargoreferencia_id",
+            "cargo_referencia_nome",
             "strsiglaorgaooriginal",
             "strsiglaorgao",
             "strnomeorgao",
@@ -71,8 +82,74 @@ class ItemLotacaoImportadoSerializer(AuditableModelSerializer):
             "intlinhaorigem",
             "strsituacao",
             "situacao_nome",
+            "contexto",
         ]
         read_only_fields = fields
+
+    @staticmethod
+    def get_contexto(instance) -> dict:
+        importation = instance.idimportacaoplanilha
+        patriarch = importation.idpatriarca
+        organogram = importation.idimportacaoorganograma
+        lotation_set = importation.idconjuntolotacao
+        return {
+            "importacao": {
+                "id": importation.pk,
+                "referencia": importation.strreferencia,
+                "nome_arquivo": importation.strnomearquivo,
+            },
+            "patriarca": {
+                "id": patriarch.pk,
+                "sigla": patriarch.strsiglapatriarca,
+                "nome": patriarch.strnome,
+            },
+            "organograma": (
+                {
+                    "id": organogram.pk,
+                    "referencia": organogram.strreferencia,
+                    "nome_arquivo": organogram.strnomearquivo,
+                }
+                if organogram is not None
+                else None
+            ),
+            "conjunto": (
+                {
+                    "id": lotation_set.pk,
+                    "referencia": lotation_set.strreferencia,
+                    "situacao": lotation_set.strsituacao,
+                }
+                if lotation_set is not None
+                else None
+            ),
+        }
+
+
+class ItemLotacaoDescartadoSerializer(ItemLotacaoImportadoSerializer):
+    descartes = serializers.SerializerMethodField()
+
+    class Meta(ItemLotacaoImportadoSerializer.Meta):
+        fields = ItemLotacaoImportadoSerializer.Meta.fields + ["descartes"]
+        read_only_fields = fields
+
+    @staticmethod
+    def get_descartes(instance) -> list[dict]:
+        entries = []
+        for case in instance.casos_validacao.all():
+            for resolution in case.resolucoes.all():
+                if resolution.stracao != AcaoResolucaoValidacao.DESCARTAR_LINHAS:
+                    continue
+                entries.append(
+                    {
+                        "idcasovalidacao": case.pk,
+                        "codigo_critica": case.strcodigo,
+                        "idresolucaovalidacao": resolution.pk,
+                        "motivo": resolution.strjustificativa,
+                        "descartado_por_id": resolution.created_by_id,
+                        "descartado_por_nome": resolution.created_by_name,
+                        "data_descarte": resolution.datresolucao,
+                    }
+                )
+        return entries
 
 
 class CasoValidacaoImportacaoSerializer(AuditableModelSerializer):
@@ -93,6 +170,9 @@ class CasoValidacaoImportacaoSerializer(AuditableModelSerializer):
         source="get_strseveridade_display",
         read_only=True,
     )
+    contexto = serializers.SerializerMethodField()
+    assunto = serializers.SerializerMethodField()
+    assunto_nome = serializers.SerializerMethodField()
 
     class Meta(AuditableModelSerializer.Meta):
         model = CasoValidacaoImportacao
@@ -108,12 +188,63 @@ class CasoValidacaoImportacaoSerializer(AuditableModelSerializer):
             "strstatus",
             "status_nome",
             "datresolucao",
+            "assunto",
+            "assunto_nome",
+            "contexto",
             "item_ids",
             "ocorrencia_ids",
             "alternativas",
             "resolucoes",
         ]
         read_only_fields = fields
+
+    @staticmethod
+    def get_assunto(instance) -> str:
+        from ..services.validation_cases import validation_case_subject
+
+        return validation_case_subject(instance.strcodigo)
+
+    def get_assunto_nome(self, instance) -> str:
+        from ..services.validation_cases import SUBJECT_LABELS
+
+        return SUBJECT_LABELS[self.get_assunto(instance)]
+
+    @staticmethod
+    def get_contexto(instance) -> dict:
+        importation = instance.idrelatoriovalidacao.idimportacaoplanilha
+        patriarch = importation.idpatriarca
+        organogram = importation.idimportacaoorganograma
+        lotation_set = importation.idconjuntolotacao
+        return {
+            "importacao": {
+                "id": importation.pk,
+                "referencia": importation.strreferencia,
+                "nome_arquivo": importation.strnomearquivo,
+            },
+            "patriarca": {
+                "id": patriarch.pk,
+                "sigla": patriarch.strsiglapatriarca,
+                "nome": patriarch.strnome,
+            },
+            "organograma": (
+                {
+                    "id": organogram.pk,
+                    "referencia": organogram.strreferencia,
+                    "nome_arquivo": organogram.strnomearquivo,
+                }
+                if organogram is not None
+                else None
+            ),
+            "conjunto": (
+                {
+                    "id": lotation_set.pk,
+                    "referencia": lotation_set.strreferencia,
+                    "situacao": lotation_set.strsituacao,
+                }
+                if lotation_set is not None
+                else None
+            ),
+        }
 
 
 class ResolverCasoValidacaoSerializer(serializers.Serializer):
@@ -125,6 +256,12 @@ class ResolverCasoValidacaoSerializer(serializers.Serializer):
         allow_null=True,
     )
     justificativa = serializers.CharField(required=False, allow_blank=True, default="")
+    escopo_cargo = serializers.ChoiceField(
+        choices=EscopoMapeamentoCargo.choices,
+        required=False,
+        default=EscopoMapeamentoCargo.GLOBAL,
+    )
+    memorizar_cargo = serializers.BooleanField(required=False, default=False)
     alteracoes = serializers.ListField(
         child=serializers.DictField(),
         required=False,
@@ -188,6 +325,12 @@ class ItemLotacaoSerializer(AuditableModelSerializer):
     idimportacaoplanilha_id = serializers.IntegerField(read_only=True)
     idorgaoorganograma_id = serializers.IntegerField(read_only=True)
     idunidadeorganograma_id = serializers.IntegerField(read_only=True)
+    cargo_referencia_nome = serializers.CharField(
+        source="idcargoreferencia.strnome",
+        read_only=True,
+        default=None,
+    )
+    contexto = serializers.SerializerMethodField()
 
     class Meta(AuditableModelSerializer.Meta):
         model = ItemLotacao
@@ -196,6 +339,8 @@ class ItemLotacaoSerializer(AuditableModelSerializer):
             "idimportacaoplanilha_id",
             "idorgaoorganograma_id",
             "idunidadeorganograma_id",
+            "idcargoreferencia_id",
+            "cargo_referencia_nome",
             "strsiglaorgao",
             "strnomeorgao",
             "strnomeservidor",
@@ -206,5 +351,10 @@ class ItemLotacaoSerializer(AuditableModelSerializer):
             "strnomeunidade",
             "strabaorigem",
             "intlinhaorigem",
+            "contexto",
         ]
         read_only_fields = fields
+
+    @staticmethod
+    def get_contexto(instance) -> dict:
+        return ItemLotacaoImportadoSerializer.get_contexto(instance)

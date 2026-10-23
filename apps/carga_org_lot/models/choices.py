@@ -41,6 +41,11 @@ class StatusLotacaoProcesso(models.TextChoices):
 class StatusImportacaoLocal(models.TextChoices):
     RECEBIDA = "RECEBIDA", "Recebida"
     PROCESSANDO = "PROCESSANDO", "Processando"
+    ANALISANDO_CARGOS = "ANALISANDO_CARGOS", "Analisando cargos"
+    AGUARDANDO_REVISAO_CARGOS = (
+        "AGUARDANDO_REVISAO_CARGOS",
+        "Aguardando revisão de cargos",
+    )
     AGUARDANDO_REVISAO = "AGUARDANDO_REVISAO", "Aguardando revisão"
     PRONTA_PARA_INCORPORAR = (
         "PRONTA_PARA_INCORPORAR",
@@ -95,6 +100,26 @@ class AcaoResolucaoValidacao(models.TextChoices):
     CORRIGIR_MANUALMENTE = "CORRIGIR_MANUALMENTE", "Corrigir manualmente"
     APLICAR_SUGESTAO = "APLICAR_SUGESTAO", "Aplicar sugestão"
     DESCARTAR_LINHAS = "DESCARTAR_LINHAS", "Descartar linhas"
+
+
+class StatusCargoReferencia(models.TextChoices):
+    NOVO = "NOVO", "Novo"
+    CONFIRMADO = "CONFIRMADO", "Confirmado"
+    INATIVO = "INATIVO", "Inativo"
+
+
+class StatusVariacaoCargo(models.TextChoices):
+    NOVA = "NOVA", "Nova"
+    EM_ANALISE = "EM_ANALISE", "Em análise"
+    CONFIRMADA = "CONFIRMADA", "Confirmada"
+    AMBIGUA = "AMBIGUA", "Ambígua"
+    IGNORADA = "IGNORADA", "Ignorada"
+
+
+class EscopoMapeamentoCargo(models.TextChoices):
+    GLOBAL = "GLOBAL", "Global"
+    PATRIARCA = "PATRIARCA", "Somente este patriarca"
+    IMPORTACAO = "IMPORTACAO", "Somente esta importação"
 
 
 class SituacaoConjuntoLotacao(models.TextChoices):

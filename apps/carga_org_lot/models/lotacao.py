@@ -37,6 +37,20 @@ class ItemLotacaoImportado(AuditableModel):
         blank=True,
         related_name="lotacoes_importadas_como_unidade",
     )
+    idvariacaocargo = models.ForeignKey(
+        "carga_org_lot.VariacaoCargoGlobal",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="itens_importados",
+    )
+    idcargoreferencia = models.ForeignKey(
+        "carga_org_lot.CargoReferenciaGlobal",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="itens_importados",
+    )
     strsiglaorgaooriginal = models.TextField(blank=True, default="")
     strsiglaorgao = models.TextField(blank=True, default="")
     strnomeorgao = models.TextField(blank=True, default="")
@@ -103,6 +117,13 @@ class ItemLotacao(AuditableModel):
         ItemOrganograma,
         on_delete=models.PROTECT,
         related_name="lotacoes_como_unidade",
+    )
+    idcargoreferencia = models.ForeignKey(
+        "carga_org_lot.CargoReferenciaGlobal",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="itens_lotacao",
     )
 
     strsiglaorgao = models.CharField(max_length=20)
@@ -183,6 +204,13 @@ class AlternativaResolucaoValidacao(AuditableModel):
         CasoValidacaoImportacao,
         on_delete=models.CASCADE,
         related_name="alternativas",
+    )
+    idcargoreferencia = models.ForeignKey(
+        "carga_org_lot.CargoReferenciaGlobal",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="alternativas_validacao",
     )
     stracao = models.CharField(max_length=50, choices=AcaoResolucaoValidacao.choices)
     strdescricao = models.CharField(max_length=500)

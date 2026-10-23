@@ -1,6 +1,12 @@
 """Interface pública dos serializers de Carga Org/Lat."""
 
 from .catalogs import StatusCargaSerializer, StatusProgressoSerializer, TipoCargaSerializer
+from .cargos import (
+    CargoReferenciaGlobalSerializer,
+    MapeamentoCargoPatriarcaSerializer,
+    OcorrenciaCargoImportacaoSerializer,
+    VariacaoCargoGlobalSerializer,
+)
 from .importacoes import (
     CriarOrganogramaInicialSerializer,
     ImportacaoPlanilhaListSerializer,
@@ -18,6 +24,7 @@ from .cargas import DetalheStatusCargaSerializer, TokenEnvioCargaSerializer
 from .lotacao import (
     AlternativaResolucaoValidacaoSerializer,
     CasoValidacaoImportacaoSerializer,
+    ItemLotacaoDescartadoSerializer,
     ItemLotacaoImportadoSerializer,
     ItemLotacaoSerializer,
     ResolverCasoValidacaoSerializer,
@@ -38,6 +45,7 @@ from .workflow import (
 __all__ = [
     "AlternativaResolucaoValidacaoSerializer",
     "CasoValidacaoImportacaoSerializer",
+    "CargoReferenciaGlobalSerializer",
     "AcaoConjuntoLotacaoSerializer",
     "ConjuntoLotacaoSerializer",
     "ConsultarCargasIniciaisProdestSerializer",
@@ -50,8 +58,11 @@ __all__ = [
     "ImportacaoPlanilhaListSerializer",
     "ImportacaoPlanilhaSerializer",
     "ItemLotacaoSerializer",
+    "ItemLotacaoDescartadoSerializer",
     "ItemLotacaoImportadoSerializer",
     "ItemOrganogramaSerializer",
+    "MapeamentoCargoPatriarcaSerializer",
+    "OcorrenciaCargoImportacaoSerializer",
     "OcorrenciaValidacaoImportacaoSerializer",
     "PatriarcaSerializer",
     "ProcessoCargaInicialSerializer",
@@ -63,4 +74,5 @@ __all__ = [
     "StatusProgressoSerializer",
     "TipoCargaSerializer",
     "TokenEnvioCargaSerializer",
+    "VariacaoCargoGlobalSerializer",
 ]

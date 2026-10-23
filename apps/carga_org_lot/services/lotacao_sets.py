@@ -31,6 +31,17 @@ IMPORT_CLOSED_SET_STATUSES = TERMINAL_SET_STATUSES | {
     SituacaoConjuntoLotacao.HOMOLOGADO,
     SituacaoConjuntoLotacao.ATIVO,
 }
+PENDING_REVIEW_IMPORT_STATUSES = {
+    StatusImportacaoLocal.AGUARDANDO_REVISAO,
+    StatusImportacaoLocal.AGUARDANDO_REVISAO_CARGOS,
+}
+IMPORT_IN_PROGRESS_STATUSES = {
+    StatusImportacaoLocal.RECEBIDA,
+    StatusImportacaoLocal.PROCESSANDO,
+    StatusImportacaoLocal.ANALISANDO_CARGOS,
+    StatusImportacaoLocal.PRONTA_PARA_INCORPORAR,
+    StatusImportacaoLocal.INCORPORANDO,
+}
 
 
 def _audit_fields(actor: AuditActor) -> dict:
@@ -126,6 +137,46 @@ def ensure_set_accepts_import(conjunto: ConjuntoLotacao) -> None:
         )
 
 
+def available_set_actions(conjunto: ConjuntoLotacao) -> dict:
+    """Expõe a elegibilidade de negócio sem substituir a autorização."""
+    closed_for_imports = conjunto.strsituacao in IMPORT_CLOSED_SET_STATUSES
+    terminal = conjunto.strsituacao in TERMINAL_SET_STATUSES
+    return {
+        "adicionar_planilha": {
+            "permitida": not closed_for_imports,
+            "motivo": (
+                ""
+                if not closed_for_imports
+                else "O conjunto está fechado para novas planilhas."
+            ),
+        },
+        "homologar": {
+            "permitida": (
+                conjunto.strsituacao
+                == SituacaoConjuntoLotacao.PRONTO_PARA_HOMOLOGACAO
+            ),
+            "motivo": (
+                ""
+                if conjunto.strsituacao
+                == SituacaoConjuntoLotacao.PRONTO_PARA_HOMOLOGACAO
+                else "O conjunto ainda não está pronto para homologação."
+            ),
+        },
+        "ativar": {
+            "permitida": conjunto.strsituacao == SituacaoConjuntoLotacao.HOMOLOGADO,
+            "motivo": (
+                ""
+                if conjunto.strsituacao == SituacaoConjuntoLotacao.HOMOLOGADO
+                else "Somente um conjunto homologado pode ser ativado."
+            ),
+        },
+        "cancelar": {
+            "permitida": not terminal,
+            "motivo": "" if not terminal else "O conjunto já está encerrado.",
+        },
+    }
+
+
 @transaction.atomic
 def register_set_import(
     conjunto: ConjuntoLotacao,
@@ -170,16 +221,11 @@ def sync_lotation_set(
     if not imports.exists():
         new_status = SituacaoConjuntoLotacao.RASCUNHO
     elif imports.filter(
-        strstatusimportacao=StatusImportacaoLocal.AGUARDANDO_REVISAO
+        strstatusimportacao__in=PENDING_REVIEW_IMPORT_STATUSES
     ).exists():
         new_status = SituacaoConjuntoLotacao.COM_PENDENCIAS
     elif imports.filter(
-        strstatusimportacao__in=[
-            StatusImportacaoLocal.RECEBIDA,
-            StatusImportacaoLocal.PROCESSANDO,
-            StatusImportacaoLocal.PRONTA_PARA_INCORPORAR,
-            StatusImportacaoLocal.INCORPORANDO,
-        ]
+        strstatusimportacao__in=IMPORT_IN_PROGRESS_STATUSES
     ).exists():
         new_status = SituacaoConjuntoLotacao.EM_VALIDACAO
     elif ItemLotacao.objects.filter(

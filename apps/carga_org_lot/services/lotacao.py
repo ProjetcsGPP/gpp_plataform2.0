@@ -18,7 +18,7 @@ UNIT_ACRONYM_MAX_LENGTH = 25
 CARGO_MAX_LENGTH = 100
 PERSON_NAME_MAX_LENGTH = 255
 SOURCE_NAME_MAX_LENGTH = 500
-RULES_VERSION = "lotacao-v3"
+RULES_VERSION = "lotacao-v4"
 
 CPF_VALIDATOR = CPF()
 
@@ -120,6 +120,7 @@ class LotacaoValidationReport:
     total_linhas_lidas: int = 0
     total_linhas_validas: int = 0
     leitura_completa: bool = True
+    cargo_summary: dict = field(default_factory=dict)
 
     @property
     def errors(self) -> list[LotacaoIssue]:
@@ -156,6 +157,7 @@ class LotacaoValidationReport:
             "total_erros": len(self.errors),
             "total_avisos": len(self.warnings),
             "total_normalizacoes": len(self.normalizations),
+            "cargos": self.cargo_summary,
             "erros": [issue.as_dict() for issue in self.errors],
             "avisos": [issue.as_dict() for issue in self.warnings],
             "normalizacoes": [
