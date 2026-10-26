@@ -26,8 +26,9 @@
 - inventariar proxy, gateway, DNS, TLS, object storage, secrets e backups;
 - elaborar threat model e classificação preliminar de dados;
 - escolher o conjunto de dados piloto sem definir regras de fontes não ouvidas;
-- decidir política de uma ou duas pessoas para publicação;
-- confirmar o alcance de `PORTAL_ADMIN` na nova aplicação;
+- aplicar a decisão de que o mesmo gestor poderá preparar e publicar;
+- manter para `PORTAL_ADMIN` o acesso administrativo global da plataforma, sem
+  permitir exceções às regras de domínio;
 - definir SLA, RPO, RTO e responsáveis;
 - registrar ADRs das decisões aprovadas.
 
@@ -44,7 +45,7 @@
 - testes negativos de CSRF, sessão expirada/inativa e brute force passando;
 - diagrama de fluxo e inventário de dados aprovados;
 - riscos P0 sem pendência aberta;
-- decisão formal sobre aprovação e bypass administrativo;
+- ADRs de preparação/publicação e bypass administrativo aprovados;
 - plano de rollback aprovado.
 
 ## Fase 1 — Fundação da aplicação
@@ -246,4 +247,3 @@ Cada entrega deve incluir:
 - documentação operacional;
 - plano de rollback;
 - evidência de validação no PR.
-

@@ -31,7 +31,9 @@
 - cadastra a aplicação, role, capabilities, menus e vínculos de usuários;
 - apoia sessão, permissões e infraestrutura;
 - não se torna automaticamente responsável funcional pelo conteúdo;
-- o bypass técnico atual será revisado antes do go-live.
+- mantém o bypass global vigente nas demais aplicações;
+- quando executar ação editorial, deve cumprir as mesmas transições,
+  justificativas, validações e registros de auditoria do gestor.
 
 ### Consumidor de API
 
@@ -46,11 +48,9 @@ o sistema já distribui permissões técnicas de forma granular. A role represen
 o agrupamento institucional; as ações são autorizadas por permissões, sem
 condicionais de nome de role no frontend.
 
-Se a governança exigir duas pessoas, o workflow poderá impedir que o autor do
-rascunho publique a mesma versão. Os dois usuários continuam com
-`GESTOR_PUBLICACOES`. Uma segunda role só será considerada se houver diferença
-institucional permanente de responsabilidades; ela não é requisito inicial nem
-está autorizada por este documento.
+Na primeira versão, a mesma pessoa poderá preparar e publicar. O workflow não
+exigirá um segundo usuário, mas verificará as permissões técnicas de cada ação e
+registrará separadamente preparação, publicação, data, justificativa e autoria.
 
 ## 3. Jornada de implantação de um gestor
 

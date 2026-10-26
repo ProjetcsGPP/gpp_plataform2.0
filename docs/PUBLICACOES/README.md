@@ -39,6 +39,8 @@ Criar uma aplicação capaz de:
 | [OPERATIONS_GUIDE.md](./OPERATIONS_GUIDE.md) | Como gestores, administradores e consumidores operarão a solução |
 | [SOURCE_CONTRACT_TEMPLATE.md](./SOURCE_CONTRACT_TEMPLATE.md) | Formulário obrigatório para integrar uma fonte sem presumir suas regras |
 | [CONSUMER_REGISTRATION_TEMPLATE.md](./CONSUMER_REGISTRATION_TEMPLATE.md) | Formulário para cadastrar aplicação consumidora e autorizar escopos |
+| [ADR-0001](./ADRS/0001-mesmo-gestor-prepara-e-publica.md) | Decisão sobre preparação e publicação pelo mesmo gestor |
+| [ADR-0002](./ADRS/0002-portal-admin-segue-padrao-da-plataforma.md) | Alcance de `PORTAL_ADMIN` em `PUBLICACOES` |
 
 ## Vocabulário normativo
 
@@ -65,11 +67,14 @@ Criar uma aplicação capaz de:
 7. A primeira versão terá um único perfil funcional de negócio,
    `GESTOR_PUBLICACOES`, sustentado por permissões técnicas granulares.
 8. Consumidores de API são identidades de máquina e não perfis de usuário.
+9. Na primeira versão, o mesmo `GESTOR_PUBLICACOES` poderá preparar e publicar.
+10. `PORTAL_ADMIN` manterá o acesso administrativo global vigente nas demais
+    aplicações, sem poder ignorar workflow, imutabilidade, validação ou
+    auditoria.
 
 ## Decisões ainda necessárias
 
 - Nome funcional final apresentado aos usuários.
-- Política de aprovação por uma ou duas pessoas.
 - Quais conjuntos de dados serão usados no primeiro piloto.
 - Classificação pública, gerencial ou restrita de cada campo.
 - Infraestrutura de object storage, antivírus, gateway e secrets manager.

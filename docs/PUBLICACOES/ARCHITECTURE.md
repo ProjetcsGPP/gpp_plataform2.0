@@ -206,20 +206,21 @@ roles.
 
 ### Separação de funções
 
-Com uma única role, um gestor poderá preparar e publicar se o workflow aprovado
-permitir. Se a governança exigir duas pessoas, a regra poderá impedir que o
-mesmo usuário prepare e publique, embora ambos possuam
-`GESTOR_PUBLICACOES`. Portanto, segregação entre pessoas não exige por si só
-uma segunda role. O modelo e o histórico deverão suportar essa política sem
-presumi-la na primeira entrega.
+Na primeira versão não haverá segregação obrigatória entre pessoas. O mesmo
+usuário com `GESTOR_PUBLICACOES` poderá preparar e publicar, desde que possua as
+permissões técnicas necessárias. O histórico registrará separadamente o ator e
+o instante de cada transição, mesmo quando o usuário for o mesmo. Concorrência,
+justificativa, validação e imutabilidade continuam obrigatórias.
 
 ### Atores que não são perfis funcionais
 
 - visitante público: acesso somente ao contrato público;
 - consumidor de API: identidade de máquina, sem `UserRole`;
-- administrador da plataforma: administra IAM e cadastro técnico; o alcance do
-  bypass atual de `PORTAL_ADMIN` sobre ações editoriais será validado no threat
-  model antes da implementação.
+- administrador da plataforma: mantém o acesso administrativo global que
+  `PORTAL_ADMIN` e `superuser` já possuem nas demais aplicações. As camadas
+  compartilhadas de IAM dispensam vínculo e permissão específica da aplicação,
+  mas o administrador não pode ignorar workflow, imutabilidade, validações,
+  justificativas ou auditoria do domínio.
 
 ## 8. Contratos de distribuição
 

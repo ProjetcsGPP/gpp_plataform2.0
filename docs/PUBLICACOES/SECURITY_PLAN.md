@@ -36,11 +36,10 @@ validação dos controles correspondentes
 - sessão customizada aceita sem validar expiração e usuário ativo;
 - throttle específico de login não aplicado como documentado;
 - endpoint público de resolução permite distinguir usuário existente;
-- decisão pendente sobre o bypass de `PORTAL_ADMIN` em ações editoriais.
 
-### Evidência parcial da Fase 0 — 2026-10-23
+### Evidência concluída da Fase 0 — 2026-10-23
 
-O lado backend de `PUB-008` foi implementado e validado:
+O backend de `PUB-008` foi implementado e validado:
 
 - autenticação cookie-based volta a impor CSRF nas views DRF autenticadas;
 - login e logout seletivo também impõem CSRF explicitamente;
@@ -56,9 +55,35 @@ O lado backend de `PUB-008` foi implementado e validado:
 - 25 testes específicos e a suíte completa de 1.130 testes passaram em
   PostgreSQL, com 1 teste ignorado e cobertura total de 87,46%.
 
-O P0 continua aberto de forma transversal até o frontend adotar o bootstrap
-CSRF e o login por `identifier`, remover o consumo de `resolve-user` e executar
-seus testes de integração. `PUB-010` permanece pendente e independente.
+O frontend também foi implementado e validado:
+
+- preserva o Axios compartilhado, `withCredentials`, interceptors, Zustand,
+  SWR e navegação existentes;
+- inicializa CSRF antes da primeira mutação, relê o cookie rotacionável e envia
+  `X-CSRFToken` em todas as mutações, inclusive logout seletivo;
+- envia somente `identifier`, `password` e `app_context` no login e não possui
+  consumidor ou fallback para `resolve-user`;
+- apresenta falha genérica para `400`, `401` e `403`, trata `429` e
+  indisponibilidade sem expor detalhes sensíveis;
+- trata `401` autenticado para sessão expirada, revogada, usuário inativo e
+  contexto divergente, sem confundir falha pública de login com expiração;
+- valida o destino posterior ao login contra origem e prefixo da aplicação;
+- passou em 318 testes Vitest, lint sem erros, `tsc --noEmit` e build Next por
+  Webpack;
+- em 2026-10-26, passou em 13 testes E2E Playwright/Chromium com frontend real,
+  fronteira HTTP controlada e dados sintéticos, cobrindo login, cookies, CSRF,
+  não enumeração, `429`, indisponibilidade, sessões inválidas, open redirect e
+  logout seletivo. A execução full-stack ainda depende de ambiente efêmero e
+  fixtures backend isoladas.
+
+Com essas evidências integradas, `PUB-008` foi promovido para `DECIDIDO` e o
+bloqueio P0 transversal da Fase 0 foi encerrado.
+
+`PUB-009` e `PUB-010` foram decididos: o mesmo gestor poderá preparar e
+publicar, e `PORTAL_ADMIN` manterá o acesso administrativo global já aplicado
+pelas camadas compartilhadas da plataforma. O administrador acessa tudo, mas
+não pode ignorar transições, imutabilidade, validações, justificativas ou
+auditoria; testes positivos e negativos deverão comprovar essa fronteira.
 
 ### P1 da nova solução
 
