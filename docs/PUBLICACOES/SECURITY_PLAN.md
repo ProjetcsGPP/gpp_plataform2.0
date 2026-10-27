@@ -53,7 +53,8 @@ O backend de `PUB-008` foi implementado e validado:
   `LOGIN_THROTTLE_RATE`; `X-Forwarded-For` não é confiado sem configuração
   explícita de `DRF_NUM_PROXIES`;
 - 25 testes específicos e a suíte completa de 1.130 testes passaram em
-  PostgreSQL, com 1 teste ignorado e cobertura total de 87,46%.
+  PostgreSQL. A repetição em 2026-10-26 teve 1 teste ignorado e cobertura total
+  de 87,56%.
 
 O frontend também foi implementado e validado:
 
@@ -100,6 +101,11 @@ auditoria; testes positivos e negativos deverão comprovar essa fronteira.
 
 ## 4. Matriz de controles
 
+Cada linha desta matriz será implementada por serviço lógico versionado e
+testada pelo contrato comum descrito em
+[`SECURITY_CONTROL_CONTRACTS.md`](./SECURITY_CONTROL_CONTRACTS.md). Falha ou
+indisponibilidade produz `RETRY`/bloqueio, nunca aprovação implícita.
+
 | Área | Controles obrigatórios | Evidência esperada |
 |---|---|---|
 | Autenticação humana | Sessão expirada/inativa rejeitada, cookie seguro, CSRF | Testes negativos e configuração de produção |
@@ -114,6 +120,34 @@ auditoria; testes positivos e negativos deverão comprovar essa fronteira.
 | Consumidores | Hash de segredo, escopo, quota e revogação | Testes de rotação/revogação |
 | Observabilidade | Correlação, métricas, alertas e trilha auditável | Dashboards e alertas exercitados |
 | Recuperação | Backup, restauração, RPO/RTO | Evidência de restore |
+
+### Exceções de segurança
+
+Uma ordem do gestor não apaga nem transforma o resultado do controle. Ela
+autoriza a operação e preserva o veredicto, o gestor, a justificativa e o
+resultado da execução.
+
+A aplicação não exigirá segundo aprovador, laudo, avaliação de risco ou controle
+compensatório. Para reconhecer a ordem, exige somente autoridade autenticada,
+justificativa, alvo exato e registro durável. Aprovada a ordem, deve tentar
+executá-la e registrar sucesso ou falha.
+
+A justificativa completa fica na auditoria restrita. Logs técnicos referenciam
+a ordem por ID e registram seu resultado sem copiar justificativa, segredo ou
+conteúdo sensível.
+
+### Controles aprovados para o Portal
+
+- `/portal` é público por igualdade exata; a área autenticada não herda esse
+  bypass por prefixo;
+- redirect pós-login usa allowlist central e rejeita destinos externos ou
+  ambíguos;
+- SSR público não recebe nem encaminha cookies ou autorização do visitante;
+- Axios/Zustand do browser não são importados pelo caminho SSR;
+- resposta pública é invariável por sessão e não inclui `Vary: Cookie`;
+- autenticação, preview e administração usam `private, no-store`;
+- providers SWR público e autenticado são distintos;
+- revogação invalida o ponteiro vigente e não admite `stale-if-error`.
 
 ## 5. Checklist para cadastrar uma fonte
 

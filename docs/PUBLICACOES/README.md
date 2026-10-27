@@ -1,8 +1,8 @@
 # Gestão e Distribuição de Informações Públicas
 
-**Status:** proposta arquitetural para validação  
+**Status:** arquitetura aprovada; gate técnico de DEV parcialmente comprovado
 **Branch inicial:** `feat/publicacoes-informacoes`  
-**Última revisão:** 2026-10-23
+**Última revisão:** 2026-10-26
 
 Este diretório reúne a documentação de planejamento da futura aplicação
 `PUBLICACOES`. A documentação precede a implementação: itens descritos como
@@ -36,11 +36,25 @@ Criar uma aplicação capaz de:
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Escopo, limites, fluxo de dados, integração e decisões arquiteturais |
 | [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Fases, entregáveis, dependências, critérios de saída e validações |
 | [SECURITY_PLAN.md](./SECURITY_PLAN.md) | Threat model, controles obrigatórios e gates de segurança |
+| [THREAT_MODEL.md](./THREAT_MODEL.md) | Ativos, fronteiras de confiança, ameaças e controles rastreáveis |
+| [INFRASTRUCTURE_INVENTORY.md](./INFRASTRUCTURE_INVENTORY.md) | Inventário comprovado e lacunas de infraestrutura da Fase 0 |
+| [ROLLBACK_PLAN.md](./ROLLBACK_PLAN.md) | Estratégia de rollback por fase sem perda de histórico |
+| [F0_READINESS.md](./F0_READINESS.md) | Situação objetiva dos gates que antecedem a fundação da aplicação |
+| [PRE_IMPLEMENTATION_CHECKLIST.md](./PRE_IMPLEMENTATION_CHECKLIST.md) | Decisões, provisionamento, instalações e provas obrigatórias antes até mesmo do teste sintético |
+| [DEVELOPMENT_ENVIRONMENT.md](./DEVELOPMENT_ENVIRONMENT.md) | Proposta de stack local, contratos portáveis, custos e limitações de licença |
+| [SECURITY_CONTROL_CONTRACTS.md](./SECURITY_CONTROL_CONTRACTS.md) | Serviços substituíveis, veredictos, workflows de arquivo/API e exceções governadas |
+| [SECURITY_EVIDENCE_2026-10-26.md](./SECURITY_EVIDENCE_2026-10-26.md) | Preflight, restore, testes, cobertura, SBOMs, vulnerabilidades e bloqueios efetivamente observados em DEV |
+| [CARGA_ORG_LOT_SECRETS.md](./CARGA_ORG_LOT_SECRETS.md) | Separação HML/PRD, AppRoles, variáveis não secretas e operação das credenciais CargaRH |
+| [OPENBAO_DEV_GUIDE.md](./OPENBAO_DEV_GUIDE.md) | Uso diário, conceitos, diagnóstico e recuperação do OpenBao local sem rotação periódica |
 | [OPERATIONS_GUIDE.md](./OPERATIONS_GUIDE.md) | Como gestores, administradores e consumidores operarão a solução |
 | [SOURCE_CONTRACT_TEMPLATE.md](./SOURCE_CONTRACT_TEMPLATE.md) | Formulário obrigatório para integrar uma fonte sem presumir suas regras |
 | [CONSUMER_REGISTRATION_TEMPLATE.md](./CONSUMER_REGISTRATION_TEMPLATE.md) | Formulário para cadastrar aplicação consumidora e autorizar escopos |
 | [ADR-0001](./ADRS/0001-mesmo-gestor-prepara-e-publica.md) | Decisão sobre preparação e publicação pelo mesmo gestor |
 | [ADR-0002](./ADRS/0002-portal-admin-segue-padrao-da-plataforma.md) | Alcance de `PORTAL_ADMIN` em `PUBLICACOES` |
+| [ADR-0003](./ADRS/0003-rotas-publicas-autenticadas-e-redirects.md) | Rotas públicas, autenticadas, login modal e redirects permitidos |
+| [ADR-0004](./ADRS/0004-renderizacao-hibrida-do-portal.md) | Separação entre SSR público e CSR autenticado |
+| [ADR-0005](./ADRS/0005-fronteiras-de-cache-publico-e-autenticado.md) | Cache HTTP e SWR para conteúdo público, autenticado e preview |
+| [ADR-0006](./ADRS/0006-servicos-de-controle-e-excecoes.md) | Serviços de segurança contratuais e exceções sem bypass genérico |
 
 ## Vocabulário normativo
 
@@ -71,13 +85,22 @@ Criar uma aplicação capaz de:
 10. `PORTAL_ADMIN` manterá o acesso administrativo global vigente nas demais
     aplicações, sem poder ignorar workflow, imutabilidade, validação ou
     auditoria.
+11. `/portal` será público, `/portal/dashboard` continuará autenticado e
+    `/portal/login` será preservado como entrada compatível para o login modal.
+12. O Portal usará SSR público e CSR autenticado, sem estado client-side
+    compartilhado no servidor.
+13. Conteúdo público, conteúdo autenticado e preview não compartilharão cache
+    HTTP nem provider SWR.
+14. Cada camada de segurança terá contrato e implementação substituível;
+    exceções isoladas usarão workflow próprio e nunca um bypass genérico.
 
 ## Decisões ainda necessárias
 
 - Nome funcional final apresentado aos usuários.
 - Quais conjuntos de dados serão usados no primeiro piloto.
 - Classificação pública, gerencial ou restrita de cada campo.
-- Infraestrutura de object storage, antivírus, gateway e secrets manager.
+- Aceitação dos achados de imagem, egress no nível de rede e observabilidade
+  completa de DEV. Rotação periódica de credenciais fica para HML/PRD.
 - Provedor institucional para autenticação máquina-a-máquina.
 - Retenção de artefatos, eventos, logs e publicações revogadas.
 - SLA, RPO, RTO e responsáveis por incidentes.

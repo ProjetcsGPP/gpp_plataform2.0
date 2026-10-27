@@ -165,13 +165,17 @@ CORS_ALLOWED_ORIGINS=http://localhost:3000
 # CSRF
 CSRF_TRUSTED_ORIGINS=http://localhost:3000
 
-# CargaRH / PRODEST (credenciais exclusivamente no backend)
+# CargaRH / PRODEST (credenciais ficam no OpenBao)
 CARGARH_ENVIRONMENT=HML
-CARGARH_TOKEN_URL=https://servidor-de-autenticacao/token
-CARGARH_API_BASE_URL=https://api.cargarh.es.gov.br
-CARGARH_CLIENT_ID=identificador-do-cliente
-CARGARH_CLIENT_SECRET=segredo-do-cliente
-CARGARH_CLIENT_SCOPE=escopos-separados-por-espaco
+CARGARH_CREDENTIALS_PROVIDER=openbao
+CARGARH_HML_TOKEN_URL=https://servidor-hml-de-autenticacao/token
+CARGARH_HML_API_BASE_URL=https://api.cargarh.hom.es.gov.br/
+CARGARH_HML_CLIENT_SCOPE="api-cargarh-base api-cargarh-inicial"
+CARGARH_HML_TARGET_ENVIRONMENT=
+CARGARH_PRD_TOKEN_URL=https://servidor-prd-de-autenticacao/token
+CARGARH_PRD_API_BASE_URL=https://api.cargarh.es.gov.br/
+CARGARH_PRD_CLIENT_SCOPE="api-cargarh-base api-cargarh-inicial"
+CARGARH_PRD_TARGET_ENVIRONMENT=
 CARGARH_CONNECT_TIMEOUT_SECONDS=10
 CARGARH_READ_TIMEOUT_SECONDS=60
 CARGARH_TOKEN_SAFETY_MARGIN_SECONDS=60
@@ -179,7 +183,9 @@ CARGARH_GET_MAX_RETRIES=2
 CARGARH_RETRY_BACKOFF_SECONDS=0.5
 ```
 
-> **Nunca commite o arquivo `.env`.** Ele já está no `.gitignore`.
+> **Nunca grave `CARGARH_CLIENT_ID` ou `CARGARH_CLIENT_SECRET` no `.env`.**
+> Consulte `docs/PUBLICACOES/CARGA_ORG_LOT_SECRETS.md` para provisionar as
+> AppRoles e as credenciais separadas de HML e PRD.
 > O access token do CargaRH é temporário e deve permanecer somente no cache;
 > nunca o grave no banco, envie ao frontend ou inclua em logs.
 

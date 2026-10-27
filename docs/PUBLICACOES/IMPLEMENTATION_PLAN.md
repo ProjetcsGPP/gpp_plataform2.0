@@ -31,6 +31,8 @@
   permitir exceções às regras de domínio;
 - definir SLA, RPO, RTO e responsáveis;
 - registrar ADRs das decisões aprovadas.
+- aprovar contratos comuns dos serviços de segurança, workflows de arquivo/API
+  e ordem justificada do gestor;
 
 ### Não fazer ainda
 
@@ -42,6 +44,12 @@
 
 ### Gates
 
+- checklist `PRE-001` a `PRE-016` e ADR-0006 aprovados com evidências, sem
+  bypass genérico;
+- ambiente `DEV` provisionado com os componentes escolhidos e contratos
+  portáveis documentados; HML/PRD terão gates próprios;
+- preflight de banco, restore, storage, AV, secrets, gateway, egress,
+  observabilidade, deploy e rollback aprovado;
 - testes negativos de CSRF, sessão expirada/inativa e brute force passando;
 - diagrama de fluxo e inventário de dados aprovados;
 - riscos P0 sem pendência aberta;
@@ -50,6 +58,9 @@
 
 ## Fase 1 — Fundação da aplicação
 
+Esta fase não começa, nem mesmo com fixtures ou dados sintéticos, enquanto os
+gates de pré-implementação da Fase 0 estiverem pendentes.
+
 ### Backend
 
 - criar `apps/publicacoes` e schema `publicacoes`;
@@ -57,6 +68,8 @@
 - criar role `GESTOR_PUBLICACOES` e permissões técnicas;
 - criar capabilities e menus por seed idempotente;
 - implementar models iniciais de fonte, snapshot, publicação e histórico;
+- implementar contratos, orchestrator e adapters dos serviços de segurança sem
+  dependência direta dos produtos locais;
 - usar `AuditableModel` e serviços transacionais;
 - criar estados e invariantes de workflow;
 - documentar OpenAPI administrativo.
@@ -116,11 +129,15 @@
 ### Frontend
 
 - transformar `/portal` em página pública;
+- separar layouts público e autenticado e preservar `/portal/login` como
+  entrada compatível do modal;
+- implementar estratégia híbrida sem importar estado client-side no SSR;
 - renderizar publicação vigente via contrato canônico;
 - extrair `LoginForm` e apresentá-lo em modal;
 - preservar `/portal/login` por redirecionamento compatível;
 - após login, exibir aplicações autorizadas e conteúdo reorganizado;
-- manter Axios, SWR, `appContext`, theme e navegação existentes.
+- manter Axios, SWR, `appContext`, theme e navegação existentes;
+- isolar providers e chaves SWR públicas das autenticadas.
 
 ### Gates
 

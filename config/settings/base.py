@@ -142,15 +142,83 @@ CARGA_ORG_LOT_MAX_UPLOAD_BYTES = env.int(
 # Integração servidor-servidor com o CargaRH/PRODEST. As credenciais nunca
 # devem ser persistidas nos modelos nem devolvidas ao frontend.
 CARGARH_ENVIRONMENT = env("CARGARH_ENVIRONMENT", default="HML").upper()
-CARGARH_TOKEN_URL = env("CARGARH_TOKEN_URL", default="").strip()
-CARGARH_API_BASE_URL = env("CARGARH_API_BASE_URL", default="").strip().rstrip("/")
-CARGARH_CLIENT_ID = env("CARGARH_CLIENT_ID", default="").strip()
-CARGARH_CLIENT_SECRET = env("CARGARH_CLIENT_SECRET", default="").strip()
-CARGARH_CLIENT_SCOPE = env("CARGARH_CLIENT_SCOPE", default="").strip()
-CARGARH_TARGET_ENVIRONMENT = env(
+_CARGARH_LEGACY_TOKEN_URL = env("CARGARH_TOKEN_URL", default="").strip()
+_CARGARH_LEGACY_API_BASE_URL = env("CARGARH_API_BASE_URL", default="").strip()
+_CARGARH_LEGACY_CLIENT_SCOPE = env("CARGARH_CLIENT_SCOPE", default="").strip()
+_CARGARH_LEGACY_TARGET_ENVIRONMENT = env(
     "CARGARH_TARGET_ENVIRONMENT",
     default="",
 ).strip()
+
+for _cargarh_environment in ("HML", "PRD"):
+    globals()[f"CARGARH_{_cargarh_environment}_TOKEN_URL"] = env(
+        f"CARGARH_{_cargarh_environment}_TOKEN_URL",
+        default=_CARGARH_LEGACY_TOKEN_URL,
+    ).strip()
+    globals()[f"CARGARH_{_cargarh_environment}_API_BASE_URL"] = env(
+        f"CARGARH_{_cargarh_environment}_API_BASE_URL",
+        default=_CARGARH_LEGACY_API_BASE_URL,
+    ).strip().rstrip("/")
+    globals()[f"CARGARH_{_cargarh_environment}_CLIENT_SCOPE"] = env(
+        f"CARGARH_{_cargarh_environment}_CLIENT_SCOPE",
+        default=_CARGARH_LEGACY_CLIENT_SCOPE,
+    ).strip()
+    globals()[f"CARGARH_{_cargarh_environment}_TARGET_ENVIRONMENT"] = env(
+        f"CARGARH_{_cargarh_environment}_TARGET_ENVIRONMENT",
+        default=_CARGARH_LEGACY_TARGET_ENVIRONMENT,
+    ).strip()
+
+CARGARH_TOKEN_URL = globals().get(
+    f"CARGARH_{CARGARH_ENVIRONMENT}_TOKEN_URL",
+    "",
+)
+CARGARH_API_BASE_URL = globals().get(
+    f"CARGARH_{CARGARH_ENVIRONMENT}_API_BASE_URL",
+    "",
+)
+CARGARH_CLIENT_SCOPE = globals().get(
+    f"CARGARH_{CARGARH_ENVIRONMENT}_CLIENT_SCOPE",
+    "",
+)
+CARGARH_TARGET_ENVIRONMENT = globals().get(
+    f"CARGARH_{CARGARH_ENVIRONMENT}_TARGET_ENVIRONMENT",
+    "",
+)
+CARGARH_CLIENT_ID = env("CARGARH_CLIENT_ID", default="").strip()
+CARGARH_CLIENT_SECRET = env("CARGARH_CLIENT_SECRET", default="").strip()
+CARGARH_CREDENTIALS_PROVIDER = env(
+    "CARGARH_CREDENTIALS_PROVIDER",
+    default="environment",
+).strip().lower()
+CARGARH_OPENBAO_MOUNT_POINT = env(
+    "CARGARH_OPENBAO_MOUNT_POINT",
+    default="carga-org-lot",
+).strip()
+for _cargarh_environment in ("HML", "PRD"):
+    _cargarh_prefix = f"CARGARH_{_cargarh_environment}_OPENBAO"
+    _cargarh_runtime_prefix = _cargarh_environment.lower()
+    globals()[f"{_cargarh_prefix}_ROLE_ID_FILE"] = env(
+        f"{_cargarh_prefix}_ROLE_ID_FILE",
+        default=str(
+            BASE_DIR
+            / "infra/publicacoes-dev/runtime/openbao"
+            / f"carga_org_lot_{_cargarh_runtime_prefix}_role_id"
+        ),
+    )
+    globals()[f"{_cargarh_prefix}_SECRET_ID_FILE"] = env(
+        f"{_cargarh_prefix}_SECRET_ID_FILE",
+        default=str(
+            BASE_DIR
+            / "infra/publicacoes-dev/runtime/openbao"
+            / f"carga_org_lot_{_cargarh_runtime_prefix}_secret_id"
+        ),
+    )
+    globals()[f"{_cargarh_prefix}_SECRET_PATH"] = env(
+        f"{_cargarh_prefix}_SECRET_PATH",
+        default=f"dev/cargarh/{_cargarh_runtime_prefix}",
+    ).strip()
+OPENBAO_ADDR = env("OPENBAO_ADDR", default="http://127.0.0.1:58200").strip()
+OPENBAO_TIMEOUT_SECONDS = env.float("OPENBAO_TIMEOUT_SECONDS", default=5)
 CARGARH_CONNECT_TIMEOUT_SECONDS = env.float(
     "CARGARH_CONNECT_TIMEOUT_SECONDS",
     default=10,

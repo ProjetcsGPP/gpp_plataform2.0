@@ -42,6 +42,17 @@ class FakeSession:
         return self.request_responses.pop(0)
 
 
+class MutableCredentialStore:
+    def __init__(self, client_secret):
+        self.client_secret = client_secret
+
+    def read(self):
+        return {
+            "client_id": "client-id",
+            "client_secret": self.client_secret,
+        }
+
+
 VALID_SETTINGS = {
     "DEBUG": False,
     "CARGARH_ENVIRONMENT": "HML",
@@ -50,6 +61,7 @@ VALID_SETTINGS = {
     "CARGARH_CLIENT_ID": "client-id",
     "CARGARH_CLIENT_SECRET": "client-secret",
     "CARGARH_CLIENT_SCOPE": "scope-a scope-b",
+    "CARGARH_CREDENTIALS_PROVIDER": "environment",
     "CARGARH_TARGET_ENVIRONMENT": "",
     "CARGARH_CONNECT_TIMEOUT_SECONDS": 3,
     "CARGARH_READ_TIMEOUT_SECONDS": 7,
@@ -115,6 +127,39 @@ def test_reutiliza_token_em_cache_e_nao_o_envia_no_payload():
     )
     assert "temporary-token" not in serialized_events
     assert "client-secret" not in serialized_events
+
+
+@override_settings(
+    **{
+        **VALID_SETTINGS,
+        "CARGARH_CREDENTIALS_PROVIDER": "openbao",
+    }
+)
+def test_rotacao_do_segredo_nao_reutiliza_token_da_credencial_anterior():
+    store = MutableCredentialStore("old-secret")
+    old_session = FakeSession(
+        token_responses=[
+            FakeResponse(200, {"access_token": "old-token", "expires_in": 3600})
+        ]
+    )
+
+    assert CargaRHClient(
+        session=old_session,
+        credential_store=store,
+    ).test_authentication()
+    store.client_secret = "new-secret"
+    new_session = FakeSession(
+        token_responses=[
+            FakeResponse(200, {"access_token": "new-token", "expires_in": 3600})
+        ]
+    )
+
+    assert CargaRHClient(
+        session=new_session,
+        credential_store=store,
+    ).test_authentication()
+    assert old_session.post_calls[0][1]["auth"] == ("client-id", "old-secret")
+    assert new_session.post_calls[0][1]["auth"] == ("client-id", "new-secret")
 
 
 @override_settings(**VALID_SETTINGS)
@@ -216,6 +261,7 @@ def test_diagnostico_informa_campos_sem_expor_valores():
     result = configuration_status()
 
     assert result["configurado"] is False
-    assert result["ausentes"] == ["CARGARH_CLIENT_SECRET"]
+    assert result["ausentes"] == ["CARGARH_CREDENTIALS"]
     assert result["invalidas"] == ["CARGARH_API_BASE_URL"]
+    assert "client_secret" not in str(result).lower()
     assert "client-secret" not in str(result)

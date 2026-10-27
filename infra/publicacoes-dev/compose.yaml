@@ -1,0 +1,223 @@
+name: gpp-publicacoes-dev
+
+services:
+  postgres:
+    image: postgres:16.15-bookworm@sha256:d81f7b51697014367236d07ec58b54153fc28f828b72bf247fe5c7487520bcb0
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gpp_plataform_dev
+      POSTGRES_USER: gpp_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      GPP_APP_PASSWORD_FILE: /run/secrets/postgres_app_password
+    secrets:
+      - postgres_admin_password
+      - postgres_app_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/postgres/01-create-app-role.sh:/docker-entrypoint-initdb.d/01-create-app-role.sh:ro
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - data
+
+  redis:
+    image: redis:7.2.16-alpine3.21@sha256:ee061d86c25773048211e99f00d63b47b9ecfe28560113e16cce2c962d5bec1c
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        password="$$(cat /run/secrets/redis_password)"
+        printf '%s\n' \
+          'user default off' \
+          "user publicacoes on >$${password} ~publicacoes:* &publicacoes:* +@all -@admin -@dangerous +eval +evalsha +script" \
+          >/tmp/users.acl
+        exec redis-server \
+          --appendonly yes \
+          --protected-mode yes \
+          --aclfile /tmp/users.acl
+    secrets:
+      - redis_password
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-56379}:6379"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli --user publicacoes --pass "$$(cat /run/secrets/redis_password)" --no-auth-warning ping | grep -q PONG
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - services
+
+  memcached:
+    image: memcached:1.6.45-alpine@sha256:6a089e37cbb8acd75c80c6c0667fe57ec54db68782fb1b3afb1d0eb265e50070
+    restart: unless-stopped
+    command: ["memcached", "-m", "128", "-c", "256", "-U", "0", "-l", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:${MEMCACHED_PORT:-51211}:11211"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - services
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.51@sha256:f7a49e3f3972ebed5be2ed4befa4a0c68eb7bdddba6e692d42729ceb545134b8
+    restart: unless-stopped
+    command:
+      - mini
+      - -dir=/data
+      - -ip=seaweedfs
+      - -s3.config=/config/s3.json
+    volumes:
+      - seaweedfs_data:/data
+      - ./runtime/s3.json:/config/s3.json:ro
+      - ./runtime/seaweedfs/security.toml:/etc/seaweedfs/security.toml:ro
+    ports:
+      - "127.0.0.1:${S3_PORT:-58333}:8333"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sS http://127.0.0.1:8333/ >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - services
+
+  seaweedfs-init:
+    image: chrislusf/seaweedfs:4.51@sha256:f7a49e3f3972ebed5be2ed4befa4a0c68eb7bdddba6e692d42729ceb545134b8
+    restart: "no"
+    entrypoint: ["/bin/sh", "/bootstrap/create-buckets.sh"]
+    volumes:
+      - ./scripts/create-buckets.sh:/bootstrap/create-buckets.sh:ro
+    secrets:
+      - s3_bootstrap_access_key
+      - s3_bootstrap_secret_key
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - services
+
+  clamav:
+    image: clamav/clamav:1.5.4@sha256:bda39705e291105049c3936e2803ac90b955172af8030f94f05dce1252df6c6d
+    restart: unless-stopped
+    volumes:
+      - clamav_signatures:/var/lib/clamav
+    ports:
+      - "127.0.0.1:${CLAMAV_PORT:-53310}:3310"
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 2 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 60s
+    mem_limit: 4g
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - signature_updates
+
+  openbao-permissions:
+    image: quay.io/openbao/openbao:2.7.1@sha256:6d2b93856e3fcf7b18ad855a0b51eaba474dc8b79cf554379ea32034797d2acf
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["chown -R 100:1000 /openbao/data"]
+    volumes:
+      - openbao_data:/openbao/data
+    network_mode: none
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
+  openbao:
+    image: quay.io/openbao/openbao:2.7.1@sha256:6d2b93856e3fcf7b18ad855a0b51eaba474dc8b79cf554379ea32034797d2acf
+    restart: unless-stopped
+    command: ["server"]
+    depends_on:
+      openbao-permissions:
+        condition: service_completed_successfully
+    volumes:
+      - openbao_data:/openbao/data
+      - ./config/openbao/openbao.hcl:/openbao/config/openbao.hcl:ro
+      - ./config/openbao/publicacoes-policy.hcl:/openbao/publicacoes-policy.hcl:ro
+      - ./config/openbao/carga-org-lot-hml-policy.hcl:/openbao/carga-org-lot-hml-policy.hcl:ro
+      - ./config/openbao/carga-org-lot-prd-policy.hcl:/openbao/carga-org-lot-prd-policy.hcl:ro
+    ports:
+      - "127.0.0.1:${OPENBAO_PORT:-58200}:8200"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - BAO_ADDR=http://127.0.0.1:8200 bao status >/dev/null 2>&1
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - services
+
+  nginx:
+    image: gpp-publicacoes/nginx-dev:1.30.6-alpine-security-20261026
+    build:
+      context: ./images/nginx
+    restart: unless-stopped
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./runtime/tls:/etc/nginx/tls:ro
+    ports:
+      - "127.0.0.1:${NGINX_HTTPS_PORT:-58443}:8443"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test: ["CMD-SHELL", "nginx -t >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - edge
+
+secrets:
+  postgres_admin_password:
+    file: ./runtime/secrets/postgres_admin_password
+  postgres_app_password:
+    file: ./runtime/secrets/postgres_app_password
+  redis_password:
+    file: ./runtime/secrets/redis_password
+  s3_bootstrap_access_key:
+    file: ./runtime/secrets/s3_bootstrap_access_key
+  s3_bootstrap_secret_key:
+    file: ./runtime/secrets/s3_bootstrap_secret_key
+
+volumes:
+  postgres_data:
+  redis_data:
+  seaweedfs_data:
+  clamav_signatures:
+  openbao_data:
+
+networks:
+  edge:
+  data:
+  services:
+  signature_updates:

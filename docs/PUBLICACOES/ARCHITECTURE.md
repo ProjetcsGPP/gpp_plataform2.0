@@ -70,6 +70,12 @@ Fontes internas        APIs externas        Planilhas
        Dashboard público   API de distribuição
 ```
 
+Os controles transversais não serão chamadas diretas a produtos. Arquivos,
+APIs externas, segredos, classificação, divulgação e auditoria passarão pelos
+serviços e workflows definidos em
+[`SECURITY_CONTROL_CONTRACTS.md`](./SECURITY_CONTROL_CONTRACTS.md). Cada
+implementação deverá satisfazer o contrato comum de decisão.
+
 ## 3. Integração com aplicações internas
 
 O padrão inicial será híbrido:
@@ -248,3 +254,58 @@ resposta.
 - Frontend não duplica cálculos do backend.
 - Sessão humana e credencial máquina-a-máquina não são intercambiáveis.
 - Capability controla distribuição funcional; permissão técnica autoriza ação.
+
+## 10. Portal público, renderização e cache
+
+### Rotas
+
+| Rota | Contexto | Regra |
+|---|---|---|
+| `/` | Público | Redireciona para `/portal`. |
+| `/portal` | Público | Dashboard canônico e ponto de abertura do login modal. |
+| `/portal/login` | Público/compatibilidade | Redireciona para `/portal?login=1`, preservando somente redirect aprovado. |
+| `/portal/dashboard` | Autenticado | Conteúdo reorganizado e aplicações autorizadas. |
+| `/portal/aplicacoes` | Autenticado | Gestão/listagem conforme permissões. |
+| `/portal/usuarios` | Autenticado | Administração conforme permissões. |
+
+O proxy tratará `/portal` por igualdade exata como rota pública. Prefixos
+autenticados continuam protegidos por cookie e pela validação real do backend.
+Ter um cookie não será considerado prova suficiente de sessão válida.
+
+O parâmetro de retorno pós-login aceitará apenas caminho relativo pertencente a
+uma lista central de rotas autenticadas. URLs absolutas, `//`, barras inversas,
+caracteres de controle, caminhos codificados ambíguos e destinos de login serão
+rejeitados. O fallback será `/portal/dashboard`.
+
+### Renderização
+
+O Portal será híbrido:
+
+- a publicação pública terá renderização no servidor para entrega inicial,
+  metadados e indexação, seguida de hidratação controlada;
+- a área autenticada continuará em CSR com `AppShell`, Zustand, Axios e SWR
+  compartilhados existentes;
+- o SSR público usará um adaptador server-only sem importar o Axios singleton,
+  Zustand ou cookies do usuário;
+- a origem interna do backend será configuração server-only e nunca variável
+  `NEXT_PUBLIC_*`;
+- cookies e cabeçalhos de autorização da requisição do visitante não serão
+  encaminhados à API pública.
+
+### Fronteiras de cache
+
+- o endpoint público vigente será independente de sessão e usará `ETag`,
+  `Last-Modified` e revalidação compartilhada curta;
+- publicação, substituição e revogação invalidarão o ponteiro vigente após o
+  commit;
+- respostas administrativas, preview e erros com dados internos usarão
+  `Cache-Control: private, no-store`;
+- cache público não variará por `Cookie` ou `Authorization`;
+- SWR público e autenticado usarão providers distintos e chaves prefixadas por
+  contexto e versão de schema;
+- `stale-if-error` será proibido para o ponteiro vigente; só poderá ser usado
+  para representação imutável cuja política pública continue válida após erro;
+- conteúdo revogado nunca poderá reaparecer como publicação vigente por
+  fallback do browser, SWR, Next.js, gateway ou CDN.
+
+Os detalhes normativos estão nos ADR-0003, ADR-0004 e ADR-0005.

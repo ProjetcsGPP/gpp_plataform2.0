@@ -76,6 +76,9 @@ PASSWORD_HASHERS = [
 # ---------------------------------------------------------------------------
 EMAIL_BACKEND = "django.core.mail.backends.dummy.EmailBackend"
 
+# Testes usam somente credenciais sintéticas definidas por override_settings.
+CARGARH_CREDENTIALS_PROVIDER = "environment"
+
 # ---------------------------------------------------------------------------
 # 5. Logging — sem escrita em arquivo, propagate=True para caplog
 #

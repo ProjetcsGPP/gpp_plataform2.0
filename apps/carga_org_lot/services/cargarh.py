@@ -17,6 +17,8 @@ from apps.carga_org_lot.models import (
     OperacaoIntegracaoProdest,
     ResultadoIntegracaoProdest,
 )
+from apps.carga_org_lot.services.credentials import get_cargarh_credentials
+from apps.core.services.secret_store import SecretStoreError
 
 
 logger = logging.getLogger(__name__)
@@ -35,16 +37,34 @@ class CargaRHRequestError(RuntimeError):
         self.details = details or {}
 
 
-def configuration_status() -> dict:
+def configuration_status(credential_store=None, credentials=None) -> dict:
+    credentials_missing = False
+    credential_provider_invalid = False
+    if settings.CARGARH_CREDENTIALS_PROVIDER == "environment":
+        credentials_missing = not (
+            settings.CARGARH_CLIENT_ID and settings.CARGARH_CLIENT_SECRET
+        )
+    else:
+        try:
+            resolved = credentials or get_cargarh_credentials(
+                store=credential_store
+            )
+            credentials_missing = not (
+                resolved.client_id and resolved.client_secret
+            )
+        except SecretStoreError:
+            credential_provider_invalid = True
     required = {
         "CARGARH_TOKEN_URL": settings.CARGARH_TOKEN_URL,
         "CARGARH_API_BASE_URL": settings.CARGARH_API_BASE_URL,
-        "CARGARH_CLIENT_ID": settings.CARGARH_CLIENT_ID,
-        "CARGARH_CLIENT_SECRET": settings.CARGARH_CLIENT_SECRET,
         "CARGARH_CLIENT_SCOPE": settings.CARGARH_CLIENT_SCOPE,
     }
     missing = [name for name, value in required.items() if not value]
+    if credentials_missing:
+        missing.append("CARGARH_CREDENTIALS")
     invalid = []
+    if credential_provider_invalid:
+        invalid.append("CARGARH_CREDENTIALS_PROVIDER")
     for name in ("CARGARH_TOKEN_URL", "CARGARH_API_BASE_URL"):
         value = required[name]
         if value and urlparse(value).scheme not in {"http", "https"}:
@@ -82,6 +102,7 @@ class CargaRHClient:
         external_load_id=None,
         actor=None,
         correlation_id=None,
+        credential_store=None,
     ):
         self.session = session or self._build_session()
         self.timeout = (
@@ -94,6 +115,8 @@ class CargaRHClient:
         self.external_load_id = external_load_id
         self.actor = actor
         self.correlation_id = correlation_id or uuid4()
+        self.credential_store = credential_store
+        self._resolved_credentials = None
         self._token_attempt = 0
 
     def test_authentication(self):
@@ -265,6 +288,7 @@ class CargaRHClient:
         raise AssertionError("A tentativa de comunicação terminou sem resposta.")
 
     def _get_access_token(self):
+        credentials = self._credentials()
         cache_key = self._token_cache_key()
         cached_token = cache.get(cache_key)
         if cached_token:
@@ -279,8 +303,8 @@ class CargaRHClient:
                     "scope": settings.CARGARH_CLIENT_SCOPE,
                 },
                 auth=(
-                    settings.CARGARH_CLIENT_ID,
-                    settings.CARGARH_CLIENT_SECRET,
+                    credentials.client_id,
+                    credentials.client_secret,
                 ),
                 headers={"Accept": "application/json"},
                 timeout=self.timeout,
@@ -354,9 +378,17 @@ class CargaRHClient:
         cache.set(cache_key, token, timeout=timeout)
         return token
 
-    @staticmethod
-    def _ensure_configuration():
-        status = configuration_status()
+    def _ensure_configuration(self):
+        try:
+            credentials = self._credentials()
+        except SecretStoreError as exc:
+            raise CargaRHConfigurationError(
+                "As credenciais CargaRH não estão disponíveis no cofre."
+            ) from exc
+        status = configuration_status(
+            self.credential_store,
+            credentials=credentials,
+        )
         if not status["configurado"]:
             fields = status["ausentes"] + status["invalidas"]
             raise CargaRHConfigurationError(
@@ -489,13 +521,16 @@ class CargaRHClient:
             details=details,
         )
 
-    @staticmethod
-    def _token_cache_key():
+    def _token_cache_key(self):
+        credentials = self._credentials()
         identity = "|".join(
             [
                 settings.CARGARH_TOKEN_URL,
-                settings.CARGARH_CLIENT_ID,
+                credentials.client_id,
                 settings.CARGARH_CLIENT_SCOPE,
+                hashlib.sha256(
+                    credentials.client_secret.encode("utf-8")
+                ).hexdigest(),
             ]
         )
         digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
@@ -503,3 +538,10 @@ class CargaRHClient:
 
     def _discard_cached_token(self):
         cache.delete(self._token_cache_key())
+
+    def _credentials(self):
+        if self._resolved_credentials is None:
+            self._resolved_credentials = get_cargarh_credentials(
+                store=self.credential_store
+            )
+        return self._resolved_credentials
