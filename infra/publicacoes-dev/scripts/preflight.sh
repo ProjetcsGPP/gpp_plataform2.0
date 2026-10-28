@@ -32,6 +32,8 @@ redis_rejects_unauthenticated() {
 }
 
 redis_rejects_admin_command() {
+    # As expansões devem ocorrer no shell interno do container Redis.
+    # shellcheck disable=SC2016
     "${compose}" exec -T redis sh -ec \
         'password="$(cat /run/secrets/redis_password)"; redis-cli --user publicacoes --pass "$password" --no-auth-warning CONFIG GET dir' \
         | grep -q '^NOPERM '
@@ -39,6 +41,8 @@ redis_rejects_admin_command() {
 
 clamav_detects_eicar() {
     local result
+    # A cadeia EICAR contém cifrões literais definidos pelo padrão.
+    # shellcheck disable=SC2016
     result="$(printf '%s' \
         'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' \
         | "${compose}" exec -T clamav clamdscan --no-summary - 2>&1 \
@@ -183,7 +187,9 @@ nginx_security_contract() {
         -H "Authorization: Bearer ${marker}" \
         "https://127.0.0.1:${nginx_port}/infra/log-redaction-contract?token=${marker}"
     logs="$("${compose}" logs --no-color --tail=20 nginx)"
-    ! grep -q "${marker}" <<<"${logs}"
+    if grep -q "${marker}" <<<"${logs}"; then
+        return 1
+    fi
     json_line="$(grep '{"time"' <<<"${logs}" | tail -n 1 | sed 's/^[^{]*//')"
     printf '%s' "${json_line}" | "${python_bin}" -c '
 import json
@@ -209,6 +215,8 @@ if not required.issubset(event):
 nginx_ignores_untrusted_forwarding_headers() {
     local config
     config="$("${compose}" exec -T nginx nginx -T 2>&1)"
+    # $remote_addr deve ser comparado literalmente na configuração do nginx.
+    # shellcheck disable=SC2016
     grep -q 'proxy_set_header X-Forwarded-For \$remote_addr;' <<<"${config}"
     grep -q 'proxy_set_header X-Forwarded-Proto https;' <<<"${config}"
 }
@@ -256,6 +264,8 @@ check "Compose válido" "${compose}" config --quiet
 check "PostgreSQL responde" "${compose}" exec -T postgres \
     pg_isready -U gpp_admin -d gpp_plataform_dev
 check "PostgreSQL aplica privilégio mínimo" postgres_least_privilege_contract
+# As expansões devem ocorrer no shell interno do container Redis.
+# shellcheck disable=SC2016
 check "Redis autenticado responde" "${compose}" exec -T redis sh -ec \
     'password="$(cat /run/secrets/redis_password)"; redis-cli --user publicacoes --pass "$password" --no-auth-warning ping | grep -q PONG'
 check "Redis rejeita cliente sem autenticação" redis_rejects_unauthenticated

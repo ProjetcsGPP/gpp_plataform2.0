@@ -30,6 +30,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# As expansões devem ocorrer no shell interno do container PostgreSQL.
+# shellcheck disable=SC2016
 "${compose}" exec -T postgres sh -ec '
     export PGPASSWORD="$(cat /run/secrets/postgres_app_password)"
     psql -h 127.0.0.1 -U gpp_app -d gpp_plataform_dev -v ON_ERROR_STOP=1 \

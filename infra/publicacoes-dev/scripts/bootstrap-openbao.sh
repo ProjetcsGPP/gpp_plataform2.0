@@ -79,6 +79,8 @@ sealed="$("${python_bin}" -c \
     'import json,sys; data=json.load(open(sys.argv[1], encoding="utf-8")); print(str(data.get("sealed", True)).lower())' \
     "${status_file}")"
 if [[ "${sealed}" == "true" ]]; then
+    # A expansão de $1 deve ocorrer no shell interno do container.
+    # shellcheck disable=SC2016
     "${compose}" exec -T openbao sh -ec \
         'BAO_ADDR=http://127.0.0.1:8200 bao operator unseal "$1" >/dev/null' \
         sh "${unseal_key}"

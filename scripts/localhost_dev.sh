@@ -11,6 +11,7 @@ VENV_ACTIVATE="${VENV_ACTIVATE:-${PROJECT_DIR}/.venv/bin/activate}"
 CODE_BIN="${CODE_BIN:-code}"
 DJANGO_ADDRESS="${DJANGO_ADDRESS:-127.0.0.1:8000}"
 CELERY_LOG_LEVEL="${CELERY_LOG_LEVEL:-INFO}"
+OPENBAO_BOOTSTRAP="${OPENBAO_BOOTSTRAP:-${PROJECT_DIR}/infra/publicacoes-dev/scripts/bootstrap-openbao.sh}"
 
 declare -a CHILD_PIDS=()
 SHUTTING_DOWN=0
@@ -91,8 +92,28 @@ cd "${PROJECT_DIR}"
 
 log "Redis disponível."
 log "Ativando ambiente virtual..."
-# shellcheck disable=SC1091
+# O caminho pode ser substituído pela variável VENV_ACTIVATE.
+# shellcheck disable=SC1090
 source "${VENV_ACTIVATE}"
+
+CARGARH_CREDENTIALS_PROVIDER="$("${PYTHON_BIN}" -c '
+import os
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.development")
+import django
+
+django.setup()
+from django.conf import settings
+
+print(settings.CARGARH_CREDENTIALS_PROVIDER)
+')"
+
+if [[ "${CARGARH_CREDENTIALS_PROVIDER}" == "openbao" ]]; then
+    require_executable "${OPENBAO_BOOTSTRAP}" "Bootstrap do OpenBao"
+    log "Preparando e desbloqueando o OpenBao..."
+    "${OPENBAO_BOOTSTRAP}"
+    log "OpenBao disponível."
+fi
 
 log "Abrindo o projeto no VS Code..."
 "${CODE_BIN}" "${PROJECT_DIR}"

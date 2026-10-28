@@ -64,6 +64,11 @@ Esse comando inicia o container, inicializa somente um cofre novo, desbloqueia
 quando necessário e garante engines, policies e AppRoles. O bootstrap normal
 preserva os `SecretID` e as credenciais existentes.
 
+Ao iniciar o backend por `scripts/localhost_dev.sh`, essa preparação é feita
+automaticamente antes do Celery e do Django quando
+`CARGARH_CREDENTIALS_PROVIDER=openbao`. Se o provedor for outro, o launcher não
+inicia o OpenBao.
+
 ### Ver se o container está ativo
 
 ```bash
@@ -102,8 +107,8 @@ As URLs confirmadas para a API são:
 ```env
 CARGARH_HML_API_BASE_URL=https://api.cargarh.hom.es.gov.br/
 CARGARH_PRD_API_BASE_URL=https://api.cargarh.es.gov.br/
-CARGARH_HML_CLIENT_SCOPE="api-cargarh-base api-cargarh-inicial"
-CARGARH_PRD_CLIENT_SCOPE="api-cargarh-base api-cargarh-inicial"
+CARGARH_HML_CLIENT_SCOPE="api-cargarh-base api-cargarh-cargainicial"
+CARGARH_PRD_CLIENT_SCOPE="api-cargarh-base api-cargarh-cargainicial"
 ```
 
 Elas não devem ser cadastradas no OpenBao porque não são segredos. Depois de

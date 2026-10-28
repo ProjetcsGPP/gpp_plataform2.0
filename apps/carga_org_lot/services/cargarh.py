@@ -31,10 +31,22 @@ class CargaRHConfigurationError(RuntimeError):
 class CargaRHRequestError(RuntimeError):
     """Erro seguro ocorrido na comunicação com a PRODEST."""
 
-    def __init__(self, message, *, status_code=None, details=None):
+    def __init__(
+        self,
+        message,
+        *,
+        status_code=None,
+        details=None,
+        operation=None,
+        method=None,
+        endpoint=None,
+    ):
         super().__init__(message)
         self.status_code = status_code
         self.details = details or {}
+        self.operation = operation
+        self.method = method
+        self.endpoint = endpoint
 
 
 def configuration_status(credential_store=None, credentials=None) -> dict:
@@ -126,23 +138,41 @@ class CargaRHClient:
 
     def test_connection(self):
         """Valida token e autorização efetiva no endpoint seguro de ping."""
+        path = "/v3/ping"
         response = self._request(
             "GET",
-            "/v3/ping",
+            path,
             operation=OperacaoIntegracaoProdest.TESTAR_CONEXAO,
         )
-        self._require_status(response, {200}, "testar a conexão")
+        self._require_status(
+            response,
+            {200},
+            "testar a conexão",
+            operation=OperacaoIntegracaoProdest.TESTAR_CONEXAO,
+            method="GET",
+            endpoint=self._api_endpoint(path),
+        )
         return True
 
     def submit_organogram(self, patriarch_id, payload, *, dry_run):
+        path = (
+            f"/v3/importacoes-iniciais/patriarcas/{patriarch_id}/organograma"
+        )
         response = self._request(
             "POST",
-            f"/v3/importacoes-iniciais/patriarcas/{patriarch_id}/organograma",
+            path,
             operation=OperacaoIntegracaoProdest.ENVIAR_ORGANOGRAMA_INICIAL,
             params={"dryRun": str(bool(dry_run)).lower()},
             json=payload,
         )
-        self._require_status(response, {201}, "enviar o organograma")
+        self._require_status(
+            response,
+            {201},
+            "enviar o organograma",
+            operation=OperacaoIntegracaoProdest.ENVIAR_ORGANOGRAMA_INICIAL,
+            method="POST",
+            endpoint=self._api_endpoint(path),
+        )
         try:
             carga_id = response.json()
         except ValueError:
@@ -153,36 +183,81 @@ class CargaRHClient:
             raise CargaRHRequestError(
                 "A PRODEST retornou um identificador de carga inválido.",
                 status_code=response.status_code,
+                operation=OperacaoIntegracaoProdest.ENVIAR_ORGANOGRAMA_INICIAL,
+                method="POST",
+                endpoint=self._api_endpoint(path),
             ) from exc
         return carga_id
 
     def get_status(self, carga_id):
+        path = f"/v3/importacoes-iniciais/{carga_id}"
         response = self._request(
             "GET",
-            f"/v3/importacoes-iniciais/{carga_id}",
+            path,
             operation=OperacaoIntegracaoProdest.CONSULTAR_STATUS,
         )
-        self._require_status(response, {200}, "consultar a carga")
-        return self._json_object(response, "situação da carga")
+        self._require_status(
+            response,
+            {200},
+            "consultar a carga",
+            operation=OperacaoIntegracaoProdest.CONSULTAR_STATUS,
+            method="GET",
+            endpoint=self._api_endpoint(path),
+        )
+        return self._json_object(
+            response,
+            "situação da carga",
+            operation=OperacaoIntegracaoProdest.CONSULTAR_STATUS,
+            method="GET",
+            endpoint=self._api_endpoint(path),
+        )
 
     def get_report(self, carga_id):
+        path = f"/v3/importacoes-iniciais/{carga_id}/relatorio"
         response = self._request(
             "GET",
-            f"/v3/importacoes-iniciais/{carga_id}/relatorio",
+            path,
             operation=OperacaoIntegracaoProdest.CONSULTAR_RELATORIO,
         )
-        self._require_status(response, {200}, "consultar o relatório")
-        return self._json_object(response, "relatório da carga")
+        self._require_status(
+            response,
+            {200},
+            "consultar o relatório",
+            operation=OperacaoIntegracaoProdest.CONSULTAR_RELATORIO,
+            method="GET",
+            endpoint=self._api_endpoint(path),
+        )
+        return self._json_object(
+            response,
+            "relatório da carga",
+            operation=OperacaoIntegracaoProdest.CONSULTAR_RELATORIO,
+            method="GET",
+            endpoint=self._api_endpoint(path),
+        )
 
     def list_initial_imports(self, patriarch_id, *, limit=10):
+        path = f"/v3/importacoes-iniciais/patriarcas/{patriarch_id}"
         response = self._request(
             "GET",
-            f"/v3/importacoes-iniciais/patriarcas/{patriarch_id}",
+            path,
             operation=OperacaoIntegracaoProdest.LISTAR_CARGAS_INICIAIS,
             params={"limit": limit},
         )
-        self._require_status(response, {200}, "consultar as cargas iniciais")
-        return self._json_list(response, "lista de cargas iniciais")
+        self._require_status(
+            response,
+            {200},
+            "consultar as cargas iniciais",
+            operation=OperacaoIntegracaoProdest.LISTAR_CARGAS_INICIAIS,
+            method="GET",
+            endpoint=self._api_endpoint(path),
+        )
+        return self._json_list(
+            response,
+            "lista de cargas iniciais",
+            operation=OperacaoIntegracaoProdest.LISTAR_CARGAS_INICIAIS,
+            method="GET",
+            endpoint=self._api_endpoint(path),
+        )
 
     def _request(self, method, path, *, operation, **kwargs):
         self._ensure_configuration()
@@ -213,7 +288,7 @@ class CargaRHClient:
         }
         if settings.CARGARH_TARGET_ENVIRONMENT:
             headers["X-Target-Environment"] = settings.CARGARH_TARGET_ENVIRONMENT
-        endpoint = f"{settings.CARGARH_API_BASE_URL}{path}"
+        endpoint = self._api_endpoint(path)
         max_attempts = 1 + (
             settings.CARGARH_GET_MAX_RETRIES if method.upper() == "GET" else 0
         )
@@ -242,7 +317,10 @@ class CargaRHClient:
                     self._retry_pause(retry_index)
                     continue
                 raise CargaRHRequestError(
-                    "A PRODEST não respondeu dentro do tempo limite."
+                    "A PRODEST não respondeu dentro do tempo limite.",
+                    operation=operation,
+                    method=method.upper(),
+                    endpoint=endpoint,
                 ) from exc
             except requests.RequestException as exc:
                 self._record_event(
@@ -260,7 +338,10 @@ class CargaRHClient:
                     self._retry_pause(retry_index)
                     continue
                 raise CargaRHRequestError(
-                    "Não foi possível estabelecer comunicação com a PRODEST."
+                    "Não foi possível estabelecer comunicação com a PRODEST.",
+                    operation=operation,
+                    method=method.upper(),
+                    endpoint=endpoint,
                 ) from exc
 
             success = 200 <= response.status_code < 300
@@ -320,7 +401,10 @@ class CargaRHClient:
                 message="O serviço de autenticação excedeu o tempo limite.",
             )
             raise CargaRHRequestError(
-                "O serviço de autenticação da PRODEST excedeu o tempo limite."
+                "O serviço de autenticação da PRODEST excedeu o tempo limite.",
+                operation=OperacaoIntegracaoProdest.OBTER_TOKEN,
+                method="POST",
+                endpoint=settings.CARGARH_TOKEN_URL,
             ) from exc
         except requests.RequestException as exc:
             self._record_event(
@@ -335,7 +419,10 @@ class CargaRHClient:
             )
             logger.warning("CARGARH_AUTH_FAILED type=%s", type(exc).__name__)
             raise CargaRHRequestError(
-                "Não foi possível autenticar no serviço da PRODEST."
+                "Não foi possível autenticar no serviço da PRODEST.",
+                operation=OperacaoIntegracaoProdest.OBTER_TOKEN,
+                method="POST",
+                endpoint=settings.CARGARH_TOKEN_URL,
             ) from exc
         token_success = response.status_code == 200
         self._record_event(
@@ -360,12 +447,28 @@ class CargaRHClient:
                 "escopos_solicitados": settings.CARGARH_CLIENT_SCOPE.split(),
             },
         )
-        self._require_status(response, {200}, "autenticar na PRODEST")
-        data = self._json_object(response, "autenticação")
+        self._require_status(
+            response,
+            {200},
+            "autenticar na PRODEST",
+            operation=OperacaoIntegracaoProdest.OBTER_TOKEN,
+            method="POST",
+            endpoint=settings.CARGARH_TOKEN_URL,
+        )
+        data = self._json_object(
+            response,
+            "autenticação",
+            operation=OperacaoIntegracaoProdest.OBTER_TOKEN,
+            method="POST",
+            endpoint=settings.CARGARH_TOKEN_URL,
+        )
         token = data.get("access_token")
         if not isinstance(token, str) or not token:
             raise CargaRHRequestError(
-                "A autenticação da PRODEST não retornou um token válido."
+                "A autenticação da PRODEST não retornou um token válido.",
+                operation=OperacaoIntegracaoProdest.OBTER_TOKEN,
+                method="POST",
+                endpoint=settings.CARGARH_TOKEN_URL,
             )
         try:
             expires_in = int(data.get("expires_in", 3600))
@@ -397,29 +500,52 @@ class CargaRHClient:
             )
 
     @staticmethod
-    def _json_object(response, description):
+    def _json_object(
+        response,
+        description,
+        *,
+        operation=None,
+        method=None,
+        endpoint=None,
+    ):
         try:
             data = response.json()
         except ValueError as exc:
             raise CargaRHRequestError(
                 f"A PRODEST retornou {description} em formato inválido.",
                 status_code=response.status_code,
+                operation=operation,
+                method=method,
+                endpoint=endpoint,
             ) from exc
         if not isinstance(data, dict):
             raise CargaRHRequestError(
                 f"A PRODEST retornou {description} em formato inválido.",
                 status_code=response.status_code,
+                operation=operation,
+                method=method,
+                endpoint=endpoint,
             )
         return data
 
     @staticmethod
-    def _json_list(response, description):
+    def _json_list(
+        response,
+        description,
+        *,
+        operation=None,
+        method=None,
+        endpoint=None,
+    ):
         try:
             data = response.json()
         except ValueError as exc:
             raise CargaRHRequestError(
                 f"A PRODEST retornou {description} em formato inválido.",
                 status_code=response.status_code,
+                operation=operation,
+                method=method,
+                endpoint=endpoint,
             ) from exc
         if not isinstance(data, list) or not all(
             isinstance(item, dict) for item in data
@@ -427,6 +553,9 @@ class CargaRHClient:
             raise CargaRHRequestError(
                 f"A PRODEST retornou {description} em formato inválido.",
                 status_code=response.status_code,
+                operation=operation,
+                method=method,
+                endpoint=endpoint,
             )
         return data
 
@@ -504,21 +633,46 @@ class CargaRHClient:
         )
 
     @staticmethod
-    def _require_status(response, expected, operation):
+    def _require_status(
+        response,
+        expected,
+        description,
+        *,
+        operation=None,
+        method=None,
+        endpoint=None,
+    ):
         if response.status_code in expected:
             return
         details = {}
         try:
             body = response.json()
             if isinstance(body, dict):
-                allowed = {"title", "detail", "status", "errors", "traceId"}
+                allowed = {
+                    "title",
+                    "detail",
+                    "status",
+                    "errors",
+                    "traceId",
+                    "error",
+                }
                 details = {key: body[key] for key in allowed if key in body}
         except ValueError:
             pass
         raise CargaRHRequestError(
-            f"A PRODEST recusou a solicitação ao {operation}.",
+            f"A PRODEST recusou a solicitação ao {description}.",
             status_code=response.status_code,
             details=details,
+            operation=operation,
+            method=method,
+            endpoint=endpoint,
+        )
+
+    @staticmethod
+    def _api_endpoint(path):
+        return (
+            f"{settings.CARGARH_API_BASE_URL.rstrip('/')}"
+            f"/{path.lstrip('/')}"
         )
 
     def _token_cache_key(self):

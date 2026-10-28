@@ -15,6 +15,7 @@ from apps.carga_org_lot.models import (
     EnvioOrganogramaProdest,
     FaseIntegracaoProdest,
     ImportacaoPlanilha,
+    OperacaoIntegracaoProdest,
     ResultadoRelatorioValidacao,
     StatusEnvioOrganograma,
     StatusEventoOperacional,
@@ -230,12 +231,27 @@ def execute_organogram_submission(
     )
     try:
         carga_id = cargarh.submit_organogram(
-                importacao.idpatriarca.idexternopatriarca,
-                payload,
-                dry_run=envio.flgdryrun,
+            importacao.idpatriarca.idexternopatriarca,
+            payload,
+            dry_run=envio.flgdryrun,
         )
     except (CargaRHConfigurationError, CargaRHRequestError) as exc:
         details = getattr(exc, "details", {})
+        authentication_failure = (
+            isinstance(exc, CargaRHConfigurationError)
+            or getattr(exc, "operation", None)
+            == OperacaoIntegracaoProdest.OBTER_TOKEN
+        )
+        failure_phase = (
+            FaseIntegracaoProdest.AUTENTICACAO
+            if authentication_failure
+            else FaseIntegracaoProdest.ENVIO
+        )
+        operational_details = _operational_failure_details(
+            envio,
+            exc,
+            phase=failure_phase,
+        )
         _mark_submission_error(
             envio,
             str(exc),
@@ -247,21 +263,24 @@ def execute_organogram_submission(
             envio,
             code=(
                 "AUTENTICACAO_REJEITADA"
-                if getattr(exc, "status_code", None) in {401, 403}
+                if authentication_failure
                 else "ENVIO_REJEITADO"
             ),
-            phase=(
-                FaseIntegracaoProdest.AUTENTICACAO
-                if getattr(exc, "status_code", None) in {401, 403}
-                else FaseIntegracaoProdest.ENVIO
-            ),
+            phase=failure_phase,
             status=StatusEventoOperacional.ERRO,
-            title="Não foi possível enviar o organograma",
+            title=(
+                "Não foi possível autenticar na PRODEST"
+                if authentication_failure
+                else "Não foi possível enviar o organograma"
+            ),
             message=(
                 "Nenhuma carga remota foi confirmada. " + str(exc)
             ),
             actor=actor,
-            details={"http_status": getattr(exc, "status_code", None)},
+            details=operational_details,
+            method=getattr(exc, "method", None) or "INTERNAL",
+            endpoint=getattr(exc, "endpoint", None) or "local",
+            http_status=getattr(exc, "status_code", None),
         )
         raise OrganogramSubmissionError(
             str(exc),
@@ -518,6 +537,50 @@ def _mark_submission_error(
     envio.updated_by_name = actor.user_name
     envio.save()
     register_organogram_result(envio, success=False, actor=actor)
+
+
+def _operational_failure_details(envio, exc, *, phase):
+    """Expõe ao gestor apenas metadados permitidos para diagnóstico."""
+    provider_details = getattr(exc, "details", {}) or {}
+    details = {
+        "ambiente": envio.strambiente,
+        "etapa": phase,
+        "servico": (
+            "Acesso Cidadão"
+            if phase == FaseIntegracaoProdest.AUTENTICACAO
+            else "API CargaRH"
+        ),
+        "modo": "SIMULACAO" if envio.flgdryrun else "DEFINITIVO",
+    }
+    operation = getattr(exc, "operation", None)
+    if operation:
+        details["operacao"] = operation
+    method = getattr(exc, "method", None)
+    if method:
+        details["metodo"] = method
+    endpoint = getattr(exc, "endpoint", None)
+    if endpoint:
+        details["endpoint"] = endpoint
+    status_code = getattr(exc, "status_code", None)
+    if status_code is not None:
+        details["http_status"] = status_code
+    if phase == FaseIntegracaoProdest.AUTENTICACAO:
+        details["escopos_solicitados"] = (
+            settings.CARGARH_CLIENT_SCOPE.split()
+        )
+
+    allowed_provider_fields = {
+        "error": "codigo_erro",
+        "title": "titulo_provedor",
+        "detail": "detalhe_provedor",
+        "status": "status_provedor",
+        "errors": "erros_provedor",
+        "traceId": "trace_id",
+    }
+    for source, target in allowed_provider_fields.items():
+        if source in provider_details:
+            details[target] = provider_details[source]
+    return details
 
 
 def _owning_organ_id(item, by_id, root_id):

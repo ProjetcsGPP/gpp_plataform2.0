@@ -193,6 +193,36 @@ def test_descarta_token_e_repete_uma_vez_apos_401():
 
 
 @override_settings(**VALID_SETTINGS)
+def test_401_persistente_apos_renovar_token_preserva_operacao_do_envio():
+    session = FakeSession(
+        token_responses=[
+            FakeResponse(200, {"access_token": "old-token", "expires_in": 3600}),
+            FakeResponse(200, {"access_token": "new-token", "expires_in": 3600}),
+        ],
+        request_responses=[
+            FakeResponse(401, {"title": "Unauthorized"}),
+            FakeResponse(401, {"title": "Unauthorized"}),
+        ],
+    )
+
+    with pytest.raises(CargaRHRequestError) as caught:
+        CargaRHClient(session=session).submit_organogram(
+            "patriarch",
+            {"patriarcaId": "patriarch", "orgaos": []},
+            dry_run=True,
+        )
+
+    assert len(session.post_calls) == 2
+    assert len(session.request_calls) == 2
+    assert caught.value.status_code == 401
+    assert (
+        caught.value.operation
+        == OperacaoIntegracaoProdest.ENVIAR_ORGANOGRAMA_INICIAL
+    )
+    assert caught.value.method == "POST"
+
+
+@override_settings(**VALID_SETTINGS)
 def test_lista_cargas_iniciais_com_limite_oficial():
     session = FakeSession(
         token_responses=[
@@ -229,6 +259,112 @@ def test_lista_cargas_iniciais_rejeita_formato_inesperado():
 
     with pytest.raises(CargaRHRequestError, match="formato inválido"):
         CargaRHClient(session=session).list_initial_imports("patriarch")
+
+
+@override_settings(**VALID_SETTINGS)
+def test_erro_403_do_envio_preserva_operacao_que_foi_recusada():
+    session = FakeSession(
+        token_responses=[
+            FakeResponse(200, {"access_token": "temporary-token", "expires_in": 3600})
+        ],
+        request_responses=[
+            FakeResponse(
+                403,
+                {
+                    "title": "Client sem permissão nesse contexto de carga",
+                    "detail": "Client sem permissão para o patriarca informado.",
+                    "status": 403,
+                    "traceId": "trace-safe-403",
+                },
+            )
+        ],
+    )
+
+    with pytest.raises(CargaRHRequestError) as caught:
+        CargaRHClient(session=session).submit_organogram(
+            "patriarch",
+            {"patriarcaId": "patriarch", "orgaos": []},
+            dry_run=True,
+        )
+
+    assert caught.value.status_code == 403
+    assert (
+        caught.value.operation
+        == OperacaoIntegracaoProdest.ENVIAR_ORGANOGRAMA_INICIAL
+    )
+    assert caught.value.method == "POST"
+    assert caught.value.endpoint == (
+        "https://api.example/v3/importacoes-iniciais/"
+        "patriarcas/patriarch/organograma"
+    )
+    assert caught.value.details == {
+        "title": "Client sem permissão nesse contexto de carga",
+        "detail": "Client sem permissão para o patriarca informado.",
+        "status": 403,
+        "traceId": "trace-safe-403",
+    }
+
+
+@override_settings(**VALID_SETTINGS)
+def test_invalid_scope_preserva_origem_na_autenticacao():
+    session = FakeSession(
+        token_responses=[
+            FakeResponse(400, {"error": "invalid_scope"}),
+        ]
+    )
+
+    with pytest.raises(CargaRHRequestError) as caught:
+        CargaRHClient(session=session).test_authentication()
+
+    assert caught.value.status_code == 400
+    assert caught.value.operation == OperacaoIntegracaoProdest.OBTER_TOKEN
+    assert caught.value.method == "POST"
+    assert caught.value.endpoint == "https://auth.example/token"
+    assert caught.value.details == {"error": "invalid_scope"}
+
+
+@override_settings(**VALID_SETTINGS)
+def test_token_http_200_sem_access_token_preserva_origem_na_autenticacao():
+    session = FakeSession(token_responses=[FakeResponse(200, {"expires_in": 3600})])
+
+    with pytest.raises(CargaRHRequestError) as caught:
+        CargaRHClient(session=session).test_authentication()
+
+    assert caught.value.status_code is None
+    assert caught.value.operation == OperacaoIntegracaoProdest.OBTER_TOKEN
+    assert caught.value.method == "POST"
+    assert caught.value.endpoint == "https://auth.example/token"
+
+
+@override_settings(**VALID_SETTINGS)
+def test_token_http_200_com_json_invalido_preserva_origem_na_autenticacao():
+    class InvalidJsonResponse(FakeResponse):
+        def json(self):
+            raise ValueError("invalid json")
+
+    session = FakeSession(token_responses=[InvalidJsonResponse(200, None)])
+
+    with pytest.raises(CargaRHRequestError) as caught:
+        CargaRHClient(session=session).test_authentication()
+
+    assert caught.value.status_code == 200
+    assert caught.value.operation == OperacaoIntegracaoProdest.OBTER_TOKEN
+    assert caught.value.method == "POST"
+    assert caught.value.endpoint == "https://auth.example/token"
+
+
+@override_settings(**VALID_SETTINGS)
+def test_timeout_do_token_preserva_origem_na_autenticacao():
+    class TokenTimeoutSession(FakeSession):
+        def post(self, url, **kwargs):
+            raise requests.Timeout("transport details")
+
+    with pytest.raises(CargaRHRequestError) as caught:
+        CargaRHClient(session=TokenTimeoutSession()).test_authentication()
+
+    assert caught.value.operation == OperacaoIntegracaoProdest.OBTER_TOKEN
+    assert caught.value.method == "POST"
+    assert caught.value.endpoint == "https://auth.example/token"
 
 
 @override_settings(**VALID_SETTINGS)

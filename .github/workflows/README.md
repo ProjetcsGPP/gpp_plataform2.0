@@ -102,6 +102,13 @@ pylint apps --fail-under=7.5
 
 * Apenas reporta (não bloqueia o build)
 
+### ShellCheck
+
+* Analisa todos os scripts `.sh` rastreados pelo Git
+* Detecta erros de sintaxe, expansão, aspas e fluxos frágeis
+* Executa `./scripts/check_shell.sh`
+* Bloqueia o pipeline quando encontra problemas
+
 ---
 
 ## 🧪 Testes
@@ -123,8 +130,9 @@ pytest --cov=apps --cov=common --cov-report=term-missing --cov-fail-under=80
 Ordem de execução:
 
 1. Segurança (paralelo)
-2. Qualidade de código
-3. Testes
+2. Qualidade de scripts com ShellCheck
+3. Qualidade do código Python
+4. Testes
 
 Isso garante:
 

@@ -25,6 +25,9 @@ def record_operational_event(
     actor,
     details=None,
     deduplicate=True,
+    method="INTERNAL",
+    endpoint="local",
+    http_status=None,
 ):
     """Persiste uma mudança compreensível; eventos técnicos ficam separados."""
     envio = type(envio).objects.select_for_update().select_related(
@@ -41,6 +44,9 @@ def record_operational_event(
         and latest.strcodigo == code
         and latest.strstatusoperacional == status
         and latest.jsondetalhes == details
+        and latest.strmetodo == method
+        and latest.strendpoint == endpoint
+        and latest.inthttpstatus == http_status
     ):
         return latest
 
@@ -64,13 +70,14 @@ def record_operational_event(
         strstatusoperacional=status,
         strtitulo=title,
         stroperacao=OperacaoIntegracaoProdest.FLUXO_OPERACIONAL,
-        strmetodo="INTERNAL",
-        strendpoint="local",
+        strmetodo=method,
+        strendpoint=endpoint,
         strresultado=(
             ResultadoIntegracaoProdest.ERRO_HTTP
             if status == StatusEventoOperacional.ERRO
             else ResultadoIntegracaoProdest.SUCESSO
         ),
+        inthttpstatus=http_status,
         strmensagem=message,
         jsondetalhes=details,
         created_by_id=actor.user_id,
@@ -100,6 +107,7 @@ def record_operational_event(
             "status": status,
             "titulo": title,
             "mensagem": message,
+            "detalhes": details,
             "datocorrencia": event.datocorrencia.isoformat(),
         },
     }

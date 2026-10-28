@@ -5,8 +5,10 @@ from django.conf import settings
 
 from apps.carga_org_lot.models import (EnvioOrganogramaProdest,
                                        EventoIntegracaoProdest,
+                                       FaseIntegracaoProdest,
                                        FaseProcessoCargaInicial,
                                        ItemOrganograma, ProcessoCargaInicial,
+                                       OperacaoIntegracaoProdest,
                                        StatusEnvioOrganograma,
                                        StatusLotacaoProcesso,
                                        StatusOrganogramaProcesso)
@@ -344,6 +346,160 @@ class TestEnvioOrganogramaProdest:
         assert "token" not in str(response.data).lower()
         process = ProcessoCargaInicial.objects.get(idpatriarca=patriarca)
         assert process.strstatusorganograma == StatusOrganogramaProcesso.ERRO
+
+    def test_403_ao_enviar_organograma_e_classificado_na_fase_de_envio(
+        self,
+        client_gestor_carga_lot,
+        patriarca,
+        tipo_organograma,
+        monkeypatch,
+    ):
+        realtime_payloads = []
+
+        class ForbiddenSubmissionClient:
+            def __init__(self, **kwargs):
+                self.context = kwargs
+
+            def submit_organogram(self, patriarch_id, payload, *, dry_run):
+                raise CargaRHRequestError(
+                    "A PRODEST recusou a solicitação ao enviar o organograma.",
+                    status_code=403,
+                    details={
+                        "title": "Client sem permissão nesse contexto de carga",
+                        "detail": (
+                            "O client autenticado não tem permissão para enviar "
+                            "cargas no contexto informado."
+                        ),
+                        "status": 403,
+                        "traceId": "trace-safe-403",
+                    },
+                    operation=(
+                        OperacaoIntegracaoProdest.ENVIAR_ORGANOGRAMA_INICIAL
+                    ),
+                    method="POST",
+                    endpoint=(
+                        "https://api.cargarh.hom.es.gov.br/v3/"
+                        "importacoes-iniciais/patriarcas/patriarch/organograma"
+                    ),
+                )
+
+        monkeypatch.setattr(
+            "apps.carga_org_lot.services.organogram_submission.CargaRHClient",
+            ForbiddenSubmissionClient,
+        )
+        monkeypatch.setattr(
+            "apps.carga_org_lot.services.integration_events."
+            "publish_submission_update",
+            lambda payload, **kwargs: realtime_payloads.append(payload),
+        )
+        importacao_id = self._valid_import(
+            client_gestor_carga_lot,
+            patriarca,
+            tipo_organograma,
+        )
+
+        response = client_gestor_carga_lot.post(
+            ENVIOS_ORGANOGRAMA_URL,
+            {
+                "idimportacaoplanilha_id": importacao_id,
+                "dry_run": True,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 202
+        envio = EnvioOrganogramaProdest.objects.get()
+        assert envio.strfaseatual == FaseIntegracaoProdest.ENVIO
+        failure = EventoIntegracaoProdest.objects.get(
+            idenvioorganograma=envio,
+            strcodigo="ENVIO_REJEITADO",
+        )
+        assert failure.strfase == FaseIntegracaoProdest.ENVIO
+        assert failure.strtitulo == "Não foi possível enviar o organograma"
+        assert failure.strmetodo == "POST"
+        assert failure.inthttpstatus == 403
+        assert failure.jsondetalhes == {
+            "ambiente": settings.CARGARH_ENVIRONMENT,
+            "etapa": FaseIntegracaoProdest.ENVIO,
+            "servico": "API CargaRH",
+            "modo": "SIMULACAO",
+            "operacao": OperacaoIntegracaoProdest.ENVIAR_ORGANOGRAMA_INICIAL,
+            "metodo": "POST",
+            "endpoint": (
+                "https://api.cargarh.hom.es.gov.br/v3/importacoes-iniciais/"
+                "patriarcas/patriarch/organograma"
+            ),
+            "http_status": 403,
+            "titulo_provedor": "Client sem permissão nesse contexto de carga",
+            "detalhe_provedor": (
+                "O client autenticado não tem permissão para enviar cargas no "
+                "contexto informado."
+            ),
+            "status_provedor": 403,
+            "trace_id": "trace-safe-403",
+        }
+        assert realtime_payloads[-1]["evento"]["detalhes"] == (
+            failure.jsondetalhes
+        )
+        serialized = str(failure.jsondetalhes).lower()
+        assert "authorization" not in serialized
+        assert "client-secret" not in serialized
+        assert "temporary-token" not in serialized
+
+    def test_invalid_scope_e_classificado_na_fase_de_autenticacao(
+        self,
+        client_gestor_carga_lot,
+        patriarca,
+        tipo_organograma,
+        monkeypatch,
+    ):
+        class InvalidScopeClient:
+            def __init__(self, **kwargs):
+                self.context = kwargs
+
+            def submit_organogram(self, patriarch_id, payload, *, dry_run):
+                raise CargaRHRequestError(
+                    "A PRODEST recusou a solicitação ao autenticar na PRODEST.",
+                    status_code=400,
+                    details={"error": "invalid_scope"},
+                    operation=OperacaoIntegracaoProdest.OBTER_TOKEN,
+                    method="POST",
+                    endpoint="https://acessocidadao.example/connect/token",
+                )
+
+        monkeypatch.setattr(
+            "apps.carga_org_lot.services.organogram_submission.CargaRHClient",
+            InvalidScopeClient,
+        )
+        importacao_id = self._valid_import(
+            client_gestor_carga_lot,
+            patriarca,
+            tipo_organograma,
+        )
+
+        response = client_gestor_carga_lot.post(
+            ENVIOS_ORGANOGRAMA_URL,
+            {
+                "idimportacaoplanilha_id": importacao_id,
+                "dry_run": False,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 202
+        envio = EnvioOrganogramaProdest.objects.get()
+        assert envio.strfaseatual == FaseIntegracaoProdest.AUTENTICACAO
+        failure = EventoIntegracaoProdest.objects.get(
+            idenvioorganograma=envio,
+            strcodigo="AUTENTICACAO_REJEITADA",
+        )
+        assert failure.strtitulo == "Não foi possível autenticar na PRODEST"
+        assert failure.inthttpstatus == 400
+        assert failure.jsondetalhes["codigo_erro"] == "invalid_scope"
+        assert failure.jsondetalhes["escopos_solicitados"] == (
+            settings.CARGARH_CLIENT_SCOPE.split()
+        )
+        assert failure.jsondetalhes["modo"] == "DEFINITIVO"
 
     def test_status_de_erro_da_prodest_atualiza_processo(
         self,

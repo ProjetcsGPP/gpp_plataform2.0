@@ -39,12 +39,12 @@ CARGARH_CREDENTIALS_PROVIDER=openbao
 
 CARGARH_HML_TOKEN_URL=
 CARGARH_HML_API_BASE_URL=https://api.cargarh.hom.es.gov.br/
-CARGARH_HML_CLIENT_SCOPE="api-cargarh-base api-cargarh-inicial"
+CARGARH_HML_CLIENT_SCOPE="api-cargarh-base api-cargarh-cargainicial"
 CARGARH_HML_TARGET_ENVIRONMENT=
 
 CARGARH_PRD_TOKEN_URL=
 CARGARH_PRD_API_BASE_URL=https://api.cargarh.es.gov.br/
-CARGARH_PRD_CLIENT_SCOPE="api-cargarh-base api-cargarh-inicial"
+CARGARH_PRD_CLIENT_SCOPE="api-cargarh-base api-cargarh-cargainicial"
 CARGARH_PRD_TARGET_ENVIRONMENT=
 ```
 

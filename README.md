@@ -99,6 +99,7 @@ O `AppContextMiddleware` resolve qual cookie `gpp_session_*` está presente na r
 - PostgreSQL 14+
 - Memcached 1.6+
 - Git
+- ShellCheck 0.9+ *(desenvolvimento; validação dos scripts shell)*
 
 > **Windows (desenvolvimento local):** recomenda-se WSL2 + Ubuntu para compatibilidade total com as dependências.
 
@@ -123,6 +124,9 @@ source .venv/bin/activate
 # 3. Instale as dependências
 pip install -r requirements.txt
 pip install -r requirements-dev.txt   # apenas em desenvolvimento
+
+# Ubuntu/WSL: ferramenta de análise estática dos scripts shell
+sudo apt-get install -y shellcheck
 
 # 4. Configure as variáveis de ambiente
 cp .env.example .env
@@ -170,11 +174,11 @@ CARGARH_ENVIRONMENT=HML
 CARGARH_CREDENTIALS_PROVIDER=openbao
 CARGARH_HML_TOKEN_URL=https://servidor-hml-de-autenticacao/token
 CARGARH_HML_API_BASE_URL=https://api.cargarh.hom.es.gov.br/
-CARGARH_HML_CLIENT_SCOPE="api-cargarh-base api-cargarh-inicial"
+CARGARH_HML_CLIENT_SCOPE="api-cargarh-base api-cargarh-cargainicial"
 CARGARH_HML_TARGET_ENVIRONMENT=
 CARGARH_PRD_TOKEN_URL=https://servidor-prd-de-autenticacao/token
 CARGARH_PRD_API_BASE_URL=https://api.cargarh.es.gov.br/
-CARGARH_PRD_CLIENT_SCOPE="api-cargarh-base api-cargarh-inicial"
+CARGARH_PRD_CLIENT_SCOPE="api-cargarh-base api-cargarh-cargainicial"
 CARGARH_PRD_TARGET_ENVIRONMENT=
 CARGARH_CONNECT_TIMEOUT_SECONDS=10
 CARGARH_READ_TIMEOUT_SECONDS=60
@@ -352,6 +356,20 @@ addopts = --reuse-db -v --cov=apps --cov=common --cov-report=term-missing
 ```
 
 > **Throttle desabilitado em testes:** a fixture `_disable_throttle_session` (session-scoped, autouse) zera os rate limits durante toda a suite de testes.
+
+### Validação dos scripts shell
+
+Todo script `.sh` versionado ou ainda não versionado, mas não ignorado pelo
+Git, deve passar pelo ShellCheck. Execute antes de concluir alterações em
+scripts de desenvolvimento ou infraestrutura:
+
+```bash
+./scripts/check_shell.sh
+```
+
+O comando falha de forma explícita quando o ShellCheck não está instalado e
+informa o procedimento de instalação para Ubuntu/Debian. Novos scripts `.sh`
+são descobertos automaticamente, sem necessidade de manter uma lista manual.
 
 ---
 
