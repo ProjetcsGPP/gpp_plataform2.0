@@ -33,7 +33,7 @@ de coordenação; os documentos especializados contêm o detalhe e a evidência.
 
 | ID | Estado em 2026-11-03 | Falta para aceite |
 |---|---|---|
-| PRE-001 | Pendente | Nome funcional, responsáveis, canais e substitutos. |
+| PRE-001 | Parcial — definição registrada | Código `PUB_INSTITUCIONAL`, nome `PUBLICAÇÕES`, responsável único, ausência de substituto e perfis Zimbra `HML`/`PRD` inicialmente idênticos registrados; a manutenção temporária da credencial exposta foi aceita pelo responsável, e faltam cadastro controlado, provisionamento oculto nos dois caminhos e ativação segura/testada dos perfis. |
 | PRE-002 | Pendente | Caso piloto, dono da informação e contrato de fonte aprovado. |
 | PRE-003 | Pendente | Classificação campo a campo, finalidade, retenção e proibições. |
 | PRE-004 | Parcial | Topologia de DEV aprovada e diagrama browser/SSR/worker. |
@@ -71,7 +71,8 @@ tela ou teste sintético de `PUBLICACOES`.
 
 ## 4. Bloqueios para iniciar a Fase 1
 
-1. `PRE-001` a `PRE-003` e `PUB-011` sem aprovação.
+1. `PRE-001` com aceite operacional parcial; `PRE-002`, `PRE-003` e `PUB-011`
+   sem aprovação.
 2. `PUB-017` a `PUB-019` sem contratos executáveis aprovados em F0.5.
 3. `PUB-020` bloqueado por PostgreSQL real, cadeia de fornecimento, egress de
    rede e observabilidade.

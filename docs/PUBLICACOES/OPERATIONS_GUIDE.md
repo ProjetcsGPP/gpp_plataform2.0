@@ -149,6 +149,51 @@ Nunca enviar segredo por e-mail comum, ticket público, log ou comentário de PR
 
 ## 9. Rotina operacional
 
+### Canal inicial de incidentes
+
+Enquanto não houver equipe ou substituto formal, o desenvolvedor responsável
+receberá as notificações operacionais por conta Zimbra fornecida pela PRODEST.
+O e-mail é canal de aviso, não fonte de verdade. Cada mensagem deverá apontar
+para um identificador persistido de incidente/evento/job; o detalhamento
+canônico permanecerá nos logs estruturados e na auditoria restrita.
+
+O backend utilizará integração aprovada com TLS e credencial em secret store.
+Não dependerá de Google Apps Script em runtime, não aceitará HTTP sem
+criptografia e não copiará segredos ou dados restritos para assunto/corpo. A
+entrega terá deduplicação, retry limitado, rate limit e falha observável.
+
+A configuração atual do canal é a mesma, mas será cadastrada em dois perfis
+lógicos independentes para acompanhar o padrão existente do OpenBao:
+
+| Parâmetro | HML | PRD |
+|---|---|---|
+| Servidor | `seger.correio.es.gov.br` | `seger.correio.es.gov.br` |
+| Porta | `443` | `443` |
+| Caminho SOAP | `/service/soap` | `/service/soap` |
+| Remetente | `acoesgpp@seger.es.gov.br` | `acoesgpp@seger.es.gov.br` |
+| Nome exibido | `Ações GPP` | `Ações GPP` |
+| Caminho KV v2 | `publicacoes/dev/zimbra/hml` | `publicacoes/dev/zimbra/prd` |
+
+Embora os dados de origem usem nomes iniciados por `SMTP_`, porta `443` e
+`/service/soap` caracterizam uma integração SOAP sobre HTTPS, não uma sessão
+SMTP. O backend deverá usar `ZIMBRA_ENVIRONMENT=HML|PRD` para selecionar um
+perfil e configurações explícitas como `ZIMBRA_HML_SOAP_URL`,
+`ZIMBRA_PRD_SOAP_URL`, `ZIMBRA_HML_OPENBAO_SECRET_PATH` e
+`ZIMBRA_PRD_OPENBAO_SECRET_PATH`. O `secret path` identifica o registro KV que
+contém a senha; ele não deve ser confundido com o `SecretID` usado pela AppRole
+para autenticar o backend no OpenBao.
+
+A senha não integra esta tabela. Por decisão do responsável, a credencial atual
+será mantida nesta etapa apesar da exposição registrada. O aceite de risco não
+permite copiá-la para documentação, Git, `.env`, log ou argumento de linha de
+comando: o provisionador deverá solicitá-la sem eco no terminal e gravá-la
+diretamente nos dois caminhos. Cada perfil terá AppRole e policy de leitura
+próprias; atualizações posteriores serão explícitas por perfil ou
+conjuntamente, nunca sincronizadas de forma implícita. A ativação exige teste
+de autenticação, envio, correlação, deduplicação, retry e falha de entrega nos
+dois perfis. A rotação continua recomendada, mas não bloqueia este
+provisionamento por decisão registrada.
+
 ### Diária
 
 - falhas de coleta e filas pendentes;

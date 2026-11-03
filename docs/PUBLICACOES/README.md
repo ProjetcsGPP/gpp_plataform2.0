@@ -68,10 +68,20 @@ Criar uma aplicação capaz de:
 - **F0.5:** marco exclusivamente documental para aprovar contratos executáveis
   antes de criar app, models, endpoints ou seeds.
 
+## Identidade da aplicação
+
+- bounded context/documentação: `PUBLICACOES`;
+- namespace Python planejado: `apps.publicacoes`;
+- código IAM persistido em `Aplicacao.codigointerno`: `PUB_INSTITUCIONAL`;
+- nome exibido: `PUBLICAÇÕES`.
+
+O backend normaliza códigos de aplicação para maiúsculas. O código IAM não deve
+ser confundido com o nome do módulo, a URL ou o nome apresentado ao usuário.
+
 ## Decisões aceitas até aqui
 
 1. A aplicação será um bounded context próprio, inicialmente dentro do monólito
-   Django, com o código interno `PUBLICACOES`.
+   Django, com código IAM `PUB_INSTITUCIONAL` e nome exibido `PUBLICAÇÕES`.
 2. O conteúdo público será servido a partir de publicações aprovadas e
    imutáveis, nunca diretamente de tabelas operacionais.
 3. Aplicações de origem continuarão responsáveis por suas regras canônicas.
@@ -99,7 +109,6 @@ Criar uma aplicação capaz de:
 
 ## Decisões ainda necessárias
 
-- Nome funcional final apresentado aos usuários.
 - Quais conjuntos de dados serão usados no primeiro piloto.
 - Classificação pública, gerencial ou restrita de cada campo.
 - Aceitação dos achados de imagem, egress no nível de rede e observabilidade

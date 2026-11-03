@@ -94,7 +94,8 @@ pendentes.
 ### Backend
 
 - criar `apps/publicacoes` e schema `publicacoes`;
-- registrar `Aplicacao` com código `PUBLICACOES`;
+- registrar `Aplicacao` com `codigointerno=PUB_INSTITUCIONAL` e nome exibido
+  `PUBLICAÇÕES`;
 - criar role `GESTOR_PUBLICACOES` e permissões técnicas;
 - criar capabilities e menus por seed idempotente;
 - implementar models iniciais de fonte, snapshot, publicação e histórico;

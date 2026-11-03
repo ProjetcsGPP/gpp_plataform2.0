@@ -31,6 +31,92 @@ produtos, desde que cumpram os contratos e testes fixados em DEV.
 | PRE-015 | Cadeia de fornecimento de DEV/CI: imagens fixadas, SBOM, análise de dependências e rollback local. | Compose e pipeline local/CI reproduzíveis; registry e promoção serão definidos antes de HML. |
 | PRE-016 | Serviços de controle, contratos de decisão e workflow de ordem do gestor. | ADR-0006 aprovado; autoridade, justificativa, registro e execução especificados na suíte comum. |
 
+### 1.1 Decisão registrada para PRE-001
+
+**Estado:** definição institucional registrada; aceite operacional parcial.
+
+#### Identidade
+
+- código persistido em `Aplicacao.codigointerno`: `PUB_INSTITUCIONAL`;
+- nome exibido: `PUBLICAÇÕES`;
+- `pub_institucional` informado pelo responsável será normalizado para
+  maiúsculas pelo backend;
+- o bounded context e o namespace Python planejado continuam referidos como
+  `PUBLICACOES` e `apps.publicacoes`; isso não altera o código IAM acima.
+
+#### Responsabilidade inicial
+
+Uma única pessoa, registrada operacionalmente como
+`DESENVOLVEDOR_RESPONSAVEL`, acumulará inicialmente:
+
+- gestão do produto e do conteúdo;
+- desenvolvimento e sustentação técnica;
+- segurança da aplicação;
+- configuração interna;
+- coordenação das demandas de infraestrutura;
+- triagem e condução de incidentes.
+
+Não existe substituto no momento. A ausência fica aceita como condição atual,
+mas permanece risco explícito de continuidade. A identificação nominal e o
+contato do responsável devem ficar em cadastro interno controlado, não em
+documentação pública do repositório. Futuras gerências técnicas, de segurança
+ou infraestrutura somente assumirão responsabilidade depois de nomeadas e de
+o handoff ser registrado.
+
+#### Canal de incidente e notificação
+
+Há disponibilidade de uma conta de e-mail em servidor Zimbra fornecido pela
+PRODEST. Ela é o canal planejado para a aplicação enviar notificações e para o
+responsável receber alertas. A ativação depende de contrato técnico aprovado:
+
+- dois perfis lógicos, `HML` e `PRD`, inicialmente com os mesmos valores, para
+  preservar o padrão existente e permitir divergência futura sem migração;
+- endpoint SOAP `https://seger.correio.es.gov.br:443/service/soap`, sempre com
+  validação de certificado TLS; HTTP sem criptografia não será aceito;
+- remetente `acoesgpp@seger.es.gov.br`, exibido como `Ações GPP`;
+- integração direta do backend com o serviço, sem depender de Google Apps
+  Script em runtime;
+- credencial duplicada explicitamente nos caminhos independentes
+  `publicacoes/dev/zimbra/hml` e `publicacoes/dev/zimbra/prd`, nunca no banco
+  funcional, Git, log, documentação ou payload de API;
+- AppRoles e policies de leitura independentes para `HML` e `PRD`, seguindo o
+  isolamento já adotado pelo CargaRH;
+- remetente, destinatários e demais valores não secretos configurados nos dois
+  perfis, ainda que inicialmente iguais;
+- assunto e corpo por allowlist, sem segredo, dado restrito ou justificativa
+  integral;
+- correlação por `incident_id`, `event_id` ou `job_id` e registro do
+  identificador de entrega do provedor;
+- retry limitado, deduplicação, rate limit e falha de entrega observável;
+- teste de envio e de indisponibilidade antes do aceite.
+
+A exposição da credencial durante a definição de PRE-001 foi registrada. Por
+decisão do responsável, ela será mantida nesta etapa e a rotação não é
+pré-condição para o provisionamento. Esse aceite de risco não autoriza gravar o
+valor em Git, documentação, log, banco funcional ou comando visível: a senha
+deverá ser digitada sem eco pelo responsável e armazenada apenas no secret
+store. O backend referenciará o segredo por caminho; não haverá valor padrão de
+senha em arquivo de configuração ou variável versionada. A rotação permanece
+ação corretiva recomendada e poderá ser exigida por incidente, mudança de
+responsável ou gate institucional posterior.
+
+A duplicação inicial será uma operação explícita de provisionamento. Depois
+disso, alterações em um perfil não serão propagadas silenciosamente ao outro;
+uma rotação conjunta deverá selecionar e validar os dois destinos.
+
+Logs, eventos persistidos e trilhas de auditoria são a evidência canônica. O
+e-mail apenas notifica e nunca substitui o estado persistido, o responsável ou
+o procedimento de resposta.
+
+#### Insumo encaminhado para outros contratos
+
+Foi proposta a possibilidade de preparar uma publicação com a última
+informação disponível quando uma ou mais fontes estiverem com problema. Isso
+não integra PRE-001 e ainda não está aprovado como comportamento funcional.
+Deverá ser definido em PRE-002, PUB-017, PUB-024 e no workflow editorial,
+incluindo idade/competência do dado, fontes afetadas, sinalização pública,
+justificativa do gestor, rastreabilidade e correção posterior.
+
 ## 2. Componentes a provisionar
 
 Não se instala um produto antes de `PRE-004` a `PRE-012` identificarem o

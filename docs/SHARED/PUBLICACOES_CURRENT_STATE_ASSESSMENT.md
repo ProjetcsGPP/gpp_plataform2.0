@@ -102,8 +102,8 @@ evidências e bloqueios específicos.
   gate contratual F0.5;
 - `PUB-018`: contrato administrativo, workflow, concorrência, preview e erros,
   obrigatório no gate contratual F0.5 antes de models e endpoints;
-- `PUB-019`: códigos finais de aplicação, menus, capabilities e permissões,
-  obrigatório no gate contratual F0.5 antes do seed;
+- `PUB-019`: código da aplicação decidido como `PUB_INSTITUCIONAL`; menus,
+  capabilities e permissões continuam pendentes no gate F0.5 antes do seed;
 - `PUB-021`: provedor e contrato M2M;
 - `PUB-022`: responsáveis operacionais, métricas, traces, correlação e alerta;
 - `PUB-024`: estados de ausência, revogação, `429`, offline e `5xx`;
@@ -220,7 +220,8 @@ contornar o gate que protege a capacidade correspondente.
 
 ### Bloqueiam início da implementação funcional
 
-- ausência de responsáveis, piloto e classificação (`PRE-001` a `PRE-003`);
+- aceite operacional parcial de PRE-001 e ausência de piloto/classificação
+  (`PRE-002`, `PRE-003` e `PUB-011`);
 - `PUB-020` bloqueado por banco real, egress, observabilidade e achados ainda
   sem resolução formal;
 - inexistência de schema público e contrato administrativo executáveis
