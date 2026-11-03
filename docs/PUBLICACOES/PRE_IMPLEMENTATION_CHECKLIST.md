@@ -1,6 +1,7 @@
 # Pré-implementação obrigatória de `PUBLICACOES`
 
-**Data:** 2026-10-26  
+**Data inicial:** 2026-10-26
+**Última revisão:** 2026-11-03
 **Regra:** nenhum app, model, migration, endpoint, fixture ou teste sintético de
 `PUBLICACOES` será criado antes da aprovação e comprovação deste checklist.
 
@@ -24,8 +25,8 @@ produtos, desde que cumpram os contratos e testes fixados em DEV.
 | PRE-009 | Reverse proxy de DEV e contrato futuro de gateway/CDN: TLS, limites, rate limit, headers confiáveis, logs e purge. | Proxy local e testes de cache público/privado e limites; CDN não é instalada em DEV. |
 | PRE-010 | Política de egress para cada tipo de conector: destinos, DNS, proxy, IPs proibidos, redirects, timeout e volume. | Regra de rede e teste que permite destino aprovado e bloqueia redes privadas/metadata. |
 | PRE-011 | Formato de logs, métricas, traces, correlação e redação de dados; destino futuro desacoplado. | Logs locais estruturados e testes de redação; plataforma central será escolhida por ambiente. |
-| PRE-012 | Categorias de SLA, RPO, RTO, retenção, resposta a incidentes e continuidade, sem fixar valores de PRD em DEV. | Procedimentos locais de restore/indisponibilidade e responsáveis pelas decisões futuras. |
-| PRE-013 | Autenticação de usuários, autorização de gestor/administrador e estratégia M2M futura. | Matriz de acesso aprovada; decisões PUB-005 a PUB-010 e provedor M2M registrado. |
+| PRE-012 | Categorias de SLA, RPO, RTO, retenção, resposta a incidentes e continuidade, sem fixar valores de PRD em DEV. | Procedimentos locais de restore/indisponibilidade, tempo medido como baseline e responsáveis pelas decisões futuras; metas formais ficam para cada ambiente alvo. |
+| PRE-013 | Autenticação de usuários, autorização de gestor/administrador e estratégia M2M futura. | Matriz humana aprovada; decisões PUB-005 a PUB-010; fronteira, responsável e gate de F6 registrados para M2M. O provedor final é obrigatório antes de F6, não de F1. |
 | PRE-014 | Contratos de API, cache, SSR/CSR, versionamento, erros, idempotência e concorrência. | ADRs e schemas iniciais aprovados, inclusive estado sem publicação vigente. |
 | PRE-015 | Cadeia de fornecimento de DEV/CI: imagens fixadas, SBOM, análise de dependências e rollback local. | Compose e pipeline local/CI reproduzíveis; registry e promoção serão definidos antes de HML. |
 | PRE-016 | Serviços de controle, contratos de decisão e workflow de ordem do gestor. | ADR-0006 aprovado; autoridade, justificativa, registro e execução especificados na suíte comum. |
@@ -76,8 +77,8 @@ Cada ambiente futuro repetirá os testes contra o produto nele escolhido.
 2. Levantar com infraestrutura os serviços já disponíveis e seus responsáveis.
 3. Aprovar a topologia e os ADRs de banco, storage, AV, secrets, gateway,
    egress, observabilidade, backup, deploy e serviços de controle.
-4. Definir os contratos que SLA, RPO, RTO, retenção e resposta a incidentes
-   deverão cumprir quando cada ambiente alvo for criado.
+4. Definir as categorias e responsáveis por SLA, RPO, RTO, retenção e resposta
+   a incidentes; medir uma baseline em DEV, sem apresentá-la como meta de PRD.
 5. Provisionar `DEV`, sem credenciais ou dados de produção.
 6. Instalar nos repositórios apenas os clientes dos produtos aprovados e fixar
    suas versões.
@@ -91,8 +92,9 @@ HML e PRD possuem gates próprios e não são pressupostos pelo gate de DEV.
 
 O gate somente passa quando todos os resultados forem reproduzíveis:
 
-- conexão autorizada e negação de acesso indevido ao schema PostgreSQL;
-- backup, perda simulada e restore dentro do RPO/RTO aprovado;
+- conexão autorizada e negação de acesso indevido ao schema PostgreSQL real;
+- backup, perda simulada e restore medido em DEV; cada ambiente posterior deve
+  aprovar metas de RPO/RTO e repetir o teste contra elas;
 - upload privado, quarentena, scan limpo, rejeição EICAR e indisponibilidade do
   scanner com falha fechada;
 - suspeita antimalware permanece em quarentena; ordem justificada do gestor
@@ -104,7 +106,7 @@ O gate somente passa quando todos os resultados forem reproduzíveis:
 - TLS, rate limit, limite de corpo e headers de cache aplicados pelo gateway;
 - purge e separação entre cache público, autenticado e preview;
 - logs redigidos, correlação de request/job e alerta recebido;
-- deploy em HML e rollback para o artefato anterior;
+- deploy e rollback em DEV ou ambiente descartável para o artefato anterior;
 - testes existentes de autenticação, cookie, CSRF e autorização ainda passando.
 - adapters do ambiente aprovados pela mesma suíte de contratos de segurança;
 - workflow de ordem rejeita replay e mudança de hash, exige justificativa,
@@ -135,3 +137,7 @@ O gate permanece aberto pelos itens descritos em
 [`SECURITY_EVIDENCE_2026-10-26.md`](./SECURITY_EVIDENCE_2026-10-26.md): achados
 altos/críticos, validação da instância PostgreSQL on-premises, egress de rede,
 observabilidade e decisões institucionais `PRE-001` a `PRE-003`.
+
+Os resultados acima são evidência histórica de 2026-10-26. Antes do aceite de
+F0, scans, SBOM, preflight e regressões aplicáveis devem ser repetidos e
+registrados em novo documento datado. A evidência antiga não será sobrescrita.

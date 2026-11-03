@@ -1,8 +1,8 @@
 # Gestão e Distribuição de Informações Públicas
 
-**Status:** arquitetura aprovada; gate técnico de DEV parcialmente comprovado
+**Status:** arquitetura parcialmente decidida; F0 e F0.5 bloqueiam F1
 **Branch inicial:** `feat/publicacoes-informacoes`  
-**Última revisão:** 2026-10-26
+**Última revisão:** 2026-11-03
 
 Este diretório reúne a documentação de planejamento da futura aplicação
 `PUBLICACOES`. A documentação precede a implementação: itens descritos como
@@ -33,6 +33,7 @@ Criar uma aplicação capaz de:
 | Documento | Finalidade |
 |---|---|
 | [Matriz integrada compartilhada](../SHARED/PUBLICACOES_INTEGRATION_MATRIX.md) | Fonte de coordenação transversal entre backend, frontend, Portal, IAM, infraestrutura e aplicações de origem |
+| [Avaliação consolidada atual](../SHARED/PUBLICACOES_CURRENT_STATE_ASSESSMENT.md) | Reconfirmação dos dois repositórios, impactos, fases, riscos, testes, rollout e parecer de prontidão |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Escopo, limites, fluxo de dados, integração e decisões arquiteturais |
 | [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Fases, entregáveis, dependências, critérios de saída e validações |
 | [SECURITY_PLAN.md](./SECURITY_PLAN.md) | Threat model, controles obrigatórios e gates de segurança |
@@ -41,7 +42,7 @@ Criar uma aplicação capaz de:
 | [ROLLBACK_PLAN.md](./ROLLBACK_PLAN.md) | Estratégia de rollback por fase sem perda de histórico |
 | [F0_READINESS.md](./F0_READINESS.md) | Situação objetiva dos gates que antecedem a fundação da aplicação |
 | [PRE_IMPLEMENTATION_CHECKLIST.md](./PRE_IMPLEMENTATION_CHECKLIST.md) | Decisões, provisionamento, instalações e provas obrigatórias antes até mesmo do teste sintético |
-| [DEVELOPMENT_ENVIRONMENT.md](./DEVELOPMENT_ENVIRONMENT.md) | Proposta de stack local, contratos portáveis, custos e limitações de licença |
+| [DEVELOPMENT_ENVIRONMENT.md](./DEVELOPMENT_ENVIRONMENT.md) | Sandbox local implementada, contratos portáveis, custos, limitações e gates ainda abertos |
 | [SECURITY_CONTROL_CONTRACTS.md](./SECURITY_CONTROL_CONTRACTS.md) | Serviços substituíveis, veredictos, workflows de arquivo/API e exceções governadas |
 | [SECURITY_EVIDENCE_2026-10-26.md](./SECURITY_EVIDENCE_2026-10-26.md) | Preflight, restore, testes, cobertura, SBOMs, vulnerabilidades e bloqueios efetivamente observados em DEV |
 | [CARGA_ORG_LOT_SECRETS.md](./CARGA_ORG_LOT_SECRETS.md) | Separação HML/PRD, AppRoles, variáveis não secretas e operação das credenciais CargaRH |
@@ -64,6 +65,8 @@ Criar uma aplicação capaz de:
 - **Exemplo não normativo:** ilustração que não define comportamento de uma
   aplicação de origem.
 - **Gate:** condição obrigatória para encerrar uma fase.
+- **F0.5:** marco exclusivamente documental para aprovar contratos executáveis
+  antes de criar app, models, endpoints ou seeds.
 
 ## Decisões aceitas até aqui
 
@@ -102,6 +105,7 @@ Criar uma aplicação capaz de:
 - Aceitação dos achados de imagem, egress no nível de rede e observabilidade
   completa de DEV. Rotação periódica de credenciais fica para HML/PRD.
 - Provedor institucional para autenticação máquina-a-máquina.
+- DTO público v1, OpenAPI administrativo e catálogo IAM do marco F0.5.
 - Retenção de artefatos, eventos, logs e publicações revogadas.
 - SLA, RPO, RTO e responsáveis por incidentes.
 

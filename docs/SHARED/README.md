@@ -4,7 +4,7 @@
 repositório  
 **Autoridade:** coordenação transversal; não substitui ADR, OpenAPI, contrato
 de fonte ou documentação operacional detalhada  
-**Última revisão:** 2026-10-23
+**Última revisão:** 2026-11-03
 
 Esta pasta é a referência comum mantida no repositório backend. Chats e equipes
 que trabalhem em qualquer aplicação afetada devem consultar estes documentos
@@ -16,6 +16,7 @@ contrato, fase, bloqueio ou critério de aceite transversal mudar.
 | Documento | Escopo |
 |---|---|
 | [PUBLICACOES_INTEGRATION_MATRIX.md](./PUBLICACOES_INTEGRATION_MATRIX.md) | Matriz consolidada de decisões, responsáveis, contratos, fases, segurança e aceite de `PUBLICACOES`, Portal e integrações |
+| [PUBLICACOES_CURRENT_STATE_ASSESSMENT.md](./PUBLICACOES_CURRENT_STATE_ASSESSMENT.md) | Reconfirmação arquitetural conjunta de backend/frontend, matriz de impacto, fases, riscos, testes, rollout e parecer de prontidão |
 
 ## Protocolo obrigatório para chats e equipes
 
@@ -40,4 +41,3 @@ contrato, fase, bloqueio ou critério de aceite transversal mudar.
 Uma leitura sem mudança material não exige edição. Atualizações devem preservar
 o histórico: decisões substituídas não são apagadas e devem apontar para a linha
 ou documento sucessor.
-

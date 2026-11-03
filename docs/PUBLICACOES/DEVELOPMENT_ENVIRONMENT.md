@@ -1,7 +1,8 @@
 # Ambiente de desenvolvimento de `PUBLICACOES`
 
-**Status:** em revisão após identificação da infraestrutura já existente  
-**Data:** 2026-10-27  
+**Status:** sandbox implementada e comprovada parcialmente; aceite de F0 aberto
+**Data inicial:** 2026-10-27
+**Última revisão:** 2026-11-03
 **Escopo:** somente desenvolvimento; não define produtos de HML ou PRD
 
 ## Princípio
@@ -25,7 +26,7 @@ passarem pelos mesmos testes e tiverem seus próprios ADRs.
 Os contratos normativos dos controles, e não os produtos desta stack, estão em
 [`SECURITY_CONTROL_CONTRACTS.md`](./SECURITY_CONTROL_CONTRACTS.md).
 
-## Stack local proposta
+## Stack local implementada como sandbox
 
 | Componente | Finalidade | Escolha de DEV | Licença/custo do software |
 |---|---|---|---|
@@ -34,7 +35,7 @@ Os contratos normativos dos controles, e não os produtos desta stack, estão em
 | Redis 7.2.16 | Broker Celery e Channels | Executar em container; substitui o 7.0.15 local sem suporte upstream | Redis até 7.2 usa BSD-3-Clause; não atualizar de faixa sem nova análise. |
 | Memcached 1.6.x | Cache e throttling compartilhados | Manter a linha existente, limitada à rede interna | BSD; sem taxa. |
 | Celery 5.6.x | Coleta, scan, cálculo e publicação assíncronos | Já presente no ambiente Python | BSD-3-Clause; sem taxa. |
-| SeaweedFS | Object storage local via S3 | Proposta no lugar de MinIO novo | Apache-2.0; edição enterprise opcional e paga. |
+| SeaweedFS | Object storage local via S3 | Implementado na sandbox no lugar de MinIO novo | Apache-2.0; edição enterprise opcional e paga. |
 | ClamAV | Análise antimalware de uploads | Container/serviço local com assinaturas atualizadas | GPL-2.0; sem taxa de licença; exige recursos locais. |
 | OpenBao | Segredos fora de `.env` e do banco funcional | Serviço local persistente, acessível só pela rede interna | MPL-2.0; sem taxa de licença. |
 | Nginx Open Source | Reverse proxy, TLS local, limites e headers | Proxy único de entrada no Compose | BSD-2-Clause; sem taxa; NGINX Plus é produto separado e pago. |
@@ -119,25 +120,19 @@ explícita, pois o volume local e os testes atuais ainda o utilizam.
 - arquivo só muda para `approved` depois de scan válido;
 - script único de subida, preflight, teste e destruição dos dados locais.
 
-## Pendência local já comprovada
+## Reconciliação da evidência local
 
-Docker Engine e Compose estão instalados, mas esta sessão não conseguiu acessar
-`/var/run/docker.sock`. Antes de criar o Compose, deve-se verificar fora do
-sandbox se é uma restrição da sessão ou uma permissão real. Se for permissão da
-estação, deve-se escolher uma das opções:
-
-1. configurar Docker rootless para o usuário de desenvolvimento; ou
-2. conceder acesso controlado ao grupo `docker`, reconhecendo que ele equivale
-   praticamente a privilégio de root.
-
-Rootless é a opção preferida para a estação de desenvolvimento quando todas as
-imagens selecionadas forem compatíveis.
+A observação inicial de que a sessão não acessava `/var/run/docker.sock` ficou
+superada pelos preflights posteriores da sandbox. Isso comprova a execução
+local registrada em 2026-10-26, não uma política permanente de acesso ao daemon.
+Qualquer estação nova deve validar acesso sem improviso inseguro; rootless
+continua preferível quando compatível.
 
 ## Gate para o primeiro teste sintético
 
-O primeiro teste só começa quando:
+O primeiro teste sintético de `PUBLICACOES` continua bloqueado até que:
 
-- esta proposta estiver aprovada;
+- a sandbox e seus limites estiverem formalmente aceitos para DEV;
 - Docker estiver acessível pelo usuário sem improviso inseguro;
 - Compose subir todos os serviços com healthcheck;
 - versões, digests, licenças e SBOM estiverem registrados;
@@ -152,8 +147,9 @@ O primeiro teste só começa quando:
 - suíte existente de autenticação, CSRF, cookies e autorização continuar
   passando.
 
-O teste sintético validará este ambiente. Ele não substituirá nenhuma dessas
-condições.
+Parte desses itens passou historicamente em 2026-10-26. Todos os resultados
+aplicáveis devem ser repetidos em evidência datada antes do aceite; o teste
+sintético não substituirá nenhuma condição nem validará o banco on-premises.
 
 ## Fontes de licença
 

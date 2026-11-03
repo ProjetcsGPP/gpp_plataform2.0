@@ -31,7 +31,7 @@
 - cadastra a aplicação, role, capabilities, menus e vínculos de usuários;
 - apoia sessão, permissões e infraestrutura;
 - não se torna automaticamente responsável funcional pelo conteúdo;
-- mantém o bypass global vigente nas demais aplicações;
+- mantém o acesso administrativo global vigente nas demais aplicações;
 - quando executar ação editorial, deve cumprir as mesmas transições,
   justificativas, validações e registros de auditoria do gestor.
 
@@ -89,8 +89,9 @@ sensível. A ativação precisa de histórico e justificativa.
 9. Sistema congela o snapshot, atualiza o ponteiro vigente e invalida cache.
 10. API e Portal passam a servir a nova versão.
 
-Se for adotada dupla aprovação, os passos 8 e 9 exigirão pessoa diferente da
-que preparou o candidato.
+A primeira versão não exige dupla aprovação, conforme ADR-0001. Uma futura
+segregação de funções dependerá de novo ADR, migração compatível e revisão da
+matriz; até lá, não deve ser inferida por tela, serviço ou teste.
 
 ## 6. Correção, substituição e revogação
 

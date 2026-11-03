@@ -1,10 +1,18 @@
 # Evidências de segurança de DEV — 2026-10-26
 
+**Natureza:** registro histórico, não confirmação do estado atual
+**Reconfirmação documental:** 2026-11-03
+
 Este registro consolida resultados reproduzíveis do ambiente local. Ele não
 aprova risco, não suprime achados e não substitui a decisão do gestor.
 Relatórios integrais e SBOMs permanecem em
 `infra/publicacoes-dev/runtime/security-evidence/`, fora do Git por poderem
 conter detalhes específicos da estação.
+
+Esta evidência não será sobrescrita nem usada isoladamente para encerrar
+`PUB-020`. Antes do aceite de F0 devem ser repetidos, em novo registro datado,
+os scans, SBOMs, preflight, restore e testes proporcionais às mudanças. A
+sandbox não comprova o PostgreSQL on-premises nem infraestrutura institucional.
 
 ## Resultado executivo
 

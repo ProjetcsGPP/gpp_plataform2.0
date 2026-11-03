@@ -1,6 +1,7 @@
 # Plano de Implementação por Fases
 
-**Quantidade proposta:** 8 fases, numeradas de 0 a 7  
+**Quantidade:** 8 fases de execução, numeradas de 0 a 7, com marco documental
+F0.5 entre descoberta e implementação
 **Regra:** uma fase só encerra quando seus gates forem comprovados
 
 ## Visão geral
@@ -8,6 +9,7 @@
 | Fase | Tema | Resultado principal |
 |---|---|---|
 | 0 | Descoberta e segurança de base | Riscos críticos conhecidos, decisões e ambiente inventariados |
+| F0.5 | Contratos executáveis, sem código funcional | DTO público, OpenAPI administrativo e catálogo IAM aprovados |
 | 1 | Fundação da aplicação | App, schema, IAM, auditoria e modelos-base |
 | 2 | Publicação manual vertical | Uma publicação criada, validada e congelada sem integração |
 | 3 | API pública e novo Portal | Conteúdo publicado no dashboard e login em modal |
@@ -30,7 +32,7 @@
 - manter para `PORTAL_ADMIN` o acesso administrativo global da plataforma, sem
   permitir exceções às regras de domínio;
 - definir SLA, RPO, RTO e responsáveis;
-- registrar ADRs das decisões aprovadas.
+- registrar ADRs das decisões aprovadas;
 - aprovar contratos comuns dos serviços de segurança, workflows de arquivo/API
   e ordem justificada do gestor;
 
@@ -53,13 +55,41 @@
 - testes negativos de CSRF, sessão expirada/inativa e brute force passando;
 - diagrama de fluxo e inventário de dados aprovados;
 - riscos P0 sem pendência aberta;
-- ADRs de preparação/publicação e bypass administrativo aprovados;
+- ADRs de preparação/publicação e acesso administrativo global aprovados;
 - plano de rollback aprovado.
+
+## Marco F0.5 — Contratos executáveis
+
+F0.5 pode avançar em paralelo às comprovações operacionais de F0 porque produz
+somente documentação e fixtures contratuais não executáveis. Ele não autoriza
+app, model, migration, endpoint, seed, fixture executável, tela ou teste
+sintético.
+
+### Backend
+
+- aprovar DTO público v1, allowlist campo a campo e estados sem publicação,
+  revogação, `429` e `5xx` (`PUB-017`, `PUB-024`);
+- aprovar OpenAPI administrativo com recursos, UUIDs, paginação, filtros,
+  `acoes_disponiveis`, transições, preview, erros e concorrência (`PUB-018`);
+- aprovar catálogo IAM com código da aplicação, role, permissões técnicas,
+  capabilities e menus (`PUB-019`);
+- definir versionamento, compatibilidade, idempotência e precondições de
+  mutação;
+- registrar fixtures de exemplo como contrato, sem transformá-las em dados de
+  uma fonte ainda não aprovada.
+
+### Gate
+
+- produto, dados, IAM, backend e frontend aprovam os contratos aplicáveis;
+- nenhum contrato contradiz a matriz ou os ADRs aceitos;
+- modelos, serializers, endpoints e seeds de F1 podem ser derivados sem
+  decisão funcional implícita.
 
 ## Fase 1 — Fundação da aplicação
 
 Esta fase não começa, nem mesmo com fixtures ou dados sintéticos, enquanto os
-gates de pré-implementação da Fase 0 estiverem pendentes.
+gates de pré-implementação da Fase 0 ou os contratos de F0.5 estiverem
+pendentes.
 
 ### Backend
 
@@ -73,6 +103,10 @@ gates de pré-implementação da Fase 0 estiverem pendentes.
 - usar `AuditableModel` e serviços transacionais;
 - criar estados e invariantes de workflow;
 - documentar OpenAPI administrativo.
+
+Os models e endpoints de F1 serão derivados dos contratos de F0.5. A lista de
+entidades em `ARCHITECTURE.md` permanece conceitual e não será convertida
+integralmente em migrations por antecipação.
 
 ### Frontend
 

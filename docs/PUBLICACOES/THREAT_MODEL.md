@@ -68,7 +68,9 @@ segredo ao frontend ou uso de preview como publicação vigente.
 
 ## Riscos ainda sem decisão institucional
 
-As lacunas `INF-001` a `INF-010` do inventário mantêm riscos residuais de
-upload, SSRF, segredo, disponibilidade e recuperação. Elas bloqueiam também a
-fundação e os testes sintéticos, conforme `PRE_IMPLEMENTATION_CHECKLIST.md`,
-até decisão, provisionamento e prova dos controles correspondentes.
+Os itens `INF-001` a `INF-010` do inventário mantêm riscos residuais de upload,
+SSRF, segredo, disponibilidade e recuperação. Parte possui prova limitada na
+sandbox, sem equivaler a serviço institucional ou controle de rede. Eles
+bloqueiam também a fundação e os testes sintéticos, conforme
+`PRE_IMPLEMENTATION_CHECKLIST.md`, até decisão, provisionamento e prova dos
+controles correspondentes.

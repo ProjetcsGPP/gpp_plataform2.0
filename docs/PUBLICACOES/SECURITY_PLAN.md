@@ -115,7 +115,7 @@ indisponibilidade produz `RETRY`/bloqueio, nunca aprovação implícita.
 | Eventos | Outbox, idempotência, retry, dead-letter e reconciliação | Testes de falha e replay |
 | APIs externas | Allowlist, TLS, timeout, redirect e egress | Testes SSRF e configuração de rede |
 | Upload | Quarentena, tipo real, AV, limites e nome interno | Relatório de scanner e testes maliciosos |
-| Segredos | Vault/env, rotação e redação | Scan de segredo e teste de logs |
+| Segredos | Secret store aprovado, identidade de workload, rotação e redação | Scan de segredo, negação de acesso e teste de logs |
 | API pública | Rate limit, paginação, cache e resposta limitada | Teste de carga e headers |
 | Consumidores | Hash de segredo, escopo, quota e revogação | Testes de rotação/revogação |
 | Observabilidade | Correlação, métricas, alertas e trilha auditável | Dashboards e alertas exercitados |

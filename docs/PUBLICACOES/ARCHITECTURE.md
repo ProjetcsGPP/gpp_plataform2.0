@@ -1,7 +1,21 @@
 # Arquitetura da Aplicação `PUBLICACOES`
 
-**Status:** proposta controlada  
+**Status:** arquitetura parcialmente decidida; contratos executáveis pendentes
 **Escopo:** backend, frontend, integrações e infraestrutura
+
+## 0. Leitura normativa
+
+Este documento combina decisões aprovadas e modelos conceituais. Para evitar
+que exemplos se tornem contratos por acidente:
+
+- são decisões: limites do bounded context, publicação imutável, integração
+  interna por notificação/snapshot/reconciliação, IAM compartilhado, Portal e
+  fronteiras de cache;
+- são propostas até F0.5: nomes e campos das entidades, estados exatos do
+  workflow, paths e payloads de API, paginação, erros e catálogo IAM;
+- cada fonte continua exigindo contrato próprio aprovado;
+- em divergência, a matriz define o estado de coordenação e o contrato
+  especializado aprovado define o comportamento executável.
 
 ## 1. Limites de responsabilidade
 
@@ -150,7 +164,7 @@ URLs externas não serão livremente informadas a cada execução. O cadastro de
 fonte selecionará conectores e destinos aprovados. Credenciais ficarão fora do
 banco de negócio e nunca serão devolvidas ao frontend.
 
-## 5. Modelo conceitual
+## 5. Modelo conceitual, não executável antes de F0.5
 
 | Entidade | Responsabilidade |
 |---|---|
@@ -169,7 +183,7 @@ banco de negócio e nunca serão devolvidas ao frontend.
 | `AssinaturaDistribuicao` | Recursos e versões acessíveis ao consumidor |
 | `EventoOutbox` | Entrega confiável e idempotente de notificações |
 
-## 6. Workflow da publicação
+## 6. Workflow proposto, pendente do contrato administrativo
 
 Proposta inicial:
 
@@ -228,9 +242,9 @@ justificativa, validação e imutabilidade continuam obrigatórias.
   mas o administrador não pode ignorar workflow, imutabilidade, validações,
   justificativas ou auditoria do domínio.
 
-## 8. Contratos de distribuição
+## 8. Contratos de distribuição propostos
 
-Versão inicial proposta:
+Paths ilustrativos da versão inicial, ainda não aprovados como OpenAPI:
 
 ```text
 GET /api/public/v1/dashboard/
