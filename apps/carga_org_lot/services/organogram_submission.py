@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from apps.carga_org_lot.models import (
     EnvioOrganogramaProdest,
@@ -27,15 +28,15 @@ from .cargarh import (
     CargaRHConfigurationError,
     CargaRHRequestError,
 )
-from .organograma import ORGANOGRAMA_TYPE_ID
 from .integration_events import record_operational_event
+from .organograma import ORGANOGRAMA_TYPE_ID
 from .workflow import (
     AuditActor,
     get_or_create_active_process,
+    register_organogram_monitoring_closed,
     register_organogram_result,
     register_organogram_submission,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -163,9 +164,17 @@ def prepare_organogram_submission(
         importacao.save(update_fields=["idprocessocargainicial"])
 
     with transaction.atomic():
+        previous_submission = (
+            EnvioOrganogramaProdest.objects.filter(
+                idprocessocargainicial=process,
+            )
+            .order_by("-datsolicitacao", "-idenvioorganograma")
+            .first()
+        )
         envio = EnvioOrganogramaProdest.objects.create(
             idimportacaoplanilha=importacao,
             idprocessocargainicial=process,
+            idtentativaanterior=previous_submission,
             flgdryrun=dry_run,
             strambiente=settings.CARGARH_ENVIRONMENT,
             strstatus=StatusEnvioOrganograma.SOLICITANDO,
@@ -433,6 +442,8 @@ def refresh_submission_status(
             details={"etapas": remote_status.get("etapas", [])},
         )
 
+    _record_remote_stale_warning(envio, remote_status, actor=actor)
+
     if remote_status.get("finalizada") and not envio.jsonrelatorioprodest:
         try:
             envio.jsonrelatorioprodest = cargarh.get_report(
@@ -466,6 +477,178 @@ def refresh_submission_status(
             actor=actor,
         )
     return envio
+
+
+def _record_remote_stale_warning(envio, remote_status, *, actor):
+    limit_seconds = settings.CARGA_ORG_LOT_REMOTE_STALE_WARNING_SECONDS
+    if limit_seconds <= 0 or remote_status.get("finalizada"):
+        return
+    raw_updated_at = remote_status.get("dataUltimaAtualizacaoUtc")
+    try:
+        updated_at = parse_datetime(raw_updated_at) if raw_updated_at else None
+    except ValueError:
+        updated_at = None
+    if updated_at is not None and timezone.is_naive(updated_at):
+        updated_at = updated_at.replace(tzinfo=UTC)
+    reference = (
+        updated_at
+        or envio.datiniciomonitoramento
+        or envio.datsolicitacao
+    )
+    if timezone.now() - reference < timedelta(seconds=limit_seconds):
+        return
+    record_operational_event(
+        envio,
+        code="PROCESSAMENTO_SEM_ATUALIZACAO",
+        phase=FaseIntegracaoProdest.PROCESSAMENTO,
+        status=StatusEventoOperacional.AVISO,
+        title="Processamento remoto sem atualização",
+        message=(
+            "A PRODEST continua respondendo, mas ainda não atualizou a "
+            "situação desta carga. O monitoramento permanece ativo."
+        ),
+        actor=actor,
+        details={
+            "limite_segundos": limit_seconds,
+            "ultima_atualizacao_prodest": raw_updated_at,
+        },
+    )
+
+
+def monitoring_closure_availability(
+    envio: EnvioOrganogramaProdest,
+    *,
+    now=None,
+) -> dict:
+    """Informa quando uma carga remota indefinida pode ser liberada localmente."""
+    now = now or timezone.now()
+    wait_seconds = max(
+        0,
+        settings.CARGA_ORG_LOT_REMOTE_INDETERMINATE_AFTER_SECONDS,
+    )
+    reference = _remote_status_updated_at(envio.jsonstatusprodest)
+    reference = (
+        reference
+        or envio.datiniciomonitoramento
+        or envio.datsolicitacao
+    )
+    available_at = (
+        reference + timedelta(seconds=wait_seconds) if reference else None
+    )
+    active_remote = (
+        envio.strstatus == StatusEnvioOrganograma.PROCESSANDO
+        and envio.idexternocarga is not None
+        and not envio.jsonstatusprodest.get("finalizada")
+    )
+    remaining = (
+        max(0, int((available_at - now).total_seconds()))
+        if available_at
+        else wait_seconds
+    )
+    allowed = bool(active_remote and available_at and remaining == 0)
+    options = []
+    if active_remote:
+        options.append("CONTINUAR_AGUARDANDO")
+    if allowed:
+        options.append("LIBERAR_NOVO_ENVIO")
+    return {
+        "permitido": allowed,
+        "opcoes_disponiveis": options,
+        "carencia_segundos": wait_seconds,
+        "referencia_em": reference.isoformat() if reference else None,
+        "disponivel_em": available_at.isoformat() if available_at else None,
+        "segundos_restantes": remaining if active_remote else None,
+        "situacao_remota_finalizada": bool(
+            envio.jsonstatusprodest.get("finalizada")
+        ),
+    }
+
+
+@transaction.atomic
+def close_indeterminate_monitoring(
+    envio: EnvioOrganogramaProdest,
+    *,
+    justification: str,
+    analyst_notified: bool,
+    analyst_replied: bool,
+    analyst_response: str,
+    actor: AuditActor,
+    final_consultation: str,
+) -> EnvioOrganogramaProdest:
+    """Encerra apenas o monitoramento local de uma carga remota indefinida."""
+    locked = EnvioOrganogramaProdest.objects.select_for_update().get(pk=envio.pk)
+    availability = monitoring_closure_availability(locked)
+    if not availability["permitido"]:
+        raise OrganogramSubmissionError(
+            "O acompanhamento ainda não pode ser encerrado.",
+            envio=locked,
+            details=availability,
+            kind="conflict",
+        )
+
+    now = timezone.now()
+    locked.strstatus = StatusEnvioOrganograma.SITUACAO_REMOTA_INDETERMINADA
+    locked.strfaseatual = FaseIntegracaoProdest.CONCLUSAO
+    locked.strstatusoperacional = StatusEventoOperacional.AVISO
+    locked.strmensagematual = (
+        "O acompanhamento local foi encerrado. A situação da carga na "
+        "PRODEST permanece indeterminada."
+    )
+    locked.datproximaconsulta = None
+    locked.datfimmonitoramento = now
+    locked.datencerramentomanual = now
+    locked.strjustificativaencerramento = justification
+    locked.flganalistaprodestavisado = analyst_notified
+    locked.flganalistaprodestrespondeu = analyst_replied
+    locked.strretornoanalistaprodest = analyst_response
+    locked.encerrado_by_id = actor.user_id
+    locked.encerrado_by_name = actor.user_name
+    locked.updated_by_id = actor.user_id
+    locked.updated_by_name = actor.user_name
+    locked.save()
+
+    register_organogram_monitoring_closed(
+        locked,
+        justification=justification,
+        analyst_notified=analyst_notified,
+        analyst_replied=analyst_replied,
+        analyst_response=analyst_response,
+        actor=actor,
+    )
+    record_operational_event(
+        locked,
+        code="MONITORAMENTO_ENCERRADO_SITUACAO_INDETERMINADA",
+        phase=FaseIntegracaoProdest.CONCLUSAO,
+        status=StatusEventoOperacional.AVISO,
+        title="Acompanhamento encerrado",
+        message=(
+            "O acompanhamento local foi encerrado por decisão do usuário. "
+            "Isso não cancela nem confirma o encerramento da carga na PRODEST."
+        ),
+        actor=actor,
+        details={
+            "justificativa": justification,
+            "analista_prodest_avisado": analyst_notified,
+            "analista_prodest_respondeu": analyst_replied,
+            "retorno_analista_prodest": analyst_response,
+            "consulta_final": final_consultation,
+            "idexternocarga": str(locked.idexternocarga),
+            "cancelamento_remoto_confirmado": False,
+        },
+        deduplicate=False,
+    )
+    return locked
+
+
+def _remote_status_updated_at(remote_status) -> datetime | None:
+    raw_updated_at = (remote_status or {}).get("dataUltimaAtualizacaoUtc")
+    try:
+        updated_at = parse_datetime(raw_updated_at) if raw_updated_at else None
+    except ValueError:
+        return None
+    if updated_at is not None and timezone.is_naive(updated_at):
+        updated_at = updated_at.replace(tzinfo=UTC)
+    return updated_at
 
 
 def refresh_submission_report(

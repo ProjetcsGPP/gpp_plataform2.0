@@ -3,7 +3,6 @@ from django.utils import timezone
 
 from apps.carga_org_lot.models import (
     EventoIntegracaoProdest,
-    FaseIntegracaoProdest,
     OperacaoIntegracaoProdest,
     ResultadoIntegracaoProdest,
     StatusEventoOperacional,
@@ -11,6 +10,12 @@ from apps.carga_org_lot.models import (
     VisibilidadeEventoIntegracao,
 )
 from apps.carga_org_lot.realtime import publish_submission_update
+from apps.carga_org_lot.services.integration_event_presentation import (
+    build_display_details,
+)
+from apps.carga_org_lot.services.submission_workflow import (
+    build_submission_workflow,
+)
 
 
 @transaction.atomic
@@ -85,6 +90,7 @@ def record_operational_event(
         updated_by_id=actor.user_id,
         updated_by_name=actor.user_name,
     )
+    workflow = build_submission_workflow(envio)
     payload = {
         "tipo": "processo_atualizado",
         "processo": {
@@ -92,11 +98,12 @@ def record_operational_event(
             "patriarca_id": envio.idimportacaoplanilha.idpatriarca_id,
             "tipo_carga": TipoCargaIntegracao.ORGANOGRAMA,
             "envio_id": envio.pk,
-            "fase_atual": phase,
-            "fase_atual_nome": FaseIntegracaoProdest(phase).label,
-            "status_atual": status,
-            "status_atual_nome": StatusEventoOperacional(status).label,
-            "mensagem_atual": message,
+            "fase_atual": workflow["fase_atual"],
+            "fase_atual_nome": workflow["fase_atual_nome"],
+            "status_atual": workflow["status_atual"],
+            "status_atual_nome": workflow["status_atual_nome"],
+            "mensagem_atual": workflow["mensagem_atual"],
+            "fluxo_operacional": workflow,
             "datultimaatividade": now.isoformat(),
             "ultimo_evento_id": event.pk,
         },
@@ -108,6 +115,7 @@ def record_operational_event(
             "titulo": title,
             "mensagem": message,
             "detalhes": details,
+            "detalhes_exibicao": build_display_details(details),
             "datocorrencia": event.datocorrencia.isoformat(),
         },
     }

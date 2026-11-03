@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
+import json
 import logging
 import time
 from urllib.parse import urlparse
@@ -10,7 +13,7 @@ from uuid import UUID, uuid4
 
 import requests
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import caches
 
 from apps.carga_org_lot.models import (
     EventoIntegracaoProdest,
@@ -93,6 +96,8 @@ def configuration_status(credential_store=None, credentials=None) -> dict:
         invalid.append("CARGARH_GET_MAX_RETRIES")
     if settings.CARGARH_RETRY_BACKOFF_SECONDS < 0:
         invalid.append("CARGARH_RETRY_BACKOFF_SECONDS")
+    if settings.CARGARH_TOKEN_CACHE_ALIAS not in settings.CACHES:
+        invalid.append("CARGARH_TOKEN_CACHE_ALIAS")
     return {
         "configurado": not missing and not invalid,
         "ambiente": settings.CARGARH_ENVIRONMENT,
@@ -371,8 +376,29 @@ class CargaRHClient:
     def _get_access_token(self):
         credentials = self._credentials()
         cache_key = self._token_cache_key()
-        cached_token = cache.get(cache_key)
+        cached_token = self._token_cache().get(cache_key)
+        remaining_lifetime = self._jwt_remaining_lifetime(cached_token)
+        if (
+            remaining_lifetime is not None
+            and remaining_lifetime
+            <= settings.CARGARH_TOKEN_SAFETY_MARGIN_SECONDS
+        ):
+            self._token_cache().delete(cache_key)
+            cached_token = None
         if cached_token:
+            self._record_event(
+                operation=OperacaoIntegracaoProdest.OBTER_TOKEN,
+                method="CACHE",
+                endpoint=settings.CARGARH_TOKEN_URL,
+                attempt=0,
+                result=ResultadoIntegracaoProdest.SUCESSO,
+                duration_ms=0,
+                message=(
+                    "A credencial temporária ainda válida foi reutilizada "
+                    "com segurança."
+                ),
+                details={"origem_token": "CACHE_COMPARTILHADO"},
+            )
             return cached_token
         self._token_attempt += 1
         started_at = time.monotonic()
@@ -445,6 +471,7 @@ class CargaRHClient:
             details={
                 **self._safe_response_details(response),
                 "escopos_solicitados": settings.CARGARH_CLIENT_SCOPE.split(),
+                "origem_token": "NOVO",
             },
         )
         self._require_status(
@@ -474,11 +501,11 @@ class CargaRHClient:
             expires_in = int(data.get("expires_in", 3600))
         except (TypeError, ValueError):
             expires_in = 3600
-        timeout = max(
-            1,
-            expires_in - settings.CARGARH_TOKEN_SAFETY_MARGIN_SECONDS,
+        timeout = self._token_cache_timeout(
+            token,
+            expires_in,
         )
-        cache.set(cache_key, token, timeout=timeout)
+        self._token_cache().set(cache_key, token, timeout=timeout)
         return token
 
     def _ensure_configuration(self):
@@ -691,7 +718,43 @@ class CargaRHClient:
         return f"cargarh:access-token:{digest}"
 
     def _discard_cached_token(self):
-        cache.delete(self._token_cache_key())
+        self._token_cache().delete(self._token_cache_key())
+
+    @staticmethod
+    def _token_cache():
+        return caches[settings.CARGARH_TOKEN_CACHE_ALIAS]
+
+    @staticmethod
+    def _token_cache_timeout(token, expires_in, *, now_timestamp=None):
+        """Limita o cache pelo menor prazo entre OAuth e o ``exp`` do JWT."""
+        lifetime = max(1, expires_in)
+        remaining_lifetime = CargaRHClient._jwt_remaining_lifetime(
+            token,
+            now_timestamp=now_timestamp,
+        )
+        if remaining_lifetime is not None:
+            lifetime = min(lifetime, max(1, remaining_lifetime))
+        return max(
+            1,
+            lifetime - settings.CARGARH_TOKEN_SAFETY_MARGIN_SECONDS,
+        )
+
+    @staticmethod
+    def _jwt_remaining_lifetime(token, *, now_timestamp=None):
+        if not isinstance(token, str):
+            return None
+        try:
+            encoded_payload = token.split(".")[1]
+            padding = "=" * (-len(encoded_payload) % 4)
+            payload = json.loads(
+                base64.urlsafe_b64decode(encoded_payload + padding)
+            )
+            expires_at = float(payload["exp"])
+            now = time.time() if now_timestamp is None else now_timestamp
+            return int(expires_at - now)
+        except (binascii.Error, IndexError, KeyError, TypeError, ValueError):
+            # Tokens opacos continuam usando o expires_in oficial do OAuth.
+            return None
 
     def _credentials(self):
         if self._resolved_credentials is None:

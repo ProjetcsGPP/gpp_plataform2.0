@@ -185,6 +185,8 @@ CARGARH_READ_TIMEOUT_SECONDS=60
 CARGARH_TOKEN_SAFETY_MARGIN_SECONDS=60
 CARGARH_GET_MAX_RETRIES=2
 CARGARH_RETRY_BACKOFF_SECONDS=0.5
+CARGA_ORG_LOT_REMOTE_STALE_WARNING_SECONDS=1800
+CARGA_ORG_LOT_REMOTE_INDETERMINATE_AFTER_SECONDS=7200
 ```
 
 > **Nunca grave `CARGARH_CLIENT_ID` ou `CARGARH_CLIENT_SECRET` no `.env`.**
@@ -192,6 +194,21 @@ CARGARH_RETRY_BACKOFF_SECONDS=0.5
 > AppRoles e as credenciais separadas de HML e PRD.
 > O access token do CargaRH é temporário e deve permanecer somente no cache;
 > nunca o grave no banco, envie ao frontend ou inclua em logs.
+> Em desenvolvimento, o alias `cargarh_tokens` usa o Memcached configurado em
+> `MEMCACHED_LOCATION`, compartilhando o token entre Django e os processos do
+> Celery. O tempo efetivo de cache usa o menor prazo entre o `expires_in`
+> retornado pelo Acesso Cidadão e o `exp` do JWT, descontando
+> `CARGARH_TOKEN_SAFETY_MARGIN_SECONDS` (60 segundos por padrão).
+> O script `./scripts/localhost_dev.sh` valida esse cache antes de iniciar os
+> processos da aplicação.
+> O monitor registra um aviso operacional, sem encerrar a carga, quando a
+> PRODEST permanece sem atualizar o processamento por mais de
+> `CARGA_ORG_LOT_REMOTE_STALE_WARNING_SECONDS`.
+> Após `CARGA_ORG_LOT_REMOTE_INDETERMINATE_AFTER_SECONDS` sem atualização
+> remota (duas horas por padrão), o sistema pode liberar o encerramento
+> auditado do acompanhamento local. A ação exige justificativa, confirmação
+> do risco e o registro do contato com o analista da PRODEST; ela não cancela
+> nem altera a carga remota.
 
 ---
 

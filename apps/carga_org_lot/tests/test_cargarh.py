@@ -1,5 +1,9 @@
 """Testes do cliente HTTP CargaRH sem realizar chamadas externas."""
 
+import base64
+import json
+import time
+
 import pytest
 import requests
 from django.core.cache import cache
@@ -69,6 +73,13 @@ VALID_SETTINGS = {
 }
 
 
+def _unsigned_jwt(payload):
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(payload).encode("utf-8")
+    ).rstrip(b"=")
+    return f"header.{encoded.decode('ascii')}.signature"
+
+
 @pytest.fixture(autouse=True)
 def clear_cache():
     cache.clear()
@@ -91,7 +102,11 @@ def test_reutiliza_token_em_cache_e_nao_o_envia_no_payload():
     payload = {"patriarcaId": "patriarch", "orgaos": []}
 
     first = client.submit_organogram("patriarch", payload, dry_run=True)
-    second = client.submit_organogram("patriarch", payload, dry_run=False)
+    second = CargaRHClient(session=session).submit_organogram(
+        "patriarch",
+        payload,
+        dry_run=False,
+    )
 
     assert first.startswith("aaaaaaaa")
     assert second.startswith("bbbbbbbb")
@@ -109,7 +124,19 @@ def test_reutiliza_token_em_cache_e_nao_o_envia_no_payload():
     assert [event.stroperacao for event in events] == [
         OperacaoIntegracaoProdest.OBTER_TOKEN,
         OperacaoIntegracaoProdest.ENVIAR_ORGANOGRAMA_INICIAL,
+        OperacaoIntegracaoProdest.OBTER_TOKEN,
         OperacaoIntegracaoProdest.ENVIAR_ORGANOGRAMA_INICIAL,
+    ]
+    authentication_events = [
+        event
+        for event in events
+        if event.stroperacao == OperacaoIntegracaoProdest.OBTER_TOKEN
+    ]
+    assert [
+        event.jsondetalhes["origem_token"] for event in authentication_events
+    ] == [
+        "NOVO",
+        "CACHE_COMPARTILHADO",
     ]
     assert all(
         event.strresultado == ResultadoIntegracaoProdest.SUCESSO
@@ -127,6 +154,52 @@ def test_reutiliza_token_em_cache_e_nao_o_envia_no_payload():
     )
     assert "temporary-token" not in serialized_events
     assert "client-secret" not in serialized_events
+
+
+@override_settings(**VALID_SETTINGS)
+def test_cache_do_token_respeita_exp_do_jwt_e_margem_de_seguranca():
+    token = _unsigned_jwt({"iat": 1_000, "exp": 4_600})
+
+    timeout = CargaRHClient._token_cache_timeout(
+        token,
+        expires_in=7_200,
+        now_timestamp=1_000,
+    )
+
+    assert timeout == 3_540
+
+
+@override_settings(**VALID_SETTINGS)
+def test_cache_de_token_opaco_continua_usando_expires_in():
+    timeout = CargaRHClient._token_cache_timeout(
+        "opaque-token",
+        expires_in=3_600,
+        now_timestamp=1_000,
+    )
+
+    assert timeout == 3_540
+
+
+@override_settings(**VALID_SETTINGS)
+def test_descarta_jwt_expirado_encontrado_no_cache():
+    session = FakeSession(
+        token_responses=[
+            FakeResponse(
+                200,
+                {"access_token": "renewed-token", "expires_in": 3_600},
+            )
+        ]
+    )
+    client = CargaRHClient(session=session)
+    expired = _unsigned_jwt({"exp": int(time.time()) - 10})
+    client._token_cache().set(client._token_cache_key(), expired, timeout=3_600)
+
+    assert client.test_authentication()
+    assert len(session.post_calls) == 1
+    assert session.post_calls[0][1]["auth"] == (
+        "client-id",
+        "client-secret",
+    )
 
 
 @override_settings(

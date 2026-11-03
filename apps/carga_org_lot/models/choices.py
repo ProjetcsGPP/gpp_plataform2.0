@@ -150,6 +150,10 @@ class StatusEnvioOrganograma(models.TextChoices):
         "CONCLUIDO_DESATUALIZADO",
         "Concluído, mas a origem foi alterada",
     )
+    SITUACAO_REMOTA_INDETERMINADA = (
+        "SITUACAO_REMOTA_INDETERMINADA",
+        "Situação remota indeterminada",
+    )
     ERRO = "ERRO", "Erro"
 
 

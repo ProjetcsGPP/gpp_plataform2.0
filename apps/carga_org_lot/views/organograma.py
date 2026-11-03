@@ -6,7 +6,11 @@ from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -15,9 +19,15 @@ from common.mixins import AuditableMixin
 from common.schema import tag_all_actions
 
 from ..exceptions import SubtreeDeletionConfirmationRequired
-from ..models import EnvioOrganogramaProdest, EventoIntegracaoProdest, ItemOrganograma
+from ..models import (
+    EnvioOrganogramaProdest,
+    EventoIntegracaoProdest,
+    ItemOrganograma,
+    StatusEnvioOrganograma,
+)
 from ..serializers import (
     ConsultarCargasIniciaisProdestSerializer,
+    EncerrarMonitoramentoProdestSerializer,
     EnvioOrganogramaProdestSerializer,
     EventoIntegracaoProdestSerializer,
     ItemOrganogramaSerializer,
@@ -31,11 +41,16 @@ from ..services.cargarh import (
 )
 from ..services.organogram_submission import (
     OrganogramSubmissionError,
+    close_indeterminate_monitoring,
+    monitoring_closure_availability,
     prepare_organogram_submission,
     refresh_submission_report,
     refresh_submission_status,
 )
-from ..services.organograma_editing import deletion_impact, get_subtree_descendants
+from ..services.organograma_editing import (
+    deletion_impact,
+    get_subtree_descendants,
+)
 from ..services.workflow import AuditActor, register_organogram_item_change
 from ..tasks import processar_envio_organograma
 from .base import (
@@ -208,7 +223,7 @@ class EnvioOrganogramaProdestViewSet(
     queryset = EnvioOrganogramaProdest.objects.select_related(
         "idimportacaoplanilha__idpatriarca",
         "idprocessocargainicial",
-    )
+    ).prefetch_related("eventos_integracao_prodest")
     serializer_class = EnvioOrganogramaProdestSerializer
     filter_backends = [DeterministicOrderingFilter]
     ordering_fields = [
@@ -228,6 +243,7 @@ class EnvioOrganogramaProdestViewSet(
         "testar_conexao": "change_importacaoplanilha",
         "consultar_status": "change_importacaoplanilha",
         "consultar_relatorio": "change_importacaoplanilha",
+        "encerrar_monitoramento": "change_importacaoplanilha",
         "acompanhamento": "view_importacaoplanilha",
         "eventos": "view_importacaoplanilha",
     }
@@ -486,6 +502,63 @@ class EnvioOrganogramaProdestViewSet(
             return self._error_response(exc)
         return Response(self.get_serializer(envio).data)
 
+    @extend_schema(
+        request=EncerrarMonitoramentoProdestSerializer,
+        responses={200: EnvioOrganogramaProdestSerializer},
+        description=(
+            "Faz uma última consulta à PRODEST e, se a carga continuar "
+            "indefinida após a carência configurada, encerra somente o "
+            "monitoramento local e libera uma nova tentativa."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="encerrar-monitoramento")
+    def encerrar_monitoramento(self, request, *args, **kwargs):
+        input_serializer = EncerrarMonitoramentoProdestSerializer(
+            data=request.data
+        )
+        input_serializer.is_valid(raise_exception=True)
+        envio = self.get_object()
+        availability = monitoring_closure_availability(envio)
+        if not availability["permitido"]:
+            return self._error_response(
+                OrganogramSubmissionError(
+                    "O acompanhamento ainda não pode ser encerrado.",
+                    envio=envio,
+                    details=availability,
+                    kind="conflict",
+                )
+            )
+
+        final_consultation = "SUCESSO_SEM_FINALIZACAO"
+        try:
+            envio = refresh_submission_status(envio, actor=self._actor())
+        except OrganogramSubmissionError as exc:
+            final_consultation = f"FALHA_{exc.kind.upper()}"
+            envio.refresh_from_db()
+
+        if envio.strstatus != StatusEnvioOrganograma.PROCESSANDO:
+            return Response(self.get_serializer(envio).data)
+
+        try:
+            envio = close_indeterminate_monitoring(
+                envio,
+                justification=input_serializer.validated_data["justificativa"],
+                analyst_notified=input_serializer.validated_data[
+                    "analista_prodest_avisado"
+                ],
+                analyst_replied=input_serializer.validated_data[
+                    "analista_prodest_respondeu"
+                ],
+                analyst_response=input_serializer.validated_data[
+                    "retorno_analista_prodest"
+                ],
+                actor=self._actor(),
+                final_consultation=final_consultation,
+            )
+        except OrganogramSubmissionError as exc:
+            return self._error_response(exc)
+        return Response(self.get_serializer(envio).data)
+
     def _actor(self):
         return AuditActor(
             user_id=self.request.user.pk,
@@ -501,6 +574,7 @@ class EnvioOrganogramaProdestViewSet(
     def _error_response(exc):
         status_code = {
             "validation": status.HTTP_400_BAD_REQUEST,
+            "conflict": status.HTTP_409_CONFLICT,
             "configuration": status.HTTP_503_SERVICE_UNAVAILABLE,
             "upstream": status.HTTP_502_BAD_GATEWAY,
         }.get(exc.kind, status.HTTP_502_BAD_GATEWAY)
@@ -511,7 +585,12 @@ class EnvioOrganogramaProdestViewSet(
         if exc.envio is not None:
             errors["idenvioorganograma"] = exc.envio.pk
         if exc.details:
-            errors["prodest"] = exc.details
+            details_key = (
+                "prodest"
+                if exc.kind in {"configuration", "upstream"}
+                else "details"
+            )
+            errors[details_key] = exc.details
         return Response(
             {"success": False, "errors": errors},
             status=status_code,

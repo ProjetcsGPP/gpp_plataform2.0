@@ -93,6 +93,14 @@ class EnvioOrganogramaProdest(AuditableModel):
         related_name="envios_organograma_prodest",
     )
 
+    idtentativaanterior = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tentativas_posteriores",
+    )
+
     flgdryrun = models.BooleanField(default=True)
 
     strambiente = models.CharField(max_length=20)
@@ -130,6 +138,25 @@ class EnvioOrganogramaProdest(AuditableModel):
     datproximaconsulta = models.DateTimeField(null=True, blank=True, db_index=True)
     datiniciomonitoramento = models.DateTimeField(null=True, blank=True)
     datfimmonitoramento = models.DateTimeField(null=True, blank=True)
+
+    datencerramentomanual = models.DateTimeField(null=True, blank=True)
+
+    strjustificativaencerramento = models.TextField(blank=True, default="")
+
+    flganalistaprodestavisado = models.BooleanField(null=True, blank=True)
+
+    flganalistaprodestrespondeu = models.BooleanField(null=True, blank=True)
+
+    strretornoanalistaprodest = models.TextField(blank=True, default="")
+
+    encerrado_by_id = models.IntegerField(null=True, blank=True, editable=False)
+
+    encerrado_by_name = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        editable=False,
+    )
 
     datsolicitacao = models.DateTimeField(auto_now_add=True)
 

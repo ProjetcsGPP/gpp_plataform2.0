@@ -115,6 +115,32 @@ if [[ "${CARGARH_CREDENTIALS_PROVIDER}" == "openbao" ]]; then
     log "OpenBao disponível."
 fi
 
+if ! CARGARH_TOKEN_CACHE_ALIAS="$("${PYTHON_BIN}" -c '
+import os
+from uuid import uuid4
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.development")
+import django
+
+django.setup()
+from django.conf import settings
+from django.core.cache import caches
+
+alias = settings.CARGARH_TOKEN_CACHE_ALIAS
+cache = caches[alias]
+key = f"localhost-dev:cache-check:{uuid4()}"
+cache.set(key, "ok", timeout=10)
+if cache.get(key) != "ok":
+    raise RuntimeError("o cache não confirmou a gravação temporária")
+cache.delete(key)
+print(alias)
+')"; then
+    log "ERRO: o cache compartilhado de tokens CargaRH não respondeu."
+    log "Inicie o Memcached configurado em MEMCACHED_LOCATION e tente novamente."
+    exit 1
+fi
+log "Cache compartilhado de tokens disponível (${CARGARH_TOKEN_CACHE_ALIAS})."
+
 log "Abrindo o projeto no VS Code..."
 "${CODE_BIN}" "${PROJECT_DIR}"
 

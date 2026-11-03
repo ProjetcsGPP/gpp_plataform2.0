@@ -43,6 +43,7 @@ CACHES = {
         "LOCATION": "gpp-test-cache",
     }
 }
+CARGARH_TOKEN_CACHE_ALIAS = "default"
 
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True

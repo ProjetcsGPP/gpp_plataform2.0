@@ -231,6 +231,10 @@ CARGARH_TOKEN_SAFETY_MARGIN_SECONDS = env.int(
     "CARGARH_TOKEN_SAFETY_MARGIN_SECONDS",
     default=60,
 )
+CARGARH_TOKEN_CACHE_ALIAS = env(
+    "CARGARH_TOKEN_CACHE_ALIAS",
+    default="default",
+).strip() or "default"
 CARGARH_GET_MAX_RETRIES = env.int("CARGARH_GET_MAX_RETRIES", default=2)
 CARGARH_RETRY_BACKOFF_SECONDS = env.float(
     "CARGARH_RETRY_BACKOFF_SECONDS",
@@ -249,6 +253,14 @@ CELERY_TIMEZONE = "America/Sao_Paulo"
 CARGA_ORG_LOT_MONITOR_INTERVAL_SECONDS = env.int(
     "CARGA_ORG_LOT_MONITOR_INTERVAL_SECONDS",
     default=60,
+)
+CARGA_ORG_LOT_REMOTE_STALE_WARNING_SECONDS = env.int(
+    "CARGA_ORG_LOT_REMOTE_STALE_WARNING_SECONDS",
+    default=1800,
+)
+CARGA_ORG_LOT_REMOTE_INDETERMINATE_AFTER_SECONDS = env.int(
+    "CARGA_ORG_LOT_REMOTE_INDETERMINATE_AFTER_SECONDS",
+    default=7200,
 )
 CELERY_BEAT_SCHEDULE = {
     "monitorar-envios-organograma-prodest": {
@@ -276,8 +288,7 @@ CACHES = {
         "TIMEOUT": 300,
         "BINARY": True,
         "OPTIONS": {
-            "tcp_nodelay": True,
-            "ketama": True,
+            "no_delay": True,
         },
     }
 }
