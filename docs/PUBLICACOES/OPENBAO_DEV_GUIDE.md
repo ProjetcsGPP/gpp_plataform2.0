@@ -6,8 +6,10 @@
 ## 1. Para que ele existe aqui
 
 O OpenBao guarda credenciais técnicas que não devem permanecer no `.env`, no
-banco funcional, no Git ou em logs. Hoje o uso real é a credencial
-`client_credentials` do CargaRH/PRODEST.
+banco funcional, no Git ou em logs. O uso local já ativo é a credencial
+`client_credentials` do CargaRH/PRODEST. A estrutura compartilhada também
+recebe as credenciais do Zimbra e do E-Docs para uso transversal pelo backend
+GPP.
 
 Ele não guarda publicações, planilhas, usuários nem dados do portal. A perda do
 OpenBao pode interromper uma integração, mas não apaga os dados funcionais do
@@ -51,6 +53,10 @@ CargaRHClient
 HML e PRD usam AppRoles e caminhos diferentes. Uma não pode ler a outra e
 nenhuma delas pode escrever. O usuário não precisa fazer login no OpenBao para
 usar normalmente o CargaRH: o backend executa esse fluxo automaticamente.
+
+O mesmo isolamento é aplicado ao Zimbra e ao E-Docs, sob o mount
+`gpp-shared`. Esse mount e os adapters em `apps/core` pertencem ao backend como
+um todo; `pub_institucional` será somente o primeiro consumidor.
 
 ## 3. Operação normal
 
@@ -129,6 +135,32 @@ Para PRD, trocar `HML` por `PRD`. O programa solicita `client_id` e
 substitui deliberadamente o valor daquele ambiente, portanto não deve ser usado
 como rotina periódica.
 
+Para cadastrar a mesma senha Zimbra nos perfis compartilhados HML e PRD:
+
+```bash
+.venv/bin/python \
+  infra/publicacoes-dev/scripts/provision_zimbra_secret.py
+```
+
+O programa solicita a senha sem eco, grava os caminhos
+`gpp-shared/dev/zimbra/hml` e `gpp-shared/dev/zimbra/prd` e valida cada leitura
+pela AppRole correspondente. `--environment HML` ou `--environment PRD`
+permite uma atualização futura isolada. A senha não deve ser fornecida como
+argumento de linha de comando.
+
+Para cadastrar o mesmo cliente E-Docs nos perfis compartilhados HML e PRD:
+
+```bash
+.venv/bin/python \
+  infra/publicacoes-dev/scripts/provision_edocs_secret.py
+```
+
+O programa solicita `client_id` e `client_secret` interativamente, grava os
+caminhos `gpp-shared/dev/edocs/hml` e `gpp-shared/dev/edocs/prd` e valida cada
+leitura pela AppRole correspondente. `--environment HML` ou
+`--environment PRD` permite atualizar apenas um perfil. Credenciais e tokens
+fornecidos em chat não são reaproveitados pelo código nem pelo provisionador.
+
 ## 5. Política de substituição em DEV
 
 DEV não possui calendário de rotação. Uma credencial ou identidade somente é
@@ -152,6 +184,10 @@ credencial emitida pela PRODEST.
 |---|---|---|
 | `init.json` | chave de desbloqueio e token administrativo local | crítica |
 | `role_id` / `secret_id` | identidade do preflight de `PUBLICACOES` | restrita |
+| `gpp_shared_zimbra_*_role_id` | identidade de leitura Zimbra HML ou PRD | restrita |
+| `gpp_shared_zimbra_*_secret_id` | prova secreta da identidade Zimbra | crítica |
+| `gpp_shared_edocs_*_role_id` | identidade de leitura E-Docs HML ou PRD | restrita |
+| `gpp_shared_edocs_*_secret_id` | prova secreta da identidade E-Docs | crítica |
 | `carga_org_lot_*_role_id` | identidade de leitura HML ou PRD | restrita |
 | `carga_org_lot_*_secret_id` | prova secreta da identidade | crítica |
 | `status.json` | último estado técnico consultado | operacional |
@@ -182,7 +218,8 @@ separadamente; isso não será criado por suposição.
 1. executar `compose.sh ps openbao`;
 2. executar o bootstrap normal;
 3. executar o preflight;
-4. conferir se `CARGARH_ENVIRONMENT` seleciona `HML` ou `PRD`;
+4. conferir se `CARGARH_ENVIRONMENT`, `GPP_ZIMBRA_ENVIRONMENT` ou
+   `GPP_EDOCS_ENVIRONMENT` seleciona o perfil esperado;
 5. se apenas a identidade falhar, usar a substituição explícita;
 6. se o segredo estiver ausente, provisioná-lo novamente;
 7. nunca imprimir arquivos, tokens ou respostas completas para investigar.

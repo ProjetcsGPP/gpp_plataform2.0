@@ -154,6 +154,10 @@ services:
       - openbao_data:/openbao/data
       - ./config/openbao/openbao.hcl:/openbao/config/openbao.hcl:ro
       - ./config/openbao/publicacoes-policy.hcl:/openbao/publicacoes-policy.hcl:ro
+      - ./config/openbao/gpp-shared-edocs-hml-policy.hcl:/openbao/gpp-shared-edocs-hml-policy.hcl:ro
+      - ./config/openbao/gpp-shared-edocs-prd-policy.hcl:/openbao/gpp-shared-edocs-prd-policy.hcl:ro
+      - ./config/openbao/gpp-shared-zimbra-hml-policy.hcl:/openbao/gpp-shared-zimbra-hml-policy.hcl:ro
+      - ./config/openbao/gpp-shared-zimbra-prd-policy.hcl:/openbao/gpp-shared-zimbra-prd-policy.hcl:ro
       - ./config/openbao/carga-org-lot-hml-policy.hcl:/openbao/carga-org-lot-hml-policy.hcl:ro
       - ./config/openbao/carga-org-lot-prd-policy.hcl:/openbao/carga-org-lot-prd-policy.hcl:ro
     ports:

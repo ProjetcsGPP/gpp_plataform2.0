@@ -132,6 +132,54 @@ cargarh_openbao_isolation_contract() {
     [[ "${status}" == "403" ]]
 }
 
+shared_openbao_isolation_contract() {
+    local resource="$1"
+    local openbao_port prd_role prd_secret hml_role hml_secret
+    local response prd_token hml_token status environment token other
+    openbao_port="$(awk -F= '$1 == "OPENBAO_PORT" {print $2}' \
+        "${infra_dir}/runtime/.env")"
+    prd_role="$(<"${infra_dir}/runtime/openbao/gpp_shared_${resource}_prd_role_id")"
+    prd_secret="$(<"${infra_dir}/runtime/openbao/gpp_shared_${resource}_prd_secret_id")"
+    hml_role="$(<"${infra_dir}/runtime/openbao/gpp_shared_${resource}_hml_role_id")"
+    hml_secret="$(<"${infra_dir}/runtime/openbao/gpp_shared_${resource}_hml_secret_id")"
+
+    response="$(curl -fsS -X POST -H 'Content-Type: application/json' \
+        --data "{\"role_id\":\"${prd_role}\",\"secret_id\":\"${prd_secret}\"}" \
+        "http://127.0.0.1:${openbao_port}/v1/auth/approle/login")"
+    prd_token="$(printf '%s' "${response}" | "${python_bin}" -c \
+        'import json,sys; print(json.load(sys.stdin)["auth"]["client_token"])')"
+    response="$(curl -fsS -X POST -H 'Content-Type: application/json' \
+        --data "{\"role_id\":\"${hml_role}\",\"secret_id\":\"${hml_secret}\"}" \
+        "http://127.0.0.1:${openbao_port}/v1/auth/approle/login")"
+    hml_token="$(printf '%s' "${response}" | "${python_bin}" -c \
+        'import json,sys; print(json.load(sys.stdin)["auth"]["client_token"])')"
+
+    for environment in hml prd; do
+        if [[ "${environment}" == "hml" ]]; then
+            token="${hml_token}"
+            other="${prd_token}"
+        else
+            token="${prd_token}"
+            other="${hml_token}"
+        fi
+        status="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "X-Vault-Token: ${token}" \
+            "http://127.0.0.1:${openbao_port}/v1/gpp-shared/data/dev/${resource}/${environment}")"
+        [[ "${status}" == "200" ]]
+        status="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "X-Vault-Token: ${other}" \
+            "http://127.0.0.1:${openbao_port}/v1/gpp-shared/data/dev/${resource}/${environment}")"
+        [[ "${status}" == "403" ]]
+        status="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -X POST \
+            -H "X-Vault-Token: ${token}" \
+            -H 'Content-Type: application/json' \
+            --data '{"data":{"probe":"must-not-write"}}' \
+            "http://127.0.0.1:${openbao_port}/v1/gpp-shared/data/dev/${resource}/${environment}")"
+        [[ "${status}" == "403" ]]
+    done
+}
+
 postgres_least_privilege_contract() {
     local role_state owners
     role_state="$("${compose}" exec -T postgres psql \
@@ -283,6 +331,10 @@ check "OpenBao está desbloqueado" "${compose}" exec -T openbao sh -ec \
 check "AppRole lê segredo e não pode alterá-lo" openbao_approle_contract
 check "CargaRH PRD lê segredo e HML permanece isolado" \
     cargarh_openbao_isolation_contract
+check "Zimbra HML e PRD leem somente o próprio segredo" \
+    shared_openbao_isolation_contract zimbra
+check "E-Docs HML e PRD leem somente o próprio segredo" \
+    shared_openbao_isolation_contract edocs
 
 nginx_port="$(awk -F= '$1 == "NGINX_HTTPS_PORT" {print $2}' "${infra_dir}/runtime/.env")"
 check "Nginx TLS responde" curl -kfsS \

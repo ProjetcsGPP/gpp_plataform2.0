@@ -22,7 +22,7 @@ de coordenação; os documentos especializados contêm o detalhe e a evidência.
 | Threat model | Documentado, requer revisão | `THREAT_MODEL.md` | Revisar após piloto, classificação e topologia aprovados. |
 | Inventário técnico | Sandbox comprovada com lacunas | `INFRASTRUCTURE_INVENTORY.md`; `infra/publicacoes-dev` | Validar banco real, egress de rede e observabilidade. |
 | Plano de rollback | Processo documentado, não exercitado no alvo | `ROLLBACK_PLAN.md` | Aprovar flags, responsáveis e exercícios por ambiente. |
-| Piloto e classificação | Pendente | `PUB-011`; PRE-001 a PRE-003 | Nomear responsáveis, escolher piloto e classificar campos. |
+| Piloto e classificação | Parcial | `PUB-011`; PRE-001 a PRE-003; `EDOCS_MONTHLY_COLLECTION.md` | Validar o piloto E-Docs, nomear responsáveis, preencher o contrato e classificar campos. |
 | Contratos executáveis | Pendente, marco F0.5 | `PUB-017` a `PUB-019` | Aprovar DTO público, OpenAPI administrativo e catálogo IAM. |
 | Cadeia de fornecimento | Evidência histórica bloqueada | `SECURITY_EVIDENCE_2026-10-26.md` | Corrigir/justificar achados e gerar evidência datada atual. |
 | PostgreSQL on-premises | Bloqueado | `PUB-020`; restore comprovado apenas na sandbox | Validar privilégios, migrations, backup e restore na instância real. |
@@ -31,16 +31,16 @@ de coordenação; os documentos especializados contêm o detalhe e a evidência.
 
 ## 2. Situação por item de pré-implementação
 
-| ID | Estado em 2026-11-03 | Falta para aceite |
+| ID | Estado em 2026-11-05 | Falta para aceite |
 |---|---|---|
-| PRE-001 | Parcial — definição registrada | Código `PUB_INSTITUCIONAL`, nome `PUBLICAÇÕES`, responsável único, ausência de substituto e perfis Zimbra `HML`/`PRD` inicialmente idênticos registrados; a manutenção temporária da credencial exposta foi aceita pelo responsável, e faltam cadastro controlado, provisionamento oculto nos dois caminhos e ativação segura/testada dos perfis. |
-| PRE-002 | Pendente | Caso piloto, dono da informação e contrato de fonte aprovado. |
+| PRE-001 | Parcial — estrutura provisionada | Código `PUB_INSTITUCIONAL`, nome `PUBLICAÇÕES`, responsável único, ausência de substituto e perfis Zimbra `HML`/`PRD` registrados; mount compartilhado, policies e AppRoles existem em DEV. A manutenção temporária da credencial exposta foi aceita; faltam cadastro controlado, entrada oculta da senha nos dois caminhos e teste de envio. |
+| PRE-002 | Parcial — piloto identificado | Coleta mensal E-Docs com EDOC-01 a EDOC-05 selecionados e ferramenta operacional iniciada; faltam dono da informação, validação com o processo manual e contrato de fonte aprovado. |
 | PRE-003 | Pendente | Classificação campo a campo, finalidade, retenção e proibições. |
 | PRE-004 | Parcial | Topologia de DEV aprovada e diagrama browser/SSR/worker. |
 | PRE-005 | Bloqueado | Validar schema, privilégios, backup e restore no PostgreSQL on-premises real. |
 | PRE-006 | Parcial | Sandbox S3 e negações foram exercitadas; falta decisão formal do serviço de DEV e política. |
 | PRE-007 | Parcial | ClamAV/EICAR e falha fechada passaram na sandbox; falta aprovação formal do serviço e workflow. |
-| PRE-008 | Parcial | OpenBao e AppRoles foram comprovados em DEV; faltam cobertura dos demais segredos e aprovação operacional. |
+| PRE-008 | Parcial | OpenBao, mount `gpp-shared` e AppRoles Zimbra/E-Docs HML/PRD foram provisionados em DEV; faltam cadastrar os segredos interativamente, executar o preflight completo e obter aprovação operacional. |
 | PRE-009 | Parcial | Nginx/TLS/limites locais existem; faltam contrato de purge e aprovação do proxy de DEV. |
 | PRE-010 | Bloqueado | Validação SSRF aplicativo existe; egress no nível de rede não foi comprovado. |
 | PRE-011 | Parcial | Logs redigidos existem; faltam métricas, traces, correlação ponta a ponta e alerta recebido. |
@@ -71,8 +71,8 @@ tela ou teste sintético de `PUBLICACOES`.
 
 ## 4. Bloqueios para iniciar a Fase 1
 
-1. `PRE-001` com aceite operacional parcial; `PRE-002`, `PRE-003` e `PUB-011`
-   sem aprovação.
+1. `PRE-001`, `PRE-002` e `PUB-011` com aceite parcial; `PRE-003` sem
+   aprovação.
 2. `PUB-017` a `PUB-019` sem contratos executáveis aprovados em F0.5.
 3. `PUB-020` bloqueado por PostgreSQL real, cadeia de fornecimento, egress de
    rede e observabilidade.

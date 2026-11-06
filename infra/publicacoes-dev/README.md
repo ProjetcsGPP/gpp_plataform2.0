@@ -38,6 +38,8 @@ infra/publicacoes-dev/scripts/bootstrap-postgres.sh
 infra/publicacoes-dev/scripts/bootstrap-test-runner.sh
 infra/publicacoes-dev/scripts/bootstrap-openbao.sh
 ./.venv/bin/python infra/publicacoes-dev/scripts/provision_cargarh_secret.py --environment HML
+./.venv/bin/python infra/publicacoes-dev/scripts/provision_edocs_secret.py
+./.venv/bin/python infra/publicacoes-dev/scripts/provision_zimbra_secret.py
 infra/publicacoes-dev/scripts/preflight.sh
 infra/publicacoes-dev/scripts/verify-backup-restore.sh
 infra/publicacoes-dev/scripts/security-scan.sh
@@ -47,9 +49,12 @@ infra/publicacoes-dev/scripts/run-backend-security-tests.sh
 O primeiro comando cria credenciais aleatórias, configuração S3 e certificado
 TLS em `runtime/`, diretório ignorado pelo Git. O bootstrap do OpenBao grava as
 chaves de inicialização e a AppRole também nesse diretório, com modo restrito.
-O bootstrap cria AppRoles distintas para CargaRH HML e PRD. Cada uma lê somente
-seu caminho e não possui escrita; o provisionamento administrativo é feito pelo
-utilitário explícito acima.
+O bootstrap cria AppRoles distintas para CargaRH HML/PRD e para os serviços
+compartilhados E-Docs e Zimbra em HML/PRD. Cada identidade lê somente seu
+caminho e não possui escrita; o provisionamento administrativo é feito pelos
+utilitários explícitos acima. E-Docs e Zimbra pertencem ao backend GPP como um
+todo; não são recursos exclusivos de `PUBLICACOES`, embora esta seja a primeira
+aplicação consumidora.
 
 O S3 usa quatro identidades de privilégio mínimo: coleta escreve somente na
 quarentena; scanner lê somente a quarentena; promoção lê a quarentena e escreve

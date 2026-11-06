@@ -96,7 +96,7 @@ log "Ativando ambiente virtual..."
 # shellcheck disable=SC1090
 source "${VENV_ACTIVATE}"
 
-CARGARH_CREDENTIALS_PROVIDER="$("${PYTHON_BIN}" -c '
+OPENBAO_REQUIRED="$("${PYTHON_BIN}" -c '
 import os
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.development")
@@ -105,10 +105,14 @@ import django
 django.setup()
 from django.conf import settings
 
-print(settings.CARGARH_CREDENTIALS_PROVIDER)
+providers = {
+    settings.CARGARH_CREDENTIALS_PROVIDER,
+    settings.GPP_EDOCS_CREDENTIALS_PROVIDER,
+}
+print("true" if "openbao" in providers else "false")
 ')"
 
-if [[ "${CARGARH_CREDENTIALS_PROVIDER}" == "openbao" ]]; then
+if [[ "${OPENBAO_REQUIRED}" == "true" ]]; then
     require_executable "${OPENBAO_BOOTSTRAP}" "Bootstrap do OpenBao"
     log "Preparando e desbloqueando o OpenBao..."
     "${OPENBAO_BOOTSTRAP}"

@@ -47,6 +47,7 @@ Criar uma aplicação capaz de:
 | [SECURITY_EVIDENCE_2026-10-26.md](./SECURITY_EVIDENCE_2026-10-26.md) | Preflight, restore, testes, cobertura, SBOMs, vulnerabilidades e bloqueios efetivamente observados em DEV |
 | [CARGA_ORG_LOT_SECRETS.md](./CARGA_ORG_LOT_SECRETS.md) | Separação HML/PRD, AppRoles, variáveis não secretas e operação das credenciais CargaRH |
 | [OPENBAO_DEV_GUIDE.md](./OPENBAO_DEV_GUIDE.md) | Uso diário, conceitos, diagnóstico e recuperação do OpenBao local sem rotação periódica |
+| [EDOCS_MONTHLY_COLLECTION.md](./EDOCS_MONTHLY_COLLECTION.md) | Coleta mensal compartilhada, seleção de patriarcas, JSONs brutos e planilha operacional E-Docs |
 | [OPERATIONS_GUIDE.md](./OPERATIONS_GUIDE.md) | Como gestores, administradores e consumidores operarão a solução |
 | [SOURCE_CONTRACT_TEMPLATE.md](./SOURCE_CONTRACT_TEMPLATE.md) | Formulário obrigatório para integrar uma fonte sem presumir suas regras |
 | [CONSUMER_REGISTRATION_TEMPLATE.md](./CONSUMER_REGISTRATION_TEMPLATE.md) | Formulário para cadastrar aplicação consumidora e autorizar escopos |

@@ -172,16 +172,16 @@ lógicos independentes para acompanhar o padrão existente do OpenBao:
 | Caminho SOAP | `/service/soap` | `/service/soap` |
 | Remetente | `acoesgpp@seger.es.gov.br` | `acoesgpp@seger.es.gov.br` |
 | Nome exibido | `Ações GPP` | `Ações GPP` |
-| Caminho KV v2 | `publicacoes/dev/zimbra/hml` | `publicacoes/dev/zimbra/prd` |
+| Caminho KV v2 | `gpp-shared/dev/zimbra/hml` | `gpp-shared/dev/zimbra/prd` |
 
 Embora os dados de origem usem nomes iniciados por `SMTP_`, porta `443` e
 `/service/soap` caracterizam uma integração SOAP sobre HTTPS, não uma sessão
-SMTP. O backend deverá usar `ZIMBRA_ENVIRONMENT=HML|PRD` para selecionar um
-perfil e configurações explícitas como `ZIMBRA_HML_SOAP_URL`,
-`ZIMBRA_PRD_SOAP_URL`, `ZIMBRA_HML_OPENBAO_SECRET_PATH` e
-`ZIMBRA_PRD_OPENBAO_SECRET_PATH`. O `secret path` identifica o registro KV que
-contém a senha; ele não deve ser confundido com o `SecretID` usado pela AppRole
-para autenticar o backend no OpenBao.
+SMTP. O backend deverá usar `GPP_ZIMBRA_ENVIRONMENT=HML|PRD` para selecionar um
+perfil e configurações compartilhadas como `GPP_ZIMBRA_HML_SOAP_URL`,
+`GPP_ZIMBRA_PRD_SOAP_URL`, `GPP_ZIMBRA_HML_OPENBAO_SECRET_PATH` e
+`GPP_ZIMBRA_PRD_OPENBAO_SECRET_PATH`. O `secret path` identifica o registro KV
+que contém a senha; ele não deve ser confundido com o `SecretID` usado pela
+AppRole para autenticar o backend no OpenBao.
 
 A senha não integra esta tabela. Por decisão do responsável, a credencial atual
 será mantida nesta etapa apesar da exposição registrada. O aceite de risco não
@@ -193,6 +193,10 @@ conjuntamente, nunca sincronizadas de forma implícita. A ativação exige teste
 de autenticação, envio, correlação, deduplicação, retry e falha de entrega nos
 dois perfis. A rotação continua recomendada, mas não bloqueia este
 provisionamento por decisão registrada.
+
+O serviço é compartilhado pelo backend GPP. Sua implementação deverá residir
+em `apps/core`, sem acoplamento a `apps.publicacoes`; nesta fase somente
+`pub_institucional` será integrado como consumidor.
 
 ### Diária
 

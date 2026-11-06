@@ -27,7 +27,8 @@ F0.5 entre descoberta e implementação
 - implementar throttling específico de login e remover enumeração de usuário;
 - inventariar proxy, gateway, DNS, TLS, object storage, secrets e backups;
 - elaborar threat model e classificação preliminar de dados;
-- escolher o conjunto de dados piloto sem definir regras de fontes não ouvidas;
+- validar o conjunto piloto E-Docs identificado, sem definir regras da fonte
+  além do contrato oficial e dos exemplos observados;
 - aplicar a decisão de que o mesmo gestor poderá preparar e publicar;
 - manter para `PORTAL_ADMIN` o acesso administrativo global da plataforma, sem
   permitir exceções às regras de domínio;

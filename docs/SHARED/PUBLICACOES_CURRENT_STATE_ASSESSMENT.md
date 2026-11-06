@@ -60,7 +60,7 @@ existem e são coerentes quanto à arquitetura proposta.
 | `IMPLEMENTATION_PLAN.md` | Fases F0 a F7 e gates | Válido; F1 continua impedida pelos gates abertos de F0. |
 | `SECURITY_PLAN.md` | Ativos, fronteiras, ameaças e controles | Válido; `PUB-008` está concluído, mas não encerra os demais controles. |
 | `OPERATIONS_GUIDE.md` | Operação futura por gestores e consumidores | Válido como procedimento-alvo; não prova provisionamento ou treinamento. |
-| `SOURCE_CONTRACT_TEMPLATE.md` | Contrato obrigatório de cada origem | Válido e ainda não preenchido para um piloto. |
+| `SOURCE_CONTRACT_TEMPLATE.md` | Contrato obrigatório de cada origem | O piloto operacional E-Docs foi identificado, mas o contrato ainda não foi preenchido e aprovado. |
 | `CONSUMER_REGISTRATION_TEMPLATE.md` | Cadastro e governança de consumidores | Válido para F6; não define ainda o provedor M2M. |
 
 Documentos complementares como `PRE_IMPLEMENTATION_CHECKLIST.md`,
@@ -96,8 +96,8 @@ evidências e bloqueios específicos.
 
 ### 5.2 Pendente antes da fundação ou em fases posteriores
 
-- `PUB-011`: responsáveis, aplicação/conjunto piloto e classificação campo a
-  campo;
+- `PUB-011`: piloto operacional E-Docs identificado; responsáveis, contrato e
+  classificação campo a campo continuam pendentes;
 - `PUB-017`: schema público inicial e estados sem publicação, obrigatório no
   gate contratual F0.5;
 - `PUB-018`: contrato administrativo, workflow, concorrência, preview e erros,
@@ -220,8 +220,8 @@ contornar o gate que protege a capacidade correspondente.
 
 ### Bloqueiam início da implementação funcional
 
-- aceite operacional parcial de PRE-001 e ausência de piloto/classificação
-  (`PRE-002`, `PRE-003` e `PUB-011`);
+- aceite operacional parcial de PRE-001 e validação/contrato/classificação do
+  piloto E-Docs (`PRE-002`, `PRE-003` e `PUB-011`);
 - `PUB-020` bloqueado por banco real, egress, observabilidade e achados ainda
   sem resolução formal;
 - inexistência de schema público e contrato administrativo executáveis
@@ -324,8 +324,8 @@ sequência correta é:
 1. reconciliar `F0_READINESS.md`, o inventário e as evidências históricas com
    esta reconfirmação;
 2. atualizar o assessment local do frontend com esta reconfirmação;
-3. nomear responsáveis e escolher o piloto sem definir regras pela aplicação de
-   origem;
+3. nomear responsáveis e validar o piloto E-Docs sem converter a ferramenta
+   operacional em contrato de fonte por antecipação;
 4. preencher e aprovar o contrato de fonte e a classificação campo a campo;
 5. fechar as evidências de PostgreSQL on-premises, egress e observabilidade;
 6. decidir/corrigir os achados da cadeia de desenvolvimento;

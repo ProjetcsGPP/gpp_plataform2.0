@@ -117,6 +117,9 @@ ensure_secret_id() {
 if ! bao_exec secrets list -format=json | grep -q '"publicacoes/"'; then
     bao_exec secrets enable -path=publicacoes kv-v2 >/dev/null
 fi
+if ! bao_exec secrets list -format=json | grep -q '"gpp-shared/"'; then
+    bao_exec secrets enable -path=gpp-shared kv-v2 >/dev/null
+fi
 if ! bao_exec secrets list -format=json | grep -q '"carga-org-lot/"'; then
     bao_exec secrets enable -path=carga-org-lot kv-v2 >/dev/null
 fi
@@ -144,6 +147,30 @@ bao_exec read -field=role_id \
 ensure_secret_id publicacoes-dev "${runtime_dir}/secret_id"
 chmod 600 "${runtime_dir}/role_id"
 
+for shared_resource in edocs zimbra; do
+    for environment in hml prd; do
+        role_name="gpp-shared-${shared_resource}-${environment}-dev"
+        policy_name="${role_name}"
+        bao_exec policy write "${policy_name}" \
+            "/openbao/gpp-shared-${shared_resource}-${environment}-policy.hcl" \
+            >/dev/null
+        bao_exec write "auth/approle/role/${role_name}" \
+            token_policies="${policy_name}" \
+            token_ttl=15m \
+            token_max_ttl=1h \
+            secret_id_ttl=0 \
+            secret_id_num_uses=0 >/dev/null
+        bao_exec read -field=role_id \
+            "auth/approle/role/${role_name}/role-id" \
+            >"${runtime_dir}/gpp_shared_${shared_resource}_${environment}_role_id"
+        secret_id_file="${runtime_dir}/gpp_shared_${shared_resource}_${environment}_secret_id"
+        ensure_secret_id "${role_name}" "${secret_id_file}"
+        chmod 600 \
+            "${runtime_dir}/gpp_shared_${shared_resource}_${environment}_role_id" \
+            "${secret_id_file}"
+    done
+done
+
 for environment in hml prd; do
     role_name="carga-org-lot-${environment}-dev"
     policy_name="${role_name}"
@@ -165,4 +192,4 @@ for environment in hml prd; do
         "${secret_id_file}"
 done
 
-printf '%s\n' 'OpenBao inicializado e AppRole de DEV provisionada.'
+printf '%s\n' 'OpenBao inicializado e AppRoles de DEV provisionadas.'

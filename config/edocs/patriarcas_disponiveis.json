@@ -1,0 +1,127 @@
+[
+  {
+    "id": "fe88eb2a-a1f3-4cb1-a684-87317baf5a57",
+    "COD_MUNIC": null,
+    "nome": "ESTADO DO ESPIRITO SANTO"
+  },
+  {
+    "id": "d9b40ee3-c3cf-436d-8bba-334343ae5994",
+    "COD_MUNIC": 3203320,
+    "nome": "MUNICIPIO DE MARATAÍZES"
+  },
+  {
+    "id": "089f4ab9-6b7c-4464-99c9-900d3ce8d1a2",
+    "COD_MUNIC": 3200201,
+    "nome": "MUNICÍPIO DE ALEGRE"
+  },
+  {
+    "id": "89c8c9d8-2d7b-4c59-bac0-189bb96f40a9",
+    "COD_MUNIC": 3200300,
+    "nome": "MUNICÍPIO DE ALFREDO CHAVES"
+  },
+  {
+    "id": "47f5a126-4be2-42d2-8c01-ae66b0286872",
+    "COD_MUNIC": 3200508,
+    "nome": "MUNICÍPIO DE APIACÁ"
+  },
+  {
+    "id": "ef63a92a-3003-4fd6-9a33-9322030125f2",
+    "COD_MUNIC": 3200706,
+    "nome": "MUNICÍPIO DE ATÍLIO VIVÁCQUA"
+  },
+  {
+    "id": "71f285e4-af01-45eb-9217-90e11974aa7c",
+    "COD_MUNIC": 3200805,
+    "nome": "MUNICÍPIO DE BAIXO GUANDU"
+  },
+  {
+    "id": "b817315b-63ea-417e-b191-6ecbc42e56e4",
+    "COD_MUNIC": 3201100,
+    "nome": "MUNICÍPIO DE BOM JESUS DO NORTE"
+  },
+  {
+    "id": "331a1dd2-1e16-41bc-8a90-9ece731dbe65",
+    "COD_MUNIC": 3201704,
+    "nome": "MUNICÍPIO DE CONCEIÇÃO DO CASTELO"
+  },
+  {
+    "id": "08e913b0-7610-4fff-9ada-2a46bd5bde43",
+    "COD_MUNIC": 3202207,
+    "nome": "MUNICÍPIO DE FUNDÃO"
+  },
+  {
+    "id": "9c959690-44a0-41e3-bf1c-315db98b0b40",
+    "COD_MUNIC": 3202603,
+    "nome": "MUNICÍPIO DE ICONHA"
+  },
+  {
+    "id": "be6c7d1a-9e81-4fc1-94f3-d30b17540f0c",
+    "COD_MUNIC": 3202702,
+    "nome": "MUNICÍPIO DE ITAGUAÇU"
+  },
+  {
+    "id": "1f015814-dda9-40dd-a6b5-e9689199e9c2",
+    "COD_MUNIC": 3203007,
+    "nome": "MUNICÍPIO DE IÚNA"
+  },
+  {
+    "id": "6f39243e-a4a1-4a28-9b2b-dd2f3aeef262",
+    "COD_MUNIC": 3203106,
+    "nome": "MUNICÍPIO DE JERÔNIMO MONTEIRO"
+  },
+  {
+    "id": "b2760f9f-542f-44fc-8735-bb1e26433399",
+    "COD_MUNIC": 3203304,
+    "nome": "MUNICÍPIO DE MANTENÓPOLIS"
+  },
+  {
+    "id": "fe4f5244-ef62-44e0-87bd-d798561bd750",
+    "COD_MUNIC": 3203502,
+    "nome": "MUNICÍPIO DE MONTANHA"
+  },
+  {
+    "id": "e759183f-5e32-4e7c-a60f-9def200e870f",
+    "COD_MUNIC": 3203809,
+    "nome": "MUNICÍPIO DE MUQUI"
+  },
+  {
+    "id": "eeacded0-de81-4d3c-92c2-ccfc77a5c4e7",
+    "COD_MUNIC": 3204104,
+    "nome": "MUNICÍPIO DE PINHEIROS"
+  },
+  {
+    "id": "6c05fd12-22e1-4750-8720-5581b85a5a28",
+    "COD_MUNIC": 3204203,
+    "nome": "MUNICÍPIO DE PIÚMA"
+  },
+  {
+    "id": "41dd1b96-ae74-4b87-8d8a-23102d254e2c",
+    "COD_MUNIC": 3204401,
+    "nome": "MUNICÍPIO DE RIO NOVO DO SUL"
+  },
+  {
+    "id": "32f0f922-c167-45aa-aea4-20b7c39990bb",
+    "COD_MUNIC": 3204500,
+    "nome": "MUNICÍPIO DE SANTA LEOPOLDINA"
+  },
+  {
+    "id": "2c472e1b-a01b-428b-9ea0-ebfc1adea8d1",
+    "COD_MUNIC": 3204559,
+    "nome": "MUNICÍPIO DE SANTA MARIA DE JETIBÁ"
+  },
+  {
+    "id": "eaed9697-2852-45a0-b9e6-b296960c07bf",
+    "COD_MUNIC": 3204609,
+    "nome": "MUNICÍPIO DE SANTA TERESA"
+  },
+  {
+    "id": "191e562f-c718-42a7-84b1-7754a6401926",
+    "COD_MUNIC": 3205036,
+    "nome": "MUNICÍPIO DE VARGEM ALTA"
+  },
+  {
+    "id": "142e5085-4248-4211-80e5-f9e7d0ca4f9e",
+    "COD_MUNIC": 3200136,
+    "nome": "MUNICÍPIO DE ÁGUIA BRANCA"
+  }
+]

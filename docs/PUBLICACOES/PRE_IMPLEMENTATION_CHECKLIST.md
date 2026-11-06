@@ -76,9 +76,10 @@ responsável receber alertas. A ativação depende de contrato técnico aprovado
 - remetente `acoesgpp@seger.es.gov.br`, exibido como `Ações GPP`;
 - integração direta do backend com o serviço, sem depender de Google Apps
   Script em runtime;
-- credencial duplicada explicitamente nos caminhos independentes
-  `publicacoes/dev/zimbra/hml` e `publicacoes/dev/zimbra/prd`, nunca no banco
-  funcional, Git, log, documentação ou payload de API;
+- credencial duplicada explicitamente nos caminhos compartilhados e
+  independentes `gpp-shared/dev/zimbra/hml` e
+  `gpp-shared/dev/zimbra/prd`, nunca no banco funcional, Git, log,
+  documentação ou payload de API;
 - AppRoles e policies de leitura independentes para `HML` e `PRD`, seguindo o
   isolamento já adotado pelo CargaRH;
 - remetente, destinatários e demais valores não secretos configurados nos dois
@@ -103,6 +104,12 @@ responsável ou gate institucional posterior.
 A duplicação inicial será uma operação explícita de provisionamento. Depois
 disso, alterações em um perfil não serão propagadas silenciosamente ao outro;
 uma rotação conjunta deverá selecionar e validar os dois destinos.
+
+O Zimbra pertence à infraestrutura compartilhada do backend GPP, não ao
+bounded context `PUBLICACOES`. O adapter e a resolução de credenciais deverão
+ficar em `apps/core`; `pub_institucional` será o primeiro consumidor. Outros
+aplicativos poderão reutilizar o serviço depois, sem instalação ou integração
+antecipada nesta etapa.
 
 Logs, eventos persistidos e trilhas de auditoria são a evidência canônica. O
 e-mail apenas notifica e nunca substitui o estado persistido, o responsável ou

@@ -219,6 +219,81 @@ for _cargarh_environment in ("HML", "PRD"):
     ).strip()
 OPENBAO_ADDR = env("OPENBAO_ADDR", default="http://127.0.0.1:58200").strip()
 OPENBAO_TIMEOUT_SECONDS = env.float("OPENBAO_TIMEOUT_SECONDS", default=5)
+
+# Integração compartilhada com relatórios do E-Docs/PRODEST. As credenciais
+# ficam fora do código e dos arquivos de seleção de patriarcas.
+GPP_EDOCS_ENVIRONMENT = env("GPP_EDOCS_ENVIRONMENT", default="HML").upper()
+GPP_EDOCS_CREDENTIALS_PROVIDER = env(
+    "GPP_EDOCS_CREDENTIALS_PROVIDER",
+    default="environment",
+).strip().lower()
+GPP_EDOCS_CLIENT_ID = env("GPP_EDOCS_CLIENT_ID", default="").strip()
+GPP_EDOCS_CLIENT_SECRET = env("GPP_EDOCS_CLIENT_SECRET", default="").strip()
+GPP_EDOCS_OPENBAO_MOUNT_POINT = env(
+    "GPP_EDOCS_OPENBAO_MOUNT_POINT",
+    default="gpp-shared",
+).strip()
+_GPP_EDOCS_DEFAULTS = {
+    "HML": {
+        "api_base_url": "https://api.treinamento.e-docs.es.gov.br",
+        "token_url": "https://acessocidadao.es.gov.br/is/connect/token",
+        "scope": "api-sigades-consultar",
+    },
+    "PRD": {
+        "api_base_url": "https://api.e-docs.es.gov.br",
+        "token_url": "https://acessocidadao.es.gov.br/is/connect/token",
+        "scope": "api-sigades-consultar",
+    },
+}
+for _edocs_environment, _edocs_defaults in _GPP_EDOCS_DEFAULTS.items():
+    _edocs_prefix = f"GPP_EDOCS_{_edocs_environment}"
+    _edocs_runtime_prefix = _edocs_environment.lower()
+    globals()[f"{_edocs_prefix}_API_BASE_URL"] = env(
+        f"{_edocs_prefix}_API_BASE_URL",
+        default=_edocs_defaults["api_base_url"],
+    ).strip().rstrip("/")
+    globals()[f"{_edocs_prefix}_TOKEN_URL"] = env(
+        f"{_edocs_prefix}_TOKEN_URL",
+        default=_edocs_defaults["token_url"],
+    ).strip()
+    globals()[f"{_edocs_prefix}_SCOPE"] = env(
+        f"{_edocs_prefix}_SCOPE",
+        default=_edocs_defaults["scope"],
+    ).strip()
+    globals()[f"{_edocs_prefix}_OPENBAO_ROLE_ID_FILE"] = env(
+        f"{_edocs_prefix}_OPENBAO_ROLE_ID_FILE",
+        default=str(
+            BASE_DIR
+            / "infra/publicacoes-dev/runtime/openbao"
+            / f"gpp_shared_edocs_{_edocs_runtime_prefix}_role_id"
+        ),
+    )
+    globals()[f"{_edocs_prefix}_OPENBAO_SECRET_ID_FILE"] = env(
+        f"{_edocs_prefix}_OPENBAO_SECRET_ID_FILE",
+        default=str(
+            BASE_DIR
+            / "infra/publicacoes-dev/runtime/openbao"
+            / f"gpp_shared_edocs_{_edocs_runtime_prefix}_secret_id"
+        ),
+    )
+    globals()[f"{_edocs_prefix}_OPENBAO_SECRET_PATH"] = env(
+        f"{_edocs_prefix}_OPENBAO_SECRET_PATH",
+        default=f"dev/edocs/{_edocs_runtime_prefix}",
+    ).strip()
+
+GPP_EDOCS_CONNECT_TIMEOUT_SECONDS = env.float(
+    "GPP_EDOCS_CONNECT_TIMEOUT_SECONDS",
+    default=10,
+)
+GPP_EDOCS_READ_TIMEOUT_SECONDS = env.float(
+    "GPP_EDOCS_READ_TIMEOUT_SECONDS",
+    default=60,
+)
+GPP_EDOCS_GET_MAX_RETRIES = env.int("GPP_EDOCS_GET_MAX_RETRIES", default=2)
+GPP_EDOCS_RETRY_BACKOFF_SECONDS = env.float(
+    "GPP_EDOCS_RETRY_BACKOFF_SECONDS",
+    default=0.5,
+)
 CARGARH_CONNECT_TIMEOUT_SECONDS = env.float(
     "CARGARH_CONNECT_TIMEOUT_SECONDS",
     default=10,
