@@ -54,13 +54,19 @@ registrará separadamente preparação, publicação, data, justificativa e auto
 
 ## 3. Jornada de implantação de um gestor
 
-1. Administrador cadastra ou localiza o usuário.
-2. Associa `GESTOR_PUBLICACOES` na aplicação `PUBLICACOES`.
-3. O sincronizador materializa as permissões efetivas.
-4. Gestor autentica na aplicação.
-5. Menus aparecem conforme capabilities distribuídas.
-6. Botões e endpoints respeitam permissões técnicas.
-7. Toda ação sensível registra usuário, data e justificativa.
+1. Executa `.venv/bin/python manage.py semear_publicacoes` para reconciliar a
+   aplicação, o perfil, as capabilities, os menus e as permissões do recorte
+   E-Docs.
+2. Administrador cadastra ou localiza o usuário.
+3. Associa `GESTOR_PUBLICACOES` na aplicação `PUB_INSTITUCIONAL`.
+4. O sincronizador materializa as permissões efetivas.
+5. Gestor autentica na aplicação.
+6. Menus aparecem conforme capabilities distribuídas.
+7. Botões e endpoints respeitam permissões técnicas.
+8. Toda ação sensível registra usuário, data e justificativa.
+
+O seed pode ser executado novamente após deploy. Ele não ativa produção, não
+desbloqueia a aplicação e não substitui uma `base_url` já cadastrada.
 
 ## 4. Jornada de cadastro de fonte
 
@@ -194,9 +200,11 @@ de autenticação, envio, correlação, deduplicação, retry e falha de entrega
 dois perfis. A rotação continua recomendada, mas não bloqueia este
 provisionamento por decisão registrada.
 
-O serviço é compartilhado pelo backend GPP. Sua implementação deverá residir
-em `apps/core`, sem acoplamento a `apps.publicacoes`; nesta fase somente
-`pub_institucional` será integrado como consumidor.
+O serviço é compartilhado pelo backend GPP. Adaptadores, contratos e utilitários
+genéricos deverão residir em `common`, sem acoplamento a uma aplicação de
+negócio; nesta fase somente `pub_institucional` será integrado como consumidor.
+O `core` somente será acessado por `common` quando um mecanismo profundo da
+plataforma for realmente necessário.
 
 ### Diária
 

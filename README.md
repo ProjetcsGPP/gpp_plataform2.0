@@ -222,6 +222,7 @@ O projeto utiliza **multi-schema PostgreSQL** com um `DATABASE_ROUTER` customiza
 -- Criação dos schemas necessários (executar uma vez)
 CREATE SCHEMA IF NOT EXISTS acoes_pngi;
 CREATE SCHEMA IF NOT EXISTS carga_org_lot;
+CREATE SCHEMA IF NOT EXISTS publicacoes;
 ```
 
 ### Search Path
@@ -229,7 +230,7 @@ CREATE SCHEMA IF NOT EXISTS carga_org_lot;
 O `search_path` padrão configurado em `DATABASES.OPTIONS` é:
 
 ```
-public, acoes_pngi, carga_org_lot
+public, acoes_pngi, carga_org_lot, publicacoes
 ```
 
 ### Migrações por App
@@ -241,6 +242,7 @@ python manage.py migrate
 # Migrar apenas uma app específica
 python manage.py migrate accounts
 python manage.py migrate acoes_pngi
+python manage.py migrate pub_institucional
 ```
 
 ---

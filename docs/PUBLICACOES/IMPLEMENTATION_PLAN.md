@@ -94,11 +94,14 @@ pendentes.
 
 ### Backend
 
-- criar `apps/publicacoes` e schema `publicacoes`;
-- registrar `Aplicacao` com `codigointerno=PUB_INSTITUCIONAL` e nome exibido
-  `PUBLICAÇÕES`;
-- criar role `GESTOR_PUBLICACOES` e permissões técnicas;
-- criar capabilities e menus por seed idempotente;
+- manter `apps/pub_institucional` e o schema `publicacoes`, criados inicialmente
+  para o recorte E-Docs autorizado;
+- manter `Aplicacao` com `codigointerno=PUB_INSTITUCIONAL` e nome exibido
+  `Publicações Institucionais`;
+- ampliar a role `GESTOR_PUBLICACOES` e suas permissões técnicas conforme cada
+  contrato administrativo aprovado;
+- ampliar capabilities e menus pelo seed idempotente
+  `semear_publicacoes`; o recorte E-Docs inicial já está semeado;
 - implementar models iniciais de fonte, snapshot, publicação e histórico;
 - implementar contratos, orchestrator e adapters dos serviços de segurança sem
   dependência direta dos produtos locais;

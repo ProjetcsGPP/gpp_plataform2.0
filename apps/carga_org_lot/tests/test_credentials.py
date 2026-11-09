@@ -6,7 +6,7 @@ import pytest
 from django.test import override_settings
 
 from apps.carga_org_lot.services.credentials import get_cargarh_credentials
-from apps.core.services.secret_store import SecretStoreError
+from common.services.cofre_segredos import ErroCofreSegredos
 
 
 class FakeStore:
@@ -14,7 +14,7 @@ class FakeStore:
         self.data = data or {}
         self.error = error
 
-    def read(self):
+    def ler(self):
         if self.error:
             raise self.error
         return self.data
@@ -40,8 +40,8 @@ def test_credenciais_openbao_sao_lidas_sem_fallback_de_ambiente():
     CARGARH_CLIENT_SECRET="legacy-secret",
 )
 def test_falha_do_openbao_nao_recua_para_segredo_legado():
-    with pytest.raises(SecretStoreError):
-        get_cargarh_credentials(store=FakeStore(error=SecretStoreError("falha")))
+    with pytest.raises(ErroCofreSegredos):
+        get_cargarh_credentials(store=FakeStore(error=ErroCofreSegredos("falha")))
 
 
 @override_settings(
@@ -51,9 +51,9 @@ def test_falha_do_openbao_nao_recua_para_segredo_legado():
     CARGARH_PRD_OPENBAO_SECRET_ID_FILE="/run/prd-secret",
     CARGARH_PRD_OPENBAO_SECRET_PATH="dev/cargarh/prd",
 )
-@patch("apps.carga_org_lot.services.credentials.OpenBaoAppRoleKV2Store")
+@patch("apps.carga_org_lot.services.credentials.CofreSegredosOpenBaoAppRoleKV2")
 def test_prd_seleciona_identidade_e_caminho_exclusivos(store_class):
-    store_class.return_value.read.return_value = {
+    store_class.return_value.ler.return_value = {
         "client_id": "prd-id",
         "client_secret": "prd-secret",
     }
@@ -61,9 +61,9 @@ def test_prd_seleciona_identidade_e_caminho_exclusivos(store_class):
     get_cargarh_credentials()
 
     kwargs = store_class.call_args.kwargs
-    assert kwargs["role_id_file"] == "/run/prd-role"
-    assert kwargs["secret_id_file"] == "/run/prd-secret"
-    assert kwargs["secret_path"] == "dev/cargarh/prd"
+    assert kwargs["arquivo_role_id"] == "/run/prd-role"
+    assert kwargs["arquivo_secret_id"] == "/run/prd-secret"
+    assert kwargs["caminho_segredo"] == "dev/cargarh/prd"
 
 
 @override_settings(
@@ -71,5 +71,5 @@ def test_prd_seleciona_identidade_e_caminho_exclusivos(store_class):
     CARGARH_ENVIRONMENT="INVALIDO",
 )
 def test_ambiente_invalido_falha_sem_tentar_resolver_arquivo():
-    with pytest.raises(SecretStoreError, match="ambiente"):
+    with pytest.raises(ErroCofreSegredos, match="ambiente"):
         get_cargarh_credentials()

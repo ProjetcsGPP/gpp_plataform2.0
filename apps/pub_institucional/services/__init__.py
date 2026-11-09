@@ -1,0 +1,1 @@
+"""Serviços próprios de PUBLICAÇÕES."""

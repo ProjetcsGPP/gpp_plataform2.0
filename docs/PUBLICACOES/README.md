@@ -47,7 +47,9 @@ Criar uma aplicação capaz de:
 | [SECURITY_EVIDENCE_2026-10-26.md](./SECURITY_EVIDENCE_2026-10-26.md) | Preflight, restore, testes, cobertura, SBOMs, vulnerabilidades e bloqueios efetivamente observados em DEV |
 | [CARGA_ORG_LOT_SECRETS.md](./CARGA_ORG_LOT_SECRETS.md) | Separação HML/PRD, AppRoles, variáveis não secretas e operação das credenciais CargaRH |
 | [OPENBAO_DEV_GUIDE.md](./OPENBAO_DEV_GUIDE.md) | Uso diário, conceitos, diagnóstico e recuperação do OpenBao local sem rotação periódica |
-| [EDOCS_MONTHLY_COLLECTION.md](./EDOCS_MONTHLY_COLLECTION.md) | Coleta mensal compartilhada, seleção de patriarcas, JSONs brutos e planilha operacional E-Docs |
+| [EDOCS_MONTHLY_COLLECTION.md](./EDOCS_MONTHLY_COLLECTION.md) | Coleta mensal de PUBLICAÇÕES, seleção de patriarcas, JSONs brutos e planilha operacional E-Docs |
+| [EDOCS_SOURCE_CONTRACT.md](./EDOCS_SOURCE_CONTRACT.md) | Contrato técnico proposto para EDOC-01 a EDOC-05, com lacunas e critérios de aceite explícitos |
+| [EDOCS_DATA_CLASSIFICATION.md](./EDOCS_DATA_CLASSIFICATION.md) | Inventário e classificação campo a campo da coleta E-Docs |
 | [OPERATIONS_GUIDE.md](./OPERATIONS_GUIDE.md) | Como gestores, administradores e consumidores operarão a solução |
 | [SOURCE_CONTRACT_TEMPLATE.md](./SOURCE_CONTRACT_TEMPLATE.md) | Formulário obrigatório para integrar uma fonte sem presumir suas regras |
 | [CONSUMER_REGISTRATION_TEMPLATE.md](./CONSUMER_REGISTRATION_TEMPLATE.md) | Formulário para cadastrar aplicação consumidora e autorizar escopos |
@@ -66,15 +68,16 @@ Criar uma aplicação capaz de:
 - **Exemplo não normativo:** ilustração que não define comportamento de uma
   aplicação de origem.
 - **Gate:** condição obrigatória para encerrar uma fase.
-- **F0.5:** marco exclusivamente documental para aprovar contratos executáveis
-  antes de criar app, models, endpoints ou seeds.
+- **F0.5:** marco documental para aprovar contratos executáveis antes de
+  ampliar models, endpoints ou seeds. O primeiro recorte E-Docs foi autorizado
+  e implementado separadamente, sem aprovar por antecipação o contrato público.
 
 ## Identidade da aplicação
 
 - bounded context/documentação: `PUBLICACOES`;
-- namespace Python planejado: `apps.publicacoes`;
+- namespace Python: `apps.pub_institucional`;
 - código IAM persistido em `Aplicacao.codigointerno`: `PUB_INSTITUCIONAL`;
-- nome exibido: `PUBLICAÇÕES`.
+- nome exibido: `Publicações Institucionais`.
 
 O backend normaliza códigos de aplicação para maiúsculas. O código IAM não deve
 ser confundido com o nome do módulo, a URL ou o nome apresentado ao usuário.
@@ -82,7 +85,8 @@ ser confundido com o nome do módulo, a URL ou o nome apresentado ao usuário.
 ## Decisões aceitas até aqui
 
 1. A aplicação será um bounded context próprio, inicialmente dentro do monólito
-   Django, com código IAM `PUB_INSTITUCIONAL` e nome exibido `PUBLICAÇÕES`.
+   Django, com código IAM `PUB_INSTITUCIONAL` e nome exibido
+   `Publicações Institucionais`.
 2. O conteúdo público será servido a partir de publicações aprovadas e
    imutáveis, nunca diretamente de tabelas operacionais.
 3. Aplicações de origem continuarão responsáveis por suas regras canônicas.
@@ -110,8 +114,10 @@ ser confundido com o nome do módulo, a URL ou o nome apresentado ao usuário.
 
 ## Decisões ainda necessárias
 
-- Quais conjuntos de dados serão usados no primeiro piloto.
-- Classificação pública, gerencial ou restrita de cada campo.
+- Aprovação do piloto E-Docs, de seus responsáveis e do contrato técnico já
+  preenchido.
+- Aprovação da classificação proposta, dos campos públicos candidatos e da
+  retenção dos artefatos E-Docs.
 - Aceitação dos achados de imagem, egress no nível de rede e observabilidade
   completa de DEV. Rotação periódica de credenciais fica para HML/PRD.
 - Provedor institucional para autenticação máquina-a-máquina.

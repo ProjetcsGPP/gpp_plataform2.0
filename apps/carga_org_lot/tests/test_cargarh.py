@@ -50,7 +50,7 @@ class MutableCredentialStore:
     def __init__(self, client_secret):
         self.client_secret = client_secret
 
-    def read(self):
+    def ler(self):
         return {
             "client_id": "client-id",
             "client_secret": self.client_secret,

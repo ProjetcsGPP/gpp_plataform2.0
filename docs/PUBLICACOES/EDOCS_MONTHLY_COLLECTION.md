@@ -1,15 +1,25 @@
 # Coleta mensal E-Docs para apoio operacional
 
-**Estado:** implementação inicial compartilhada em `apps/core`  
-**Primeiro consumidor:** processo manual que antecede `pub_institucional`  
-**Não representa:** contrato final de publicação, cálculo canônico ou fonte
-aprovada para exposição pública
+**Estado:** implementação inicial pertencente a `apps/pub_institucional`
+
+**Consumidor atual:** processo operacional de PUBLICAÇÕES
+
+**Não representa:** fonte aprovada para exposição pública; o contrato e a
+classificação propostos ainda aguardam as aprovações registradas em
+[`EDOCS_SOURCE_CONTRACT.md`](./EDOCS_SOURCE_CONTRACT.md) e
+[`EDOCS_DATA_CLASSIFICATION.md`](./EDOCS_DATA_CLASSIFICATION.md)
 
 ## 1. Objetivo
 
 Automatizar a coleta mensal de quantitativos já fornecidos pela API V2 do
 E-Docs, preservar os JSONs de resposta e gerar uma planilha de apoio para a
 pessoa que executa a publicação atual.
+
+O cliente E-Docs, os modelos, a reconciliação de patriarcas, os comandos e
+as notificações pertencem ao contexto de PUBLICAÇÕES e, portanto, residem
+em `apps/pub_institucional`. Apenas mecanismos comprovadamente reutilizáveis,
+como o adaptador genérico do cofre de segredos, ficam em `common`. O `core`
+permanece reservado a mecanismos profundos da plataforma.
 
 A planilha existente `Localidade com cod + dados edocs.xlsx`, localizada fora
 do repositório, foi lida somente como referência. Ela não é alterada pelo
@@ -32,6 +42,28 @@ retornados pela API são preservados nos JSONs e acrescentados ao fim das
 colunas conhecidas da planilha.
 
 ## 3. Seleção de patriarcas
+
+O catálogo definitivo passa a possuir o campo `coletar_detalhes`. Quando o
+fluxo administrativo estiver exposto e o catálogo inicial for aprovado, esse
+campo será a fonte canônica para selecionar EDOC-01 a EDOC-04. A consulta
+EDOC-05, por sua vez, sempre considera o catálogo remoto completo para detectar
+novos registros, alterações e ausências.
+
+O JSON versionado descrito abaixo permanece, nesta etapa, como entrada do
+coletor mensal legado e como apoio à migração inicial. Ele não deve ser
+atualizado automaticamente a partir de uma divergência ainda não aprovada.
+
+A consulta controlada do catálogo é executada separadamente:
+
+```bash
+GPP_EDOCS_ENVIRONMENT=PRD \
+GPP_EDOCS_CREDENTIALS_PROVIDER=openbao \
+.venv/bin/python manage.py sincronizar_edocs_patriarcas
+```
+
+O comando registra a execução e as divergências, mas não altera o catálogo
+definitivo. As decisões são aplicadas pelo serviço administrativo e serão
+expostas ao frontend na etapa de API.
 
 O arquivo canônico
 [`config/edocs/patriarcas_disponiveis.json`](../../config/edocs/patriarcas_disponiveis.json)
@@ -168,9 +200,10 @@ não inclui corpo remoto ou credenciais nas mensagens de erro.
 
 ## 8. Pendências antes de uso como fonte oficial
 
-- confirmar responsáveis e dono da informação;
-- classificar cada campo e aprovar finalidade/retenção;
-- decidir quais patriarcas integram cada competência;
+- nomear e registrar responsáveis e dono da informação;
+- aprovar o contrato técnico e a classificação campo a campo já propostos;
+- aprovar a lista canônica e o processo de alteração; a mesma lista vale para
+  todas as competências até que uma nova versão seja deliberadamente mantida;
 - confirmar diferenças operacionais entre treinamento e produção;
 - definir tratamento formal de resposta vazia, indisponibilidade e correção;
 - validar os quantitativos com a planilha/processo manual atual;

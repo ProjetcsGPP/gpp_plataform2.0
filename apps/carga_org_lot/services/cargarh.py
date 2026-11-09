@@ -21,7 +21,7 @@ from apps.carga_org_lot.models import (
     ResultadoIntegracaoProdest,
 )
 from apps.carga_org_lot.services.credentials import get_cargarh_credentials
-from apps.core.services.secret_store import SecretStoreError
+from common.services.cofre_segredos import ErroCofreSegredos
 
 
 logger = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ def configuration_status(credential_store=None, credentials=None) -> dict:
             credentials_missing = not (
                 resolved.client_id and resolved.client_secret
             )
-        except SecretStoreError:
+        except ErroCofreSegredos:
             credential_provider_invalid = True
     required = {
         "CARGARH_TOKEN_URL": settings.CARGARH_TOKEN_URL,
@@ -511,7 +511,7 @@ class CargaRHClient:
     def _ensure_configuration(self):
         try:
             credentials = self._credentials()
-        except SecretStoreError as exc:
+        except ErroCofreSegredos as exc:
             raise CargaRHConfigurationError(
                 "As credenciais CargaRH não estão disponíveis no cofre."
             ) from exc

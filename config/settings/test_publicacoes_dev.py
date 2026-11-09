@@ -22,7 +22,9 @@ DATABASES = {
         "HOST": "127.0.0.1",
         "PORT": "55432",
         "OPTIONS": {
-            "options": "-c search_path=public,acoes_pngi,carga_org_lot",
+            "options": (
+                "-c search_path=public,acoes_pngi,carga_org_lot,publicacoes"
+            ),
             "passfile": os.environ["PGPASSFILE"],
         },
         "TEST": {"NAME": "test_gpp_publicacoes_dev"},

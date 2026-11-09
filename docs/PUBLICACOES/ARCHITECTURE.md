@@ -57,6 +57,18 @@ O Portal será responsável por:
 - após autenticação, apresentar as aplicações permitidas ao usuário;
 - não recalcular regras de negócio ou indicadores canônicos.
 
+### Fronteiras de código do backend
+
+- `apps/pub_institucional` é dona de entidades, regras, integrações e fluxos
+  específicos de PUBLICAÇÕES, inclusive o cliente e o catálogo E-Docs;
+- `common` recebe apenas classes e funções comprovadamente reutilizáveis por
+  aplicações distintas, como o adaptador genérico de cofre de segredos;
+- `core` fica restrito a mecanismos profundos da plataforma, como a resolução
+  de sessão e contexto de aplicação para WebSocket;
+- a direção esperada é aplicação para `common` e, somente quando necessário,
+  `common` para `core`; regras de PUBLICAÇÕES não podem retornar ao `core` ou
+  ao `common`.
+
 ## 2. Arquitetura lógica
 
 ```text
@@ -208,6 +220,21 @@ evidência histórica.
 `GESTOR_PUBLICACOES` será o único perfil funcional de negócio na primeira
 versão. Isso reduz complexidade operacional sem transformar a role em fonte de
 autorização dentro do frontend.
+
+O catálogo inicial do recorte E-Docs é reconciliado pelo comando
+`python manage.py semear_publicacoes` e contém:
+
+| Capability | Menu | Rota |
+|---|---|---|
+| `CATALOGO_EDOCS` | `PATRIARCAS_EDOCS` | `/publicacoes/patriarcas` |
+| `COLETAS_EDOCS` | `COLETAS_EDOCS` | `/publicacoes/coletas` |
+| `DIVERGENCIAS_EDOCS` | `DIVERGENCIAS_EDOCS` | `/publicacoes/divergencias` |
+| `AUDITORIA_EDOCS` | `AUDITORIA_EDOCS` | `/publicacoes/auditoria` |
+
+O seed também associa ao grupo do perfil as permissões técnicas dos models
+E-Docs, inclusive consulta, revisão, seleção, solicitação e visualização de
+coletas. A execução é idempotente e não altera `base_url`, bloqueio nem o estado
+de prontidão para produção já definidos administrativamente.
 
 O perfil receberá permissões técnicas granulares, entre elas, conforme os models
 efetivamente criados:

@@ -6,26 +6,26 @@ import stat
 import pytest
 from openpyxl import load_workbook
 
-from apps.core.services.edocs_export import (EdocsExportError, _merge_reports,
-                                             export_monthly_edocs,
-                                             load_patriarch_selection)
+from apps.pub_institucional.services.exportacao_edocs import (
+    ErroExportacaoEdocs, _consolidar_relatorios, carregar_selecao_patriarcas,
+    exportar_edocs_mensal)
 
 SELECTED_ID = "b817315b-63ea-417e-b191-6ecbc42e56e4"
 OTHER_ID = "49f6865b-cc2c-49ec-8d8e-00a829f2a893"
 ORG_ID = "8dff4a03-d25d-42d6-8bc3-376e0e7ead53"
 
 
-class FakeEdocsClient:
-    environment = "HML"
+class ClienteEdocsSimulado:
+    ambiente = "HML"
 
-    def list_patriarchs(self):
+    def listar_patriarcas(self):
         return [
             {"id": OTHER_ID, "nome": "OUTRO MUNICÍPIO", "sigla": "OUTRO"},
             {"id": SELECTED_ID, "nome": "MUNICÍPIO TESTE", "sigla": "PMT"},
         ]
 
-    def process_report(self, month, year):
-        assert (month, year) == ("10", 2025)
+    def relatorio_processos(self, mes, ano):
+        assert (mes, ano) == ("10", 2025)
         return [
             {
                 "idPatriarca": SELECTED_ID,
@@ -39,8 +39,8 @@ class FakeEdocsClient:
             },
         ]
 
-    def document_report(self, month, year):
-        assert (month, year) == ("10", 2025)
+    def relatorio_documentos(self, mes, ano):
+        assert (mes, ano) == ("10", 2025)
         return [
             {
                 "idPatriarca": SELECTED_ID,
@@ -56,8 +56,8 @@ class FakeEdocsClient:
             },
         ]
 
-    def process_report_by_patriarch(self, patriarch_id, month, year):
-        assert (patriarch_id, month, year) == (SELECTED_ID, "10", 2025)
+    def relatorio_processos_por_patriarca(self, id_patriarca, mes, ano):
+        assert (id_patriarca, mes, ano) == (SELECTED_ID, "10", 2025)
         return [
             {
                 "idPatriarca": SELECTED_ID,
@@ -67,8 +67,8 @@ class FakeEdocsClient:
             }
         ]
 
-    def document_report_by_patriarch(self, patriarch_id, month, year):
-        assert (patriarch_id, month, year) == (SELECTED_ID, "10", 2025)
+    def relatorio_documentos_por_patriarca(self, id_patriarca, mes, ano):
+        assert (id_patriarca, mes, ano) == (SELECTED_ID, "10", 2025)
         return [
             {
                 "idPatriarca": SELECTED_ID,
@@ -101,29 +101,29 @@ def test_export_creates_new_workbook_and_raw_evidence(tmp_path):
     _write_selection(selection_path)
     original_selection = selection_path.read_bytes()
 
-    result = export_monthly_edocs(
-        month=10,
-        year=2025,
-        selection_path=selection_path,
-        output_directory=tmp_path / "output",
-        client=FakeEdocsClient(),
+    result = exportar_edocs_mensal(
+        mes=10,
+        ano=2025,
+        caminho_selecao=selection_path,
+        diretorio_saida=tmp_path / "output",
+        cliente=ClienteEdocsSimulado(),
     )
 
-    assert result.workbook_path.exists()
-    assert result.raw_directory.is_dir()
-    assert stat.S_IMODE(result.raw_directory.stat().st_mode) == 0o700
-    assert stat.S_IMODE(result.workbook_path.parent.stat().st_mode) == 0o700
-    assert result.selected_patriarchs == 1
-    assert result.catalog_path.name == "patriarcas_catalogo_edocs.json"
-    assert result.catalog_path.exists()
-    assert result.selection_path == selection_path
+    assert result.caminho_planilha.exists()
+    assert result.diretorio_dados_brutos.is_dir()
+    assert stat.S_IMODE(result.diretorio_dados_brutos.stat().st_mode) == 0o700
+    assert stat.S_IMODE(result.caminho_planilha.parent.stat().st_mode) == 0o700
+    assert result.quantidade_patriarcas_selecionados == 1
+    assert result.caminho_catalogo.name == "patriarcas_catalogo_edocs.json"
+    assert result.caminho_catalogo.exists()
+    assert result.caminho_selecao == selection_path
     assert selection_path.read_bytes() == original_selection
-    assert (result.raw_directory / "edoc-05-patriarcas.json").exists()
+    assert (result.diretorio_dados_brutos / "edoc-05-patriarcas.json").exists()
     assert (
-        result.raw_directory / f"edoc-02-processos-{SELECTED_ID}.json"
+        result.diretorio_dados_brutos / f"edoc-02-processos-{SELECTED_ID}.json"
     ).exists()
 
-    workbook = load_workbook(result.workbook_path, data_only=False)
+    workbook = load_workbook(result.caminho_planilha, data_only=False)
     assert workbook.sheetnames == [
         "Parâmetros",
         "Patriarcas",
@@ -159,25 +159,25 @@ def test_export_creates_new_workbook_and_raw_evidence(tmp_path):
 def test_export_consolidates_all_selected_patriarchs_in_same_workbook(
     tmp_path,
 ):
-    class MultiplePatriarchsClient(FakeEdocsClient):
-        def process_report_by_patriarch(self, patriarch_id, month, year):
-            assert (month, year) == ("10", 2025)
-            total = 20 if patriarch_id == SELECTED_ID else 99
+    class ClienteMultiplosPatriarcas(ClienteEdocsSimulado):
+        def relatorio_processos_por_patriarca(self, id_patriarca, mes, ano):
+            assert (mes, ano) == ("10", 2025)
+            total = 20 if id_patriarca == SELECTED_ID else 99
             return [
                 {
-                    "idPatriarca": patriarch_id,
+                    "idPatriarca": id_patriarca,
                     "idOrganizacao": ORG_ID,
                     "nomeOrganizacao": "ORGANIZAÇÃO TESTE",
                     "totalProcessos": total,
                 }
             ]
 
-        def document_report_by_patriarch(self, patriarch_id, month, year):
-            assert (month, year) == ("10", 2025)
-            total = 40 if patriarch_id == SELECTED_ID else 100
+        def relatorio_documentos_por_patriarca(self, id_patriarca, mes, ano):
+            assert (mes, ano) == ("10", 2025)
+            total = 40 if id_patriarca == SELECTED_ID else 100
             return [
                 {
-                    "idPatriarca": patriarch_id,
+                    "idPatriarca": id_patriarca,
                     "idOrganizacao": ORG_ID,
                     "nomeOrganizacao": "ORGANIZAÇÃO TESTE",
                     "totalDocumentos": total,
@@ -205,22 +205,22 @@ def test_export_consolidates_all_selected_patriarchs_in_same_workbook(
         encoding="utf-8",
     )
 
-    result = export_monthly_edocs(
-        month=10,
-        year=2025,
-        selection_path=selection_path,
-        output_directory=tmp_path / "output",
-        client=MultiplePatriarchsClient(),
+    result = exportar_edocs_mensal(
+        mes=10,
+        ano=2025,
+        caminho_selecao=selection_path,
+        diretorio_saida=tmp_path / "output",
+        cliente=ClienteMultiplosPatriarcas(),
     )
 
-    workbook = load_workbook(result.workbook_path, read_only=True)
+    workbook = load_workbook(result.caminho_planilha, read_only=True)
     municipality_ids = {
         row[1].value for row in list(workbook["Municípios"].iter_rows())[1:]
     }
     organization_ids = {
         row[1].value for row in list(workbook["Organizações"].iter_rows())[1:]
     }
-    assert result.selected_patriarchs == 2
+    assert result.quantidade_patriarcas_selecionados == 2
     assert municipality_ids == {SELECTED_ID, OTHER_ID}
     assert organization_ids == {SELECTED_ID, OTHER_ID}
     workbook.close()
@@ -235,8 +235,8 @@ def test_selection_rejects_extra_fields(tmp_path):
         encoding="utf-8",
     )
 
-    with pytest.raises(EdocsExportError, match="campos não permitidos"):
-        load_patriarch_selection(path)
+    with pytest.raises(ErroExportacaoEdocs, match="campos não permitidos"):
+        carregar_selecao_patriarcas(path)
 
 
 def test_selection_rejects_invalid_municipality_code(tmp_path):
@@ -254,8 +254,8 @@ def test_selection_rejects_invalid_municipality_code(tmp_path):
         encoding="utf-8",
     )
 
-    with pytest.raises(EdocsExportError, match="COD_MUNIC inválido"):
-        load_patriarch_selection(path)
+    with pytest.raises(ErroExportacaoEdocs, match="COD_MUNIC inválido"):
+        carregar_selecao_patriarcas(path)
 
 
 def test_export_rejects_selected_patriarch_absent_from_catalog(tmp_path):
@@ -272,13 +272,13 @@ def test_export_rejects_selected_patriarch_absent_from_catalog(tmp_path):
         encoding="utf-8",
     )
 
-    with pytest.raises(EdocsExportError, match="não estão habilitados"):
-        export_monthly_edocs(
-            month=10,
-            year=2025,
-            selection_path=selection_path,
-            output_directory=tmp_path / "output",
-            client=FakeEdocsClient(),
+    with pytest.raises(ErroExportacaoEdocs, match="não estão habilitados"):
+        exportar_edocs_mensal(
+            mes=10,
+            ano=2025,
+            caminho_selecao=selection_path,
+            diretorio_saida=tmp_path / "output",
+            cliente=ClienteEdocsSimulado(),
         )
 
 
@@ -289,12 +289,12 @@ def test_merge_rejects_duplicate_identifiers_in_same_report():
         "totalProcessos": 20,
     }
 
-    with pytest.raises(EdocsExportError, match="identificadores duplicados"):
-        _merge_reports(
+    with pytest.raises(ErroExportacaoEdocs, match="identificadores duplicados"):
+        _consolidar_relatorios(
             [duplicate, duplicate.copy()],
             [],
-            key_fields=("idPatriarca",),
-            selected_ids={SELECTED_ID},
-            month=10,
-            year=2025,
+            campos_chave=("idPatriarca",),
+            ids_selecionados={SELECTED_ID},
+            mes=10,
+            ano=2025,
         )

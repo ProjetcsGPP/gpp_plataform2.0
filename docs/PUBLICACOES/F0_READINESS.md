@@ -1,6 +1,6 @@
 # Prontidão da Fase 0
 
-**Atualização:** 2026-11-03
+**Atualização:** 2026-11-06
 **Regra:** a Fase 1 começa quando todos os gates obrigatórios da Fase 0 e do
 marco contratual F0.5 tiverem decisão, responsável e evidência compatível com o
 risco.
@@ -22,8 +22,8 @@ de coordenação; os documentos especializados contêm o detalhe e a evidência.
 | Threat model | Documentado, requer revisão | `THREAT_MODEL.md` | Revisar após piloto, classificação e topologia aprovados. |
 | Inventário técnico | Sandbox comprovada com lacunas | `INFRASTRUCTURE_INVENTORY.md`; `infra/publicacoes-dev` | Validar banco real, egress de rede e observabilidade. |
 | Plano de rollback | Processo documentado, não exercitado no alvo | `ROLLBACK_PLAN.md` | Aprovar flags, responsáveis e exercícios por ambiente. |
-| Piloto e classificação | Parcial | `PUB-011`; PRE-001 a PRE-003; `EDOCS_MONTHLY_COLLECTION.md` | Validar o piloto E-Docs, nomear responsáveis, preencher o contrato e classificar campos. |
-| Contratos executáveis | Pendente, marco F0.5 | `PUB-017` a `PUB-019` | Aprovar DTO público, OpenAPI administrativo e catálogo IAM. |
+| Piloto e classificação | Parcial, propostas preenchidas | `PUB-011`; PRE-001 a PRE-003; contrato e classificação E-Docs | Nomear responsáveis, validar o piloto e aprovar contrato, divulgação e retenção. |
+| Contratos executáveis | Parcial, marco F0.5 | `PUB-017` a `PUB-019` | Catálogo IAM do recorte E-Docs implementado; aprovar DTO público, OpenAPI administrativo e catálogo editorial futuro. |
 | Cadeia de fornecimento | Evidência histórica bloqueada | `SECURITY_EVIDENCE_2026-10-26.md` | Corrigir/justificar achados e gerar evidência datada atual. |
 | PostgreSQL on-premises | Bloqueado | `PUB-020`; restore comprovado apenas na sandbox | Validar privilégios, migrations, backup e restore na instância real. |
 | Egress de rede | Bloqueado | Contrato aplicativo SSRF comprovado; restrição de rede não comprovada | Demonstrar allowlist e bloqueios no nível de rede. |
@@ -31,11 +31,11 @@ de coordenação; os documentos especializados contêm o detalhe e a evidência.
 
 ## 2. Situação por item de pré-implementação
 
-| ID | Estado em 2026-11-05 | Falta para aceite |
+| ID | Estado em 2026-11-06 | Falta para aceite |
 |---|---|---|
-| PRE-001 | Parcial — estrutura provisionada | Código `PUB_INSTITUCIONAL`, nome `PUBLICAÇÕES`, responsável único, ausência de substituto e perfis Zimbra `HML`/`PRD` registrados; mount compartilhado, policies e AppRoles existem em DEV. A manutenção temporária da credencial exposta foi aceita; faltam cadastro controlado, entrada oculta da senha nos dois caminhos e teste de envio. |
-| PRE-002 | Parcial — piloto identificado | Coleta mensal E-Docs com EDOC-01 a EDOC-05 selecionados e ferramenta operacional iniciada; faltam dono da informação, validação com o processo manual e contrato de fonte aprovado. |
-| PRE-003 | Pendente | Classificação campo a campo, finalidade, retenção e proibições. |
+| PRE-001 | Parcial — estrutura provisionada | Código `PUB_INSTITUCIONAL`, nome `Publicações Institucionais`, responsável único, ausência de substituto e perfis Zimbra `HML`/`PRD` registrados; mount compartilhado, policies e AppRoles existem em DEV. A manutenção temporária da credencial exposta foi aceita; faltam cadastro controlado, entrada oculta da senha nos dois caminhos e teste de envio. |
+| PRE-002 | Parcial — contrato proposto | Coleta mensal E-Docs implementada e contrato técnico preenchido; faltam dono da informação, confirmação da origem, validação formal com o processo manual e aprovações. |
+| PRE-003 | Parcial — classificação proposta | Campos, artefatos, finalidade e proibições foram inventariados; faltam autorização dos campos públicos candidatos e prazos institucionais de retenção. |
 | PRE-004 | Parcial | Topologia de DEV aprovada e diagrama browser/SSR/worker. |
 | PRE-005 | Bloqueado | Validar schema, privilégios, backup e restore no PostgreSQL on-premises real. |
 | PRE-006 | Parcial | Sandbox S3 e negações foram exercitadas; falta decisão formal do serviço de DEV e política. |
@@ -62,24 +62,27 @@ executáveis. Antes de F1 devem estar aprovados:
 1. DTO público v1 e estados sem publicação, revogação, `429` e `5xx`;
 2. OpenAPI administrativo com recursos, UUIDs, paginação, filtros, ações,
    transições, preview, erros e concorrência;
-3. catálogo IAM com aplicação, role, permissões, capabilities e menus;
+3. catálogo IAM editorial futuro com role, permissões, capabilities e menus; o
+   catálogo E-Docs inicial já possui seed idempotente;
 4. decisões de idempotência, versionamento e compatibilidade;
 5. matriz de campos permitidos por representação.
 
-F0.5 não autoriza app, model, migration, endpoint, seed, fixture executável,
-tela ou teste sintético de `PUBLICACOES`.
+F0.5 não autoriza ampliar o domínio editorial com model, migration, endpoint,
+seed, fixture executável ou tela antes dos contratos. O recorte E-Docs e seu
+catálogo IAM foram autorizados e implementados separadamente.
 
 ## 4. Bloqueios para iniciar a Fase 1
 
 1. `PRE-001`, `PRE-002` e `PUB-011` com aceite parcial; `PRE-003` sem
    aprovação.
-2. `PUB-017` a `PUB-019` sem contratos executáveis aprovados em F0.5.
+2. `PUB-017` e `PUB-018` sem contratos executáveis aprovados em F0.5; a parte
+   editorial futura de `PUB-019` acompanha o contrato administrativo.
 3. `PUB-020` bloqueado por PostgreSQL real, cadeia de fornecimento, egress de
    rede e observabilidade.
 4. `PUB-022` sem responsáveis, categorias operacionais, métricas, traces,
    correlação e alerta local.
 5. Rollback e restore comprovados apenas na sandbox, não na instância alvo.
 
-Enquanto qualquer item obrigatório permanecer aberto, não será criado app,
-model, migration, endpoint, seed, fixture executável ou teste sintético de
-`PUBLICACOES`.
+Enquanto qualquer item obrigatório permanecer aberto, o domínio editorial não
+será ampliado com model, migration, endpoint, seed, fixture executável ou tela.
+O recorte E-Docs autorizado permanece isolado dessa restrição.

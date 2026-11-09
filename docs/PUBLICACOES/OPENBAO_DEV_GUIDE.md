@@ -55,8 +55,10 @@ nenhuma delas pode escrever. O usuário não precisa fazer login no OpenBao para
 usar normalmente o CargaRH: o backend executa esse fluxo automaticamente.
 
 O mesmo isolamento é aplicado ao Zimbra e ao E-Docs, sob o mount
-`gpp-shared`. Esse mount e os adapters em `apps/core` pertencem ao backend como
-um todo; `pub_institucional` será somente o primeiro consumidor.
+`gpp-shared`. O mount pertence ao backend como um todo. Adaptadores genéricos
+ficam em `common`; integrações e regras específicas do E-Docs ficam em
+`apps/pub_institucional`. O `core` permanece reservado aos mecanismos
+profundos da plataforma.
 
 ## 3. Operação normal
 

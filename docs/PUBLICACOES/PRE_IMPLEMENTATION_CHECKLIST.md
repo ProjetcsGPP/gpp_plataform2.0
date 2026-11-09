@@ -38,11 +38,11 @@ produtos, desde que cumpram os contratos e testes fixados em DEV.
 #### Identidade
 
 - código persistido em `Aplicacao.codigointerno`: `PUB_INSTITUCIONAL`;
-- nome exibido: `PUBLICAÇÕES`;
+- nome exibido: `Publicações Institucionais`;
 - `pub_institucional` informado pelo responsável será normalizado para
   maiúsculas pelo backend;
-- o bounded context e o namespace Python planejado continuam referidos como
-  `PUBLICACOES` e `apps.publicacoes`; isso não altera o código IAM acima.
+- o bounded context é `PUBLICACOES` e o namespace Python implementado é
+  `apps.pub_institucional`; isso não altera o código IAM acima.
 
 #### Responsabilidade inicial
 
@@ -106,8 +106,8 @@ disso, alterações em um perfil não serão propagadas silenciosamente ao outro
 uma rotação conjunta deverá selecionar e validar os dois destinos.
 
 O Zimbra pertence à infraestrutura compartilhada do backend GPP, não ao
-bounded context `PUBLICACOES`. O adapter e a resolução de credenciais deverão
-ficar em `apps/core`; `pub_institucional` será o primeiro consumidor. Outros
+bounded context `PUBLICACOES`. O adaptador e a resolução de credenciais deverão
+ficar em `common`; `pub_institucional` será o primeiro consumidor. Outros
 aplicativos poderão reutilizar o serviço depois, sem instalação ou integração
 antecipada nesta etapa.
 
@@ -177,7 +177,9 @@ Cada ambiente futuro repetirá os testes contra o produto nele escolhido.
    suas versões.
 7. Configurar CI/CD, análise de dependências, migração e rollback.
 8. Executar o preflight técnico abaixo e anexar as evidências à matriz.
-9. Só então criar `apps/publicacoes`, seu schema e o primeiro teste sintético.
+9. Só então ampliar `apps/pub_institucional` e o schema `publicacoes` para os
+   contratos editoriais, públicos e IAM; o recorte E-Docs já autorizado não
+   aprova essas camadas por antecipação.
 
 HML e PRD possuem gates próprios e não são pressupostos pelo gate de DEV.
 

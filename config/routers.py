@@ -10,7 +10,7 @@ class SchemaRouter:
     """
     Roteador de banco de dados por app_label.
     Todas as apps usam o banco 'default' (PostgreSQL único),
-    mas os models de acoes_pngi e carga_org_lot usam
+    mas os models de acoes_pngi, carga_org_lot e pub_institucional usam
     db_table com schema qualificado: '"schema"."tabela"'.
     """
 
@@ -19,10 +19,12 @@ class SchemaRouter:
         "portal": "default",
         "acoes_pngi": "default",
         "carga_org_lot": "default",
+        "pub_institucional": "default",
         "common": "default",
         # Quando a infraestrutura separar:
         # "acoes_pngi": "acoes_pngi_db",
         # "carga_org_lot": "carga_org_lot_db",
+        # "pub_institucional": "publicacoes_db",
     }
 
     def db_for_read(self, model, **hints):

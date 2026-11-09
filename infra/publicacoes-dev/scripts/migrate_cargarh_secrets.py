@@ -13,7 +13,6 @@ from pathlib import Path
 import django
 import requests
 
-
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 INFRA_DIR = Path(__file__).resolve().parents[1]
 ENV_FILE = PROJECT_DIR / ".env"
@@ -103,7 +102,7 @@ def main():
 
     from django.conf import settings
 
-    from apps.core.services.secret_store import OpenBaoAppRoleKV2Store
+    from common.services.cofre_segredos import CofreSegredosOpenBaoAppRoleKV2
 
     environment = settings.CARGARH_ENVIRONMENT
     if environment not in {"HML", "PRD"}:
@@ -133,20 +132,20 @@ def main():
     )
     response.raise_for_status()
 
-    store = OpenBaoAppRoleKV2Store(
-        address=address,
-        role_id_file=(
+    store = CofreSegredosOpenBaoAppRoleKV2(
+        endereco=address,
+        arquivo_role_id=(
             OPENBAO_RUNTIME / f"carga_org_lot_{environment_lower}_role_id"
         ),
-        secret_id_file=(
+        arquivo_secret_id=(
             OPENBAO_RUNTIME / f"carga_org_lot_{environment_lower}_secret_id"
         ),
-        mount_point="carga-org-lot",
-        secret_path=secret_path,
-        timeout=settings.OPENBAO_TIMEOUT_SECONDS,
-        allow_insecure_loopback=settings.DEBUG,
+        ponto_montagem="carga-org-lot",
+        caminho_segredo=secret_path,
+        tempo_limite=settings.OPENBAO_TIMEOUT_SECONDS,
+        permitir_loopback_inseguro=settings.DEBUG,
     )
-    stored = store.read()
+    stored = store.ler()
     if (
         stored.get("client_id") != client_id
         or stored.get("client_secret") != client_secret

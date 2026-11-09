@@ -5,9 +5,9 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.core.services.edocs import EdocsError
-from apps.core.services.edocs_export import (EdocsExportError,
-                                             export_monthly_edocs)
+from apps.pub_institucional.services.cliente_edocs import ErroEdocs
+from apps.pub_institucional.services.exportacao_edocs import (
+    ErroExportacaoEdocs, exportar_edocs_mensal)
 
 
 class Command(BaseCommand):
@@ -37,22 +37,22 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        output_directory = options["output_dir"]
-        selection_path = options["patriarcas_config"]
+        diretorio_saida = options["output_dir"]
+        caminho_selecao = options["patriarcas_config"]
         try:
-            result = export_monthly_edocs(
-                month=options["mes"],
-                year=options["ano"],
-                selection_path=selection_path,
-                output_directory=output_directory,
+            resultado = exportar_edocs_mensal(
+                mes=options["mes"],
+                ano=options["ano"],
+                caminho_selecao=caminho_selecao,
+                diretorio_saida=diretorio_saida,
             )
-        except (EdocsError, EdocsExportError) as exc:
+        except (ErroEdocs, ErroExportacaoEdocs) as exc:
             raise CommandError(str(exc)) from exc
         self.stdout.write(
             self.style.SUCCESS(
                 "Coleta E-Docs concluída para "
-                f"{result.selected_patriarchs} patriarca(s): "
-                f"{result.workbook_path}. Seleção preservada em "
-                f"{result.selection_path}."
+                f"{resultado.quantidade_patriarcas_selecionados} "
+                f"patriarca(s): {resultado.caminho_planilha}. "
+                f"Seleção preservada em {resultado.caminho_selecao}."
             )
         )

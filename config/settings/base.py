@@ -64,6 +64,7 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     "apps.core",
+    "apps.pub_institucional.apps.PublicacoesInstitucionaisConfig",
     "apps.accounts",
     "apps.portal",
     "apps.acoes_pngi",
@@ -126,7 +127,9 @@ DATABASES = {
         "HOST": env("DB_HOST", default="localhost"),
         "PORT": env("DB_PORT", default="5432"),
         "OPTIONS": {
-            "options": "-c search_path=public,acoes_pngi,carga_org_lot",
+            "options": (
+                "-c search_path=public,acoes_pngi,carga_org_lot,publicacoes"
+            ),
         },
     }
 }

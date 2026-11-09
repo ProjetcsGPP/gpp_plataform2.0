@@ -44,7 +44,7 @@ do frontend seja sincronizado.
 
 | Repositório | Estado observado | Implementação de `PUBLICACOES` |
 |---|---|---|
-| Backend | Commit funcional auditado sincronizado com `origin/feat/publicacoes-informacoes`; o worktree contém somente as alterações documentais desta reconfirmação, ainda não commitadas | `apps/publicacoes` não existe. |
+| Backend | O worktree contém a implementação ainda não commitada do primeiro recorte E-Docs, além das atualizações documentais preservadas | `apps/pub_institucional` existe, com schema `publicacoes`, catálogo de patriarcas, reconciliação controlada, auditoria e cliente E-Docs; a fundação completa permanece parcial. |
 | Frontend | Branch limpa e sincronizada com `origin/feat/publicacoes-informacoes` | `src/app/publicacoes`, `src/features/publicacoes` e `PUBLICACOES` em `AppContext` não existem. |
 
 O backend possui 18 documentos diretamente em `docs/PUBLICACOES`, seis ADRs e
@@ -60,7 +60,7 @@ existem e são coerentes quanto à arquitetura proposta.
 | `IMPLEMENTATION_PLAN.md` | Fases F0 a F7 e gates | Válido; F1 continua impedida pelos gates abertos de F0. |
 | `SECURITY_PLAN.md` | Ativos, fronteiras, ameaças e controles | Válido; `PUB-008` está concluído, mas não encerra os demais controles. |
 | `OPERATIONS_GUIDE.md` | Operação futura por gestores e consumidores | Válido como procedimento-alvo; não prova provisionamento ou treinamento. |
-| `SOURCE_CONTRACT_TEMPLATE.md` | Contrato obrigatório de cada origem | O piloto operacional E-Docs foi identificado, mas o contrato ainda não foi preenchido e aprovado. |
+| `SOURCE_CONTRACT_TEMPLATE.md` | Contrato obrigatório de cada origem | O contrato E-Docs foi tecnicamente preenchido e a classificação campo a campo proposta; responsáveis, retenção e aprovações continuam pendentes. |
 | `CONSUMER_REGISTRATION_TEMPLATE.md` | Cadastro e governança de consumidores | Válido para F6; não define ainda o provedor M2M. |
 
 Documentos complementares como `PRE_IMPLEMENTATION_CHECKLIST.md`,
@@ -96,14 +96,15 @@ evidências e bloqueios específicos.
 
 ### 5.2 Pendente antes da fundação ou em fases posteriores
 
-- `PUB-011`: piloto operacional E-Docs identificado; responsáveis, contrato e
-  classificação campo a campo continuam pendentes;
+- `PUB-011`: piloto operacional E-Docs identificado, contrato preenchido e
+  classificação proposta; responsáveis, retenção e aprovações continuam
+  pendentes;
 - `PUB-017`: schema público inicial e estados sem publicação, obrigatório no
   gate contratual F0.5;
 - `PUB-018`: contrato administrativo, workflow, concorrência, preview e erros,
   obrigatório no gate contratual F0.5 antes de models e endpoints;
-- `PUB-019`: código da aplicação decidido como `PUB_INSTITUCIONAL`; menus,
-  capabilities e permissões continuam pendentes no gate F0.5 antes do seed;
+- `PUB-019`: identidade e catálogo IAM do recorte E-Docs implementados por seed
+  idempotente; recursos editoriais futuros dependem do contrato administrativo;
 - `PUB-021`: provedor e contrato M2M;
 - `PUB-022`: responsáveis operacionais, métricas, traces, correlação e alerta;
 - `PUB-024`: estados de ausência, revogação, `429`, offline e `5xx`;
@@ -161,14 +162,14 @@ Os caminhos novos são propostas de localização, não contratos de dados.
 
 | Caminho | Tipo | Fase | Responsabilidade/contrato |
 |---|---|---|---|
-| `apps/publicacoes/apps.py`, `__init__.py` | Novo | F1 | Registro do bounded context (`PUB-001`). |
-| `apps/publicacoes/models/`, `migrations/` | Novo | F1–F2 | Fonte, snapshot, publicação imutável, histórico e concorrência (`PUB-002`, `PUB-018`). |
-| `apps/publicacoes/services/` | Novo | F1–F6 | Casos de uso, transações, workflow e interfaces de segurança (`PUB-027`). |
-| `apps/publicacoes/selectors/` | Novo | F1–F3 | Leituras explícitas sem expor models entre domínios. |
-| `apps/publicacoes/serializers/`, `views/`, `urls.py` | Novo | F1–F6 | APIs administrativas, públicas e de distribuição versionadas. |
-| `apps/publicacoes/tasks.py` | Novo | F4–F6 | Coleta, reconciliação e processamento assíncrono idempotente. |
-| `apps/publicacoes/tests/` | Novo | Todas | Unidade, contrato, autorização, segurança, concorrência e integração. |
-| `config/settings/base.py` | Alterar | F1 | Registrar app/configuração sem segredos no código. |
+| `apps/pub_institucional/apps.py`, `__init__.py` | Criado | F1 | Registro do bounded context (`PUB-001`). |
+| `apps/pub_institucional/models/`, `migrations/` | Parcial | F1–F2 | Catálogo E-Docs implementado; fonte, snapshot editorial, publicação imutável, histórico e concorrência ainda serão ampliados (`PUB-002`, `PUB-018`). |
+| `apps/pub_institucional/services/` | Parcial | F1–F6 | Cliente E-Docs e reconciliação implementados; demais casos de uso, workflow e interfaces de segurança permanecem pendentes (`PUB-027`). |
+| `apps/pub_institucional/selectors/` | Novo | F1–F3 | Leituras explícitas sem expor models entre domínios. |
+| `apps/pub_institucional/serializers/`, `views/`, `urls.py` | Novo | F1–F6 | APIs administrativas, públicas e de distribuição versionadas. |
+| `apps/pub_institucional/tasks.py` | Novo | F4–F6 | Coleta, reconciliação e processamento assíncrono idempotente. |
+| `apps/pub_institucional/tests/` | Parcial | Todas | Testes do cliente, exportação e catálogo E-Docs existem; as demais camadas ainda precisam de cobertura. |
+| `config/settings/base.py` | Alterado | F1 | App registrada sem segredos no código. |
 | `config/urls.py` | Alterar | F1/F3 | Rotas administrativas e públicas versionadas. |
 | `config/routers.py` | Validar/alterar se necessário | F1 | Schema PostgreSQL e isolamento do bounded context. |
 | `apps/accounts/middleware.py` | Alterar | F1 | Reconhecer o prefixo e o cookie dedicado de `PUBLICACOES`. |
@@ -226,7 +227,8 @@ contornar o gate que protege a capacidade correspondente.
   sem resolução formal;
 - inexistência de schema público e contrato administrativo executáveis
   (`PUB-017`, `PUB-018`);
-- catálogo IAM final ainda pendente (`PUB-019`).
+- catálogo IAM editorial futuro ainda depende do contrato administrativo
+  (`PUB-018`, `PUB-019`); o catálogo E-Docs inicial já foi implementado.
 
 F0.5 é trabalho documental e contratual. Ele pode ocorrer enquanto evidências
 operacionais de F0 são fechadas, mas não autoriza app, model, migration,
@@ -326,13 +328,13 @@ sequência correta é:
 2. atualizar o assessment local do frontend com esta reconfirmação;
 3. nomear responsáveis e validar o piloto E-Docs sem converter a ferramenta
    operacional em contrato de fonte por antecipação;
-4. preencher e aprovar o contrato de fonte e a classificação campo a campo;
+4. aprovar o contrato E-Docs e a classificação campo a campo já propostos;
 5. fechar as evidências de PostgreSQL on-premises, egress e observabilidade;
 6. decidir/corrigir os achados da cadeia de desenvolvimento;
 7. concluir F0.5 com schemas iniciais público, administrativo e IAM aprovados;
 8. atualizar `F0_READINESS.md` e a matriz com as evidências reproduzidas;
-9. somente então autorizar a criação de `apps/publicacoes` e da fundação
-   frontend.
+9. concluir as pendências antes de ampliar `apps/pub_institucional` além do
+   recorte E-Docs já autorizado e antes de iniciar a fundação frontend.
 
 Até esse gate, alterações em CARGA_ORG_LOT ou outra origem continuam fora de
 escopo.

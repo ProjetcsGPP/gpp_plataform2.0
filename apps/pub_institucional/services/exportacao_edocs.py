@@ -14,30 +14,30 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from apps.core.services.edocs import EdocsClient
+from apps.pub_institucional.services.cliente_edocs import ClienteEdocs
 
 
-class EdocsExportError(RuntimeError):
+class ErroExportacaoEdocs(RuntimeError):
     """Configuração ou transformação inválida da coleta mensal."""
 
 
 @dataclass(frozen=True)
-class PatriarchSelection:
+class SelecaoPatriarca:
     id: str
-    name: str
-    municipality_code: int | None
+    nome: str
+    codigo_municipio: int | None
 
 
 @dataclass(frozen=True)
-class EdocsExportResult:
-    workbook_path: Path
-    raw_directory: Path
-    catalog_path: Path
-    selection_path: Path
-    selected_patriarchs: int
+class ResultadoExportacaoEdocs:
+    caminho_planilha: Path
+    diretorio_dados_brutos: Path
+    caminho_catalogo: Path
+    caminho_selecao: Path
+    quantidade_patriarcas_selecionados: int
 
 
-MUNICIPALITY_COLUMNS = (
+COLUNAS_MUNICIPIO = (
     "COD_MUNIC",
     "idPatriarca",
     "nomePatriarca",
@@ -47,7 +47,7 @@ MUNICIPALITY_COLUMNS = (
     "mes",
     "ano",
 )
-ORGANIZATION_COLUMNS = (
+COLUNAS_ORGANIZACAO = (
     "COD_MUNIC",
     "idPatriarca",
     "nomePatriarca",
@@ -61,17 +61,17 @@ ORGANIZATION_COLUMNS = (
 )
 
 
-def load_patriarch_selection(path):
+def carregar_selecao_patriarcas(caminho):
     """Lê IDs, nomes e códigos municipais da seleção versionável."""
-    config_path = Path(path)
+    config_path = Path(caminho)
     try:
         payload = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise EdocsExportError(
+        raise ErroExportacaoEdocs(
             "Não foi possível ler o JSON de patriarcas selecionados."
         ) from exc
     if not isinstance(payload, list) or not payload:
-        raise EdocsExportError(
+        raise ErroExportacaoEdocs(
             "O JSON de patriarcas deve ser uma lista não vazia."
         )
 
@@ -79,89 +79,89 @@ def load_patriarch_selection(path):
     seen = set()
     for index, item in enumerate(payload, start=1):
         if not isinstance(item, dict) or not {"id", "nome"} <= set(item):
-            raise EdocsExportError(
+            raise ErroExportacaoEdocs(
                 f"O item {index} deve conter id e nome."
             )
         if set(item) - {"id", "nome", "COD_MUNIC"}:
-            raise EdocsExportError(
+            raise ErroExportacaoEdocs(
                 f"O item {index} contém campos não permitidos."
             )
         try:
-            patriarch_id = str(UUID(str(item["id"])))
+            id_patriarca = str(UUID(str(item["id"])))
         except (TypeError, ValueError, AttributeError) as exc:
-            raise EdocsExportError(
+            raise ErroExportacaoEdocs(
                 f"O item {index} possui um id inválido."
             ) from exc
         name = str(item["nome"]).strip()
         if not name:
-            raise EdocsExportError(f"O item {index} possui nome vazio.")
-        if patriarch_id in seen:
-            raise EdocsExportError(
-                f"O patriarca {patriarch_id} aparece mais de uma vez."
+            raise ErroExportacaoEdocs(f"O item {index} possui nome vazio.")
+        if id_patriarca in seen:
+            raise ErroExportacaoEdocs(
+                f"O patriarca {id_patriarca} aparece mais de uma vez."
             )
-        seen.add(patriarch_id)
+        seen.add(id_patriarca)
         municipality_code = item.get("COD_MUNIC")
         if municipality_code is not None and (
             isinstance(municipality_code, bool)
             or not isinstance(municipality_code, int)
             or not 1_000_000 <= municipality_code <= 9_999_999
         ):
-            raise EdocsExportError(
+            raise ErroExportacaoEdocs(
                 f"O item {index} possui COD_MUNIC inválido."
             )
         result.append(
-            PatriarchSelection(patriarch_id, name, municipality_code)
+            SelecaoPatriarca(id_patriarca, name, municipality_code)
         )
     return result
 
 
-def export_monthly_edocs(
+def exportar_edocs_mensal(  # pylint: disable=too-many-locals
     *,
-    month,
-    year,
-    selection_path,
-    output_directory,
-    client=None,
+    mes,
+    ano,
+    caminho_selecao,
+    diretorio_saida,
+    cliente=None,
 ):
     """Executa os cinco métodos aprovados e produz JSONs e XLSX."""
-    month = _valid_month(month)
-    year = _valid_year(year)
-    selections = load_patriarch_selection(selection_path)
-    selection_path = Path(selection_path)
-    api = client or EdocsClient()
-    month_path = f"{month:02d}"
+    mes = _validar_mes(mes)
+    ano = _validar_ano(ano)
+    selections = carregar_selecao_patriarcas(caminho_selecao)
+    caminho_selecao = Path(caminho_selecao)
+    api = cliente or ClienteEdocs()
+    month_path = f"{mes:02d}"
 
-    available_raw = api.list_patriarchs()
-    available = _normalize_available_patriarchs(available_raw)
+    available_raw = api.listar_patriarcas()
+    available = _normalizar_patriarcas_disponiveis(available_raw)
     available_by_id = {item["id"]: item for item in available}
     missing = [item.id for item in selections if item.id not in available_by_id]
     if missing:
-        raise EdocsExportError(
+        raise ErroExportacaoEdocs(
             "Patriarcas selecionados não estão habilitados no E-Docs: "
             + ", ".join(missing)
         )
 
-    process_global = api.process_report(month_path, year)
-    document_global = api.document_report(month_path, year)
+    process_global = api.relatorio_processos(month_path, ano)
+    document_global = api.relatorio_documentos(month_path, ano)
     process_by_org = []
     document_by_org = []
     raw_by_patriarch = {}
     for selection in selections:
-        process_rows = api.process_report_by_patriarch(
+        process_rows = api.relatorio_processos_por_patriarca(
             selection.id,
             month_path,
-            year,
+            ano,
         )
-        document_rows = api.document_report_by_patriarch(
+        document_rows = api.relatorio_documentos_por_patriarca(
             selection.id,
             month_path,
-            year,
+            ano,
         )
         process_by_org.extend(
-            _with_selection_name(process_rows, selection.name)
+            _adicionar_nome_selecao(process_rows, selection.nome)
         )
         document_by_org.extend(
-            _with_selection_name(document_rows, selection.name)
+            _adicionar_nome_selecao(document_rows, selection.nome)
         )
         raw_by_patriarch[selection.id] = {
             "processos": process_rows,
@@ -170,31 +170,31 @@ def export_monthly_edocs(
 
     selected_ids = {selection.id for selection in selections}
     codes_by_id = {
-        selection.id: selection.municipality_code for selection in selections
+        selection.id: selection.codigo_municipio for selection in selections
     }
-    municipality_rows = _merge_reports(
+    municipality_rows = _consolidar_relatorios(
         process_global,
         document_global,
-        key_fields=("idPatriarca",),
-        selected_ids=selected_ids,
-        month=month,
-        year=year,
-        codes_by_id=codes_by_id,
+        campos_chave=("idPatriarca",),
+        ids_selecionados=selected_ids,
+        mes=mes,
+        ano=ano,
+        codigos_por_id=codes_by_id,
     )
-    names_by_id = {selection.id: selection.name for selection in selections}
-    organization_rows = _merge_reports(
+    names_by_id = {selection.id: selection.nome for selection in selections}
+    organization_rows = _consolidar_relatorios(
         process_by_org,
         document_by_org,
-        key_fields=("idPatriarca", "idOrganizacao"),
-        selected_ids=selected_ids,
-        month=month,
-        year=year,
-        names_by_id=names_by_id,
-        codes_by_id=codes_by_id,
+        campos_chave=("idPatriarca", "idOrganizacao"),
+        ids_selecionados=selected_ids,
+        mes=mes,
+        ano=ano,
+        nomes_por_id=names_by_id,
+        codigos_por_id=codes_by_id,
     )
 
-    output_root = Path(output_directory)
-    period_directory = output_root / f"{year}-{month:02d}"
+    output_root = Path(diretorio_saida)
+    period_directory = output_root / f"{ano}-{mes:02d}"
     raw_directory = period_directory / "json"
     output_root.mkdir(parents=True, exist_ok=True)
     period_directory.mkdir(mode=0o700, exist_ok=True)
@@ -203,126 +203,126 @@ def export_monthly_edocs(
     raw_directory.chmod(0o700)
     catalog_path = period_directory / "patriarcas_catalogo_edocs.json"
 
-    _write_json_atomic(catalog_path, available)
-    _write_json_atomic(raw_directory / "edoc-05-patriarcas.json", available_raw)
-    _write_json_atomic(
+    _gravar_json_atomico(catalog_path, available)
+    _gravar_json_atomico(raw_directory / "edoc-05-patriarcas.json", available_raw)
+    _gravar_json_atomico(
         raw_directory / "edoc-01-processos-geral.json",
         process_global,
     )
-    _write_json_atomic(
+    _gravar_json_atomico(
         raw_directory / "edoc-03-documentos-geral.json",
         document_global,
     )
     for selection in selections:
         raw = raw_by_patriarch[selection.id]
-        _write_json_atomic(
+        _gravar_json_atomico(
             raw_directory / f"edoc-02-processos-{selection.id}.json",
             raw["processos"],
         )
-        _write_json_atomic(
+        _gravar_json_atomico(
             raw_directory / f"edoc-04-documentos-{selection.id}.json",
             raw["documentos"],
         )
 
-    workbook_path = period_directory / f"edocs_{year}_{month:02d}.xlsx"
-    _write_workbook_atomic(
+    workbook_path = period_directory / f"edocs_{ano}_{mes:02d}.xlsx"
+    _gravar_planilha_atomica(
         workbook_path,
-        environment=api.environment,
-        month=month,
-        year=year,
+        environment=api.ambiente,
+        mes=mes,
+        ano=ano,
         selections=selections,
         available_by_id=available_by_id,
         municipality_rows=municipality_rows,
         organization_rows=organization_rows,
     )
-    return EdocsExportResult(
-        workbook_path=workbook_path,
-        raw_directory=raw_directory,
-        catalog_path=catalog_path,
-        selection_path=selection_path,
-        selected_patriarchs=len(selections),
+    return ResultadoExportacaoEdocs(
+        caminho_planilha=workbook_path,
+        diretorio_dados_brutos=raw_directory,
+        caminho_catalogo=catalog_path,
+        caminho_selecao=caminho_selecao,
+        quantidade_patriarcas_selecionados=len(selections),
     )
 
 
-def _valid_month(value):
+def _validar_mes(value):
     try:
-        month = int(value)
+        mes = int(value)
     except (TypeError, ValueError) as exc:
-        raise EdocsExportError("O mês deve ser um número entre 1 e 12.") from exc
-    if not 1 <= month <= 12:
-        raise EdocsExportError("O mês deve ser um número entre 1 e 12.")
-    return month
+        raise ErroExportacaoEdocs("O mês deve ser um número entre 1 e 12.") from exc
+    if not 1 <= mes <= 12:
+        raise ErroExportacaoEdocs("O mês deve ser um número entre 1 e 12.")
+    return mes
 
 
-def _valid_year(value):
+def _validar_ano(value):
     try:
-        year = int(value)
+        ano = int(value)
     except (TypeError, ValueError) as exc:
-        raise EdocsExportError("O ano deve ser um número válido.") from exc
-    if not 1 <= year <= 9999:
-        raise EdocsExportError("O ano deve ser um número válido.")
-    return year
+        raise ErroExportacaoEdocs("O ano deve ser um número válido.") from exc
+    if not 1 <= ano <= 9999:
+        raise ErroExportacaoEdocs("O ano deve ser um número válido.")
+    return ano
 
 
-def _normalize_available_patriarchs(rows):
+def _normalizar_patriarcas_disponiveis(linhas):
     result = []
     seen = set()
-    for item in rows:
+    for item in linhas:
         try:
-            patriarch_id = str(UUID(str(item["id"])))
+            id_patriarca = str(UUID(str(item["id"])))
         except (KeyError, TypeError, ValueError, AttributeError) as exc:
-            raise EdocsExportError(
+            raise ErroExportacaoEdocs(
                 "A lista de patriarcas retornou um identificador inválido."
             ) from exc
         name = str(item.get("nome") or "").strip()
         if not name:
-            raise EdocsExportError(
+            raise ErroExportacaoEdocs(
                 "A lista de patriarcas retornou um nome vazio."
             )
-        if patriarch_id in seen:
-            raise EdocsExportError(
+        if id_patriarca in seen:
+            raise ErroExportacaoEdocs(
                 "A lista de patriarcas retornou identificadores duplicados."
             )
-        seen.add(patriarch_id)
-        result.append({"id": patriarch_id, "nome": name})
+        seen.add(id_patriarca)
+        result.append({"id": id_patriarca, "nome": name})
     return sorted(result, key=lambda item: (item["nome"].casefold(), item["id"]))
 
 
-def _with_selection_name(rows, name):
+def _adicionar_nome_selecao(linhas, nome):
     return [
-        {**row, "nomePatriarcaConsulta": name}
-        for row in rows
+        {**linha, "nomePatriarcaConsulta": nome}
+        for linha in linhas
     ]
 
 
-def _merge_reports(
-    process_rows,
-    document_rows,
+def _consolidar_relatorios(
+    linhas_processos,
+    linhas_documentos,
     *,
-    key_fields,
-    selected_ids,
-    month,
-    year,
-    names_by_id=None,
-    codes_by_id=None,
+    campos_chave,
+    ids_selecionados,
+    mes,
+    ano,
+    nomes_por_id=None,
+    codigos_por_id=None,
 ):
     merged = {}
     for source_name, source_rows in (
-        ("processos", process_rows),
-        ("documentos", document_rows),
+        ("processos", linhas_processos),
+        ("documentos", linhas_documentos),
     ):
         source_keys = set()
         for row in source_rows:
-            patriarch_id = str(row.get("idPatriarca") or "")
-            if patriarch_id not in selected_ids:
+            id_patriarca = str(row.get("idPatriarca") or "")
+            if id_patriarca not in ids_selecionados:
                 continue
-            key = tuple(str(row.get(field) or "") for field in key_fields)
+            key = tuple(str(row.get(field) or "") for field in campos_chave)
             if not all(key):
-                raise EdocsExportError(
+                raise ErroExportacaoEdocs(
                     "Um relatório E-Docs retornou identificador obrigatório vazio."
                 )
             if key in source_keys:
-                raise EdocsExportError(
+                raise ErroExportacaoEdocs(
                     "O relatório E-Docs de "
                     f"{source_name} retornou identificadores duplicados."
                 )
@@ -332,45 +332,45 @@ def _merge_reports(
     result = []
     for key in sorted(merged):
         row = merged[key]
-        patriarch_id = str(row["idPatriarca"])
-        if names_by_id:
-            row["nomePatriarca"] = names_by_id[patriarch_id]
+        id_patriarca = str(row["idPatriarca"])
+        if nomes_por_id:
+            row["nomePatriarca"] = nomes_por_id[id_patriarca]
             row.pop("nomePatriarcaConsulta", None)
-        if codes_by_id is not None:
-            row["COD_MUNIC"] = codes_by_id[patriarch_id]
-        row["mes"] = month
-        row["ano"] = year
+        if codigos_por_id is not None:
+            row["COD_MUNIC"] = codigos_por_id[id_patriarca]
+        row["mes"] = mes
+        row["ano"] = ano
         result.append(row)
     return result
 
 
-def _write_json_atomic(path, payload):
-    path = Path(path)
+def _gravar_json_atomico(caminho, conteudo):
+    caminho = Path(caminho)
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
+            dir=caminho.parent,
+            prefix=f".{caminho.name}.",
             suffix=".tmp",
             delete=False,
         ) as stream:
             temporary = Path(stream.name)
-            json.dump(payload, stream, ensure_ascii=False, indent=2)
+            json.dump(conteudo, stream, ensure_ascii=False, indent=2)
             stream.write("\n")
-        os.replace(temporary, path)
+        os.replace(temporary, caminho)
     finally:
         if temporary and temporary.exists():
             temporary.unlink()
 
 
-def _write_workbook_atomic(
-    path,
+def _gravar_planilha_atomica(
+    caminho,
     *,
     environment,
-    month,
-    year,
+    mes,
+    ano,
     selections,
     available_by_id,
     municipality_rows,
@@ -379,70 +379,70 @@ def _write_workbook_atomic(
     workbook = Workbook()
     workbook.remove(workbook.active)
     collected_at = datetime.now(UTC).isoformat()
-    _add_sheet(
+    _adicionar_aba(
         workbook,
         "Parâmetros",
         [
             {"campo": "ambiente", "valor": environment},
-            {"campo": "mês", "valor": month},
-            {"campo": "ano", "valor": year},
+            {"campo": "mês", "valor": mes},
+            {"campo": "ano", "valor": ano},
             {"campo": "coletado_em_utc", "valor": collected_at},
         ],
         ("campo", "valor"),
     )
     selected_rows = [
         {
-            "COD_MUNIC": item.municipality_code,
+            "COD_MUNIC": item.codigo_municipio,
             "id": item.id,
-            "nomeConfigurado": item.name,
+            "nomeConfigurado": item.nome,
             "nomeEdocs": available_by_id[item.id]["nome"],
         }
         for item in selections
     ]
-    _add_sheet(
+    _adicionar_aba(
         workbook,
         "Patriarcas",
         selected_rows,
         ("COD_MUNIC", "id", "nomeConfigurado", "nomeEdocs"),
     )
-    _add_sheet(
+    _adicionar_aba(
         workbook,
         "Municípios",
         municipality_rows,
-        MUNICIPALITY_COLUMNS,
+        COLUNAS_MUNICIPIO,
     )
-    _add_sheet(
+    _adicionar_aba(
         workbook,
         "Organizações",
         organization_rows,
-        ORGANIZATION_COLUMNS,
+        COLUNAS_ORGANIZACAO,
     )
-    _add_sheet(
+    _adicionar_aba(
         workbook,
         "Fontes",
-        _source_rows(month, year, environment),
+        _linhas_fontes(mes, ano, environment),
         ("codigo", "metodo", "endpoint", "ambiente", "mes", "ano"),
     )
 
-    path = Path(path)
+    caminho = Path(caminho)
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(
-            dir=path.parent,
-            prefix=f".{path.name}.",
+            dir=caminho.parent,
+            prefix=f".{caminho.name}.",
             suffix=".tmp",
             delete=False,
         ) as stream:
             temporary = Path(stream.name)
         workbook.save(temporary)
-        os.replace(temporary, path)
+        os.replace(temporary, caminho)
     finally:
         workbook.close()
         if temporary and temporary.exists():
             temporary.unlink()
 
 
-def _add_sheet(workbook, title, rows, preferred_columns):
+def _adicionar_aba(workbook, title, rows, preferred_columns):
     worksheet = workbook.create_sheet(title=title)
     columns = list(preferred_columns)
     for row in rows:
@@ -455,25 +455,25 @@ def _add_sheet(workbook, title, rows, preferred_columns):
         cell.font = Font(color="FFFFFF", bold=True)
         cell.fill = header_fill
     for row in rows:
-        worksheet.append([_cell_value(row.get(column)) for column in columns])
+        worksheet.append([_valor_celula(row.get(column)) for column in columns])
     worksheet.freeze_panes = "A2"
     worksheet.auto_filter.ref = worksheet.dimensions
     for index, column in enumerate(columns, start=1):
         values = [str(column)] + [
-            str(_cell_value(row.get(column)) or "") for row in rows
+            str(_valor_celula(row.get(column)) or "") for row in rows
         ]
         width = min(max(len(value) for value in values) + 2, 60)
         worksheet.column_dimensions[get_column_letter(index)].width = width
 
 
-def _cell_value(value):
+def _valor_celula(value):
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
     return value
 
 
-def _source_rows(month, year, environment):
-    month_path = f"{month:02d}"
+def _linhas_fontes(mes, ano, environment):
+    month_path = f"{mes:02d}"
     return [
         {
             "codigo": "IBGE-01",
@@ -491,51 +491,51 @@ def _source_rows(month, year, environment):
             "metodo": "GET",
             "endpoint": "/v2/agente/patriarcas",
             "ambiente": environment,
-            "mes": month,
-            "ano": year,
+            "mes": mes,
+            "ano": ano,
         },
         {
             "codigo": "EDOC-01",
             "metodo": "GET",
             "endpoint": (
                 "/v2/processos/relatorio-quantitativos/"
-                f"mes/{month_path}/ano/{year}"
+                f"mes/{month_path}/ano/{ano}"
             ),
             "ambiente": environment,
-            "mes": month,
-            "ano": year,
+            "mes": mes,
+            "ano": ano,
         },
         {
             "codigo": "EDOC-02",
             "metodo": "GET",
             "endpoint": (
                 "/v2/processos/relatorio-quantitativos/{idPatriarca}/"
-                f"mes/{month_path}/ano/{year}"
+                f"mes/{month_path}/ano/{ano}"
             ),
             "ambiente": environment,
-            "mes": month,
-            "ano": year,
+            "mes": mes,
+            "ano": ano,
         },
         {
             "codigo": "EDOC-03",
             "metodo": "GET",
             "endpoint": (
                 "/v2/documentos/relatorio-quantitativos/"
-                f"mes/{month_path}/ano/{year}"
+                f"mes/{month_path}/ano/{ano}"
             ),
             "ambiente": environment,
-            "mes": month,
-            "ano": year,
+            "mes": mes,
+            "ano": ano,
         },
         {
             "codigo": "EDOC-04",
             "metodo": "GET",
             "endpoint": (
                 "/v2/documentos/relatorio-quantitativos/{idPatriarca}/"
-                f"mes/{month_path}/ano/{year}"
+                f"mes/{month_path}/ano/{ano}"
             ),
             "ambiente": environment,
-            "mes": month,
-            "ano": year,
+            "mes": mes,
+            "ano": ano,
         },
     ]

@@ -1,13 +1,16 @@
-"""Testes do cliente compartilhado E-Docs sem chamadas externas."""
+"""Testes do cliente E-Docs sem chamadas externas."""
 
+import pytest
 import requests
 from django.test import override_settings
 
-from apps.core.services.edocs import EdocsClient, EdocsRequestError
-from apps.core.services.edocs_credentials import get_edocs_credentials
+from apps.pub_institucional.services.cliente_edocs import (ClienteEdocs,
+                                                           ErroRequisicaoEdocs)
+from apps.pub_institucional.services.credenciais_edocs import \
+    obter_credenciais_edocs
 
 
-class FakeResponse:
+class RespostaSimulada:
     def __init__(self, status_code, payload):
         self.status_code = status_code
         self.payload = payload
@@ -16,7 +19,7 @@ class FakeResponse:
         return self.payload
 
 
-class FakeSession:
+class SessaoSimulada:
     def __init__(self, *, post_responses=None, get_responses=None):
         self.post_responses = list(post_responses or [])
         self.get_responses = list(get_responses or [])
@@ -37,11 +40,11 @@ class FakeSession:
     GPP_EDOCS_CLIENT_ID="synthetic-client",
     GPP_EDOCS_CLIENT_SECRET="synthetic-secret",
 )
-def test_edocs_credentials_environment():
-    credentials = get_edocs_credentials()
+def test_obtem_credenciais_edocs_do_ambiente():
+    credenciais = obter_credenciais_edocs()
 
-    assert credentials.client_id == "synthetic-client"
-    assert credentials.client_secret == "synthetic-secret"
+    assert credenciais.id_cliente == "synthetic-client"
+    assert credenciais.segredo_cliente == "synthetic-secret"
 
 
 @override_settings(
@@ -53,14 +56,14 @@ def test_edocs_credentials_environment():
     GPP_EDOCS_CLIENT_ID="synthetic-client",
     GPP_EDOCS_CLIENT_SECRET="synthetic-secret",
 )
-def test_client_uses_client_credentials_and_authorization_header():
-    session = FakeSession(
-        post_responses=[FakeResponse(200, {"access_token": "short-token"})],
-        get_responses=[FakeResponse(200, [{"id": "patriarch"}])],
+def test_cliente_usa_credenciais_e_cabecalho_de_autorizacao():
+    session = SessaoSimulada(
+        post_responses=[RespostaSimulada(200, {"access_token": "short-token"})],
+        get_responses=[RespostaSimulada(200, [{"id": "patriarch"}])],
     )
-    client = EdocsClient(session=session)
+    client = ClienteEdocs(sessao=session)
 
-    assert client.list_patriarchs() == [{"id": "patriarch"}]
+    assert client.listar_patriarcas() == [{"id": "patriarch"}]
     assert session.post_calls[0][1]["data"] == {
         "grant_type": "client_credentials",
         "client_id": "synthetic-client",
@@ -85,20 +88,20 @@ def test_client_uses_client_credentials_and_authorization_header():
     GPP_EDOCS_CLIENT_ID="synthetic-client",
     GPP_EDOCS_CLIENT_SECRET="synthetic-secret",
 )
-def test_client_refreshes_token_once_after_unauthorized():
-    session = FakeSession(
+def test_cliente_renova_token_uma_vez_apos_nao_autorizado():
+    session = SessaoSimulada(
         post_responses=[
-            FakeResponse(200, {"access_token": "old-token"}),
-            FakeResponse(200, {"access_token": "new-token"}),
+            RespostaSimulada(200, {"access_token": "old-token"}),
+            RespostaSimulada(200, {"access_token": "new-token"}),
         ],
         get_responses=[
-            FakeResponse(401, {}),
-            FakeResponse(200, []),
+            RespostaSimulada(401, {}),
+            RespostaSimulada(200, []),
         ],
     )
-    client = EdocsClient(session=session)
+    client = ClienteEdocs(sessao=session)
 
-    assert client.document_report("10", 2025) == []
+    assert client.relatorio_documentos("10", 2025) == []
     assert len(session.post_calls) == 2
     assert session.get_calls[1][1]["headers"]["Authorization"] == (
         "Bearer new-token"
@@ -114,21 +117,18 @@ def test_client_refreshes_token_once_after_unauthorized():
     GPP_EDOCS_CLIENT_ID="synthetic-client",
     GPP_EDOCS_CLIENT_SECRET="synthetic-secret",
 )
-def test_client_redacts_remote_error_details():
-    session = FakeSession(
-        post_responses=[FakeResponse(403, {"client_secret": "must-not-leak"})]
+def test_cliente_oculta_detalhes_do_erro_remoto():
+    session = SessaoSimulada(
+        post_responses=[RespostaSimulada(403, {"client_secret": "must-not-leak"})]
     )
-    client = EdocsClient(session=session)
+    client = ClienteEdocs(sessao=session)
 
-    try:
-        client.list_patriarchs()
-    except EdocsRequestError as exc:
-        message = str(exc)
-    else:
-        raise AssertionError("A autenticação inválida deveria falhar.")
+    with pytest.raises(ErroRequisicaoEdocs) as erro:
+        client.listar_patriarcas()
 
-    assert "must-not-leak" not in message
-    assert "synthetic-secret" not in message
+    mensagem = str(erro.value)
+    assert "must-not-leak" not in mensagem
+    assert "synthetic-secret" not in mensagem
 
 
 @override_settings(
@@ -140,18 +140,14 @@ def test_client_redacts_remote_error_details():
     GPP_EDOCS_CLIENT_ID="synthetic-client",
     GPP_EDOCS_CLIENT_SECRET="synthetic-secret",
 )
-def test_client_redacts_transport_exception():
-    class FailingSession(FakeSession):
+def test_cliente_oculta_detalhes_da_falha_de_transporte():
+    class SessaoComFalha(SessaoSimulada):
         def post(self, url, **kwargs):
             raise requests.ConnectionError("secret in provider response")
 
-    client = EdocsClient(session=FailingSession())
+    client = ClienteEdocs(sessao=SessaoComFalha())
 
-    try:
-        client.list_patriarchs()
-    except EdocsRequestError as exc:
-        message = str(exc)
-    else:
-        raise AssertionError("A falha de transporte deveria ser propagada.")
+    with pytest.raises(ErroRequisicaoEdocs) as erro:
+        client.listar_patriarcas()
 
-    assert "secret in provider response" not in message
+    assert "secret in provider response" not in str(erro.value)
