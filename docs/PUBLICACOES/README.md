@@ -48,6 +48,7 @@ Criar uma aplicação capaz de:
 | [CARGA_ORG_LOT_SECRETS.md](./CARGA_ORG_LOT_SECRETS.md) | Separação HML/PRD, AppRoles, variáveis não secretas e operação das credenciais CargaRH |
 | [OPENBAO_DEV_GUIDE.md](./OPENBAO_DEV_GUIDE.md) | Uso diário, conceitos, diagnóstico e recuperação do OpenBao local sem rotação periódica |
 | [EDOCS_MONTHLY_COLLECTION.md](./EDOCS_MONTHLY_COLLECTION.md) | Coleta mensal de PUBLICAÇÕES, seleção de patriarcas, JSONs brutos e planilha operacional E-Docs |
+| [EDOCS_ADMIN_API.md](./EDOCS_ADMIN_API.md) | Contrato HTTP administrativo de patriarcas, coletas, divergências e auditoria E-Docs |
 | [EDOCS_SOURCE_CONTRACT.md](./EDOCS_SOURCE_CONTRACT.md) | Contrato técnico proposto para EDOC-01 a EDOC-05, com lacunas e critérios de aceite explícitos |
 | [EDOCS_DATA_CLASSIFICATION.md](./EDOCS_DATA_CLASSIFICATION.md) | Inventário e classificação campo a campo da coleta E-Docs |
 | [OPERATIONS_GUIDE.md](./OPERATIONS_GUIDE.md) | Como gestores, administradores e consumidores operarão a solução |

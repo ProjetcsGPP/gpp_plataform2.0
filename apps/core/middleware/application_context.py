@@ -33,6 +33,7 @@ security_logger = logging.getLogger("gpp.security")
 URL_PREFIX_MAP = {
     "acoes-pngi": "ACOES_PNGI",
     "carga-org-lot": "CARGA_ORG_LOT",
+    "pub-institucional": "PUB_INSTITUCIONAL",
     "portal": "PORTAL",
 }
 

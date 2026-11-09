@@ -483,7 +483,7 @@ SPECTACULAR_SETTINGS = {
         "4. Preencha o body com suas credenciais:\n\n"
         "```json\n"
         "{\n"
-        '  "username": "seu.usuario",\n'
+        '  "identifier": "seu.usuario",\n'
         '  "password": "sua_senha",\n'
         '  "app_context": "PORTAL"\n'
         "}\n"
@@ -495,9 +495,10 @@ SPECTACULAR_SETTINGS = {
         "Sessões criadas externamente (Postman, scripts) não são compartilhadas com o browser.\n\n"
         "---\n\n"
         "## 🍪 Mecanismo de autenticação\n\n"
-        "A API utiliza **SessionAuthentication** com cookies HttpOnly por aplicação. "
+        "A API utiliza **AppContextAuthentication** com cookies HttpOnly por aplicação. "
         "O nome do cookie varia conforme o `app_context` usado no login: "
-        "`gpp_session_PORTAL`, `gpp_session_CARGA_ORG_LOT`, `gpp_session_ACOES_PNGI`, etc. "
+        "`gpp_session_PORTAL`, `gpp_session_CARGA_ORG_LOT`, "
+        "`gpp_session_ACOES_PNGI` e `gpp_session_PUB_INSTITUCIONAL`. "
         "O browser envia o cookie correto automaticamente em todas as requisições desta aba.\n\n"
         "---\n\n"
         "## 📋 Estrutura dos módulos\n\n"
@@ -509,6 +510,8 @@ SPECTACULAR_SETTINGS = {
         "| **3 - Ações PNGI** | Ações, prazos, anotações e destaques |\n"
         "| **4 - Carga Org/Lot** | Carga de organogramas e loteamentos |\n"
         "| **5 - Utilitários** | Health check e logs de frontend |\n"
+        "| **6 - Recursos Funcionais** | Capabilities e menus dinâmicos |\n"
+        "| **7 - Publicações Institucionais** | Catálogo e coletas E-Docs |\n"
     ),
     "VERSION": "2.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
@@ -517,6 +520,7 @@ SPECTACULAR_SETTINGS = {
         {"portalAuth": []},
         {"cargaOrgLotAuth": []},
         {"acoesPngiAuth": []},
+        {"publicacoesAuth": []},
     ],
     "COMPONENTS": {
         "securitySchemes": {
@@ -537,6 +541,14 @@ SPECTACULAR_SETTINGS = {
                 "in": "cookie",
                 "name": "gpp_session_ACOES_PNGI",
                 "description": "Sessão criada com app_context=ACOES_PNGI",
+            },
+            "publicacoesAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "gpp_session_PUB_INSTITUCIONAL",
+                "description": (
+                    "Sessão criada com app_context=PUB_INSTITUCIONAL"
+                ),
             },
         },
     },
@@ -564,6 +576,10 @@ SPECTACULAR_SETTINGS = {
         {
             "name": "6 - Recursos Funcionais",
             "description": "Capabilities e navegação funcional por aplicação",
+        },
+        {
+            "name": "7 - Publicações Institucionais",
+            "description": "Catálogo, coletas, divergências e auditoria E-Docs",
         },
     ],
     # Filtra paths que não devem aparecer na documentação

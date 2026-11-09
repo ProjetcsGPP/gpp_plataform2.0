@@ -1,8 +1,9 @@
 # Avaliação arquitetural consolidada de `PUBLICACOES`
 
-**Data da reconfirmação:** 2026-11-03
+**Data da última atualização:** 2026-11-09
 
-**Estado:** avaliação concluída; implementação funcional ainda não autorizada
+**Estado:** avaliação concluída; primeiro recorte E-Docs e fundação frontend
+autorizados e implementados, contratos editorial e público ainda pendentes
 
 **Backend auditado:** `feat/publicacoes-informacoes` em `005bf4c`
 
@@ -13,14 +14,14 @@
 
 ## 1. Objetivo e limites
 
-Este documento conclui a verificação arquitetural conjunta de backend e
-frontend antes da criação da aplicação `PUBLICACOES`. Ele substitui a conclusão
-desatualizada de que o assessment frontend não existia.
+Este documento concluiu a verificação arquitetural conjunta e agora acompanha
+a implementação incremental da aplicação `PUBLICACOES`. Ele substitui a
+conclusão desatualizada de que o assessment frontend não existia.
 
-A auditoria foi somente de leitura sobre o código. Não foi criado app, model,
-migration, endpoint, fixture, tela ou contrato de fonte. Exemplos envolvendo
-`CARGA_ORG_LOT` ou outra aplicação continuam não normativos, conforme
-`PUB-003`.
+A auditoria original foi somente de leitura. Posteriormente, o responsável
+autorizou o recorte E-Docs, seu IAM, API administrativa e a fundação frontend.
+Essa autorização não antecipa o contrato editorial, o DTO público nem regras de
+outras aplicações, conforme `PUB-003`.
 
 ## 2. Resultado da entrega anteriormente considerada incompleta
 
@@ -44,8 +45,8 @@ do frontend seja sincronizado.
 
 | Repositório | Estado observado | Implementação de `PUBLICACOES` |
 |---|---|---|
-| Backend | O worktree contém a implementação ainda não commitada do primeiro recorte E-Docs, além das atualizações documentais preservadas | `apps/pub_institucional` existe, com schema `publicacoes`, catálogo de patriarcas, reconciliação controlada, auditoria e cliente E-Docs; a fundação completa permanece parcial. |
-| Frontend | Branch limpa e sincronizada com `origin/feat/publicacoes-informacoes` | `src/app/publicacoes`, `src/features/publicacoes` e `PUBLICACOES` em `AppContext` não existem. |
+| Backend | Fundação E-Docs anterior commitada e sincronizada; API administrativa atual ainda não commitada | `apps/pub_institucional` possui schema `publicacoes`, catálogo, reconciliação, auditoria, cliente E-Docs, IAM e API administrativa; o domínio editorial permanece parcial. |
+| Frontend | Fundação implementada no worktree, ainda sem commit | `PUBLICACOES` foi adicionado ao `AppContext`; rotas `/publicacoes`, shell, login, manifesto, guards e quatro páginas neutras existem sem inventar contratos de dados. |
 
 O backend possui 18 documentos diretamente em `docs/PUBLICACOES`, seis ADRs e
 a documentação compartilhada. Os sete documentos-base citados pela matriz
@@ -140,7 +141,7 @@ da infraestrutura.
 | Next `16.3.6` e dependências antigas bloqueavam por alerta específico | Obsoleta | Manifest atual usa Next/ESLint `16.4.3`, Vitest `4.1.12` e shadcn `4.22.1`; vale a auditoria atual da seção 5.3. |
 | `sessionExpiredMessage` não era renderizada | Corrigida no código atual | Manter teste de regressão. |
 | `/portal` não possui página pública | Continua verdadeiro | `src/app/portal/page.tsx` não existe e o proxy ainda protege o prefixo. |
-| `PUBLICACOES` não existe em `AppContext` | Continua verdadeiro | Trabalho de F1, após os gates de F0. |
+| `PUBLICACOES` não existe em `AppContext` | Corrigida na fundação frontend | O código usado é `PUB_INSTITUCIONAL`, com cookie, login, logout, manifesto e rotas dedicadas. |
 | Portal decide cards cruzando roles e destinos hardcoded | Continua verdadeiro e conflita com `PUB-016` | Backend deve fornecer DTO autoritativo; frontend apenas apresenta e valida destino permitido. |
 | Cache público/autenticado não está isolado | Continua verdadeiro | Implementar somente com o contrato público aprovado. |
 
@@ -152,7 +153,7 @@ da infraestrutura.
 | Exemplos de `AplicacaoPublicaSerializer` incluem `idaplicacao`, mas o serializer público não expõe esse campo | Inconsistência documental do OpenAPI | Alinhar exemplos ao serializer mínimo e manter PKs/flags fora do contrato público de login. |
 | `AplicacaoSerializer` afirma que o frontend decide visibilidade e habilitação | Conflita com a autoridade backend decidida em `PUB-016` | Corrigir a descrição e substituir o dashboard do Portal por DTO autoritativo de cards. |
 | Dashboard autenticado entrega aplicações e roles em listas separadas | Mantém decisão no navegador e destinos locais | Criar contrato versionado de cards com código, destino permitido, estado e disponibilidade; autorização real continua no endpoint de destino. |
-| Mapas de contexto/cookie não reconhecem `PUBLICACOES` | Implementação inexistente, esperada antes de F1 | Adicionar `PUBLICACOES` aos dois middlewares, settings, router e OpenAPI somente após os gates. |
+| Mapas de contexto/cookie não reconhecem `PUBLICACOES` | Corrigida no recorte E-Docs | Os middlewares reconhecem `pub-institucional` como `PUB_INSTITUCIONAL`; o cookie dedicado foi validado em teste HTTP. |
 
 ## 7. Matriz completa de arquivos impactados
 
@@ -166,14 +167,14 @@ Os caminhos novos são propostas de localização, não contratos de dados.
 | `apps/pub_institucional/models/`, `migrations/` | Parcial | F1–F2 | Catálogo E-Docs implementado; fonte, snapshot editorial, publicação imutável, histórico e concorrência ainda serão ampliados (`PUB-002`, `PUB-018`). |
 | `apps/pub_institucional/services/` | Parcial | F1–F6 | Cliente E-Docs e reconciliação implementados; demais casos de uso, workflow e interfaces de segurança permanecem pendentes (`PUB-027`). |
 | `apps/pub_institucional/selectors/` | Novo | F1–F3 | Leituras explícitas sem expor models entre domínios. |
-| `apps/pub_institucional/serializers/`, `views/`, `urls.py` | Novo | F1–F6 | APIs administrativas, públicas e de distribuição versionadas. |
+| `apps/pub_institucional/serializadores.py`, `visoes.py`, `urls.py` | Parcial | F1–F6 | API administrativa E-Docs implementada; APIs editorial, pública e de distribuição ainda dependem de contrato. |
 | `apps/pub_institucional/tasks.py` | Novo | F4–F6 | Coleta, reconciliação e processamento assíncrono idempotente. |
-| `apps/pub_institucional/tests/` | Parcial | Todas | Testes do cliente, exportação e catálogo E-Docs existem; as demais camadas ainda precisam de cobertura. |
+| `apps/pub_institucional/tests/` | Parcial | Todas | Cliente, exportação, catálogo, IAM, permissões, API, auditoria e cookie dedicado possuem cobertura; camadas futuras ainda precisarão de testes. |
 | `config/settings/base.py` | Alterado | F1 | App registrada sem segredos no código. |
-| `config/urls.py` | Alterar | F1/F3 | Rotas administrativas e públicas versionadas. |
+| `config/urls.py` | Parcial | F1/F3 | Prefixo administrativo E-Docs registrado; rotas públicas permanecem pendentes. |
 | `config/routers.py` | Validar/alterar se necessário | F1 | Schema PostgreSQL e isolamento do bounded context. |
-| `apps/accounts/middleware.py` | Alterar | F1 | Reconhecer o prefixo e o cookie dedicado de `PUBLICACOES`. |
-| `apps/core/middleware/application_context.py` | Alterar | F1 | Resolver o contexto pela rota sem fallback incorreto para Portal. |
+| `apps/accounts/middleware.py` | Alterado | F1 | Prefixo e cookie dedicado de `PUB_INSTITUCIONAL` reconhecidos. |
+| `apps/core/middleware/application_context.py` | Alterado | F1 | Contexto resolvido pela rota sem fallback incorreto para Portal. |
 | `apps/accounts/**` | Alterar de forma aditiva | F1/F3 | Aplicação, role, permissões, capabilities, menus e DTO autoritativo de cards. |
 | `apps/portal/**` | Alterar | F3 | Contrato autenticado de aplicações, sem decisão por roles no browser. |
 | `common/**` | Reusar; alterar apenas por contrato transversal | F1–F7 | Auditoria, autorização, paginação, erros e controles comuns. |
@@ -225,14 +226,14 @@ contornar o gate que protege a capacidade correspondente.
   piloto E-Docs (`PRE-002`, `PRE-003` e `PUB-011`);
 - `PUB-020` bloqueado por banco real, egress, observabilidade e achados ainda
   sem resolução formal;
-- inexistência de schema público e contrato administrativo executáveis
-  (`PUB-017`, `PUB-018`);
+- inexistência de schema público e do contrato administrativo editorial
+  completo (`PUB-017`, `PUB-018`); a API do recorte E-Docs está implementada;
 - catálogo IAM editorial futuro ainda depende do contrato administrativo
   (`PUB-018`, `PUB-019`); o catálogo E-Docs inicial já foi implementado.
 
-F0.5 é trabalho documental e contratual. Ele pode ocorrer enquanto evidências
-operacionais de F0 são fechadas, mas não autoriza app, model, migration,
-endpoint, fixture executável ou teste sintético de `PUBLICACOES`.
+F0.5 continua sendo o gate documental e contratual para ampliar o domínio
+editorial e público. O recorte E-Docs e a fundação frontend foram autorizados
+separadamente e não aprovam essas camadas por antecipação.
 
 ### Bloqueiam exposição pública ou go-live, não necessariamente todo F1
 

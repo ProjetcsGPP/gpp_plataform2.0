@@ -40,6 +40,7 @@ class AppContextMiddleware:
     APP_COOKIE_MAP = {
         "acoes-pngi": "ACOES_PNGI",
         "carga-org-lot": "CARGA_ORG_LOT",
+        "pub-institucional": "PUB_INSTITUCIONAL",
         "portal": "PORTAL",
     }
 
