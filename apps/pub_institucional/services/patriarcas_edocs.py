@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.pub_institucional.edocs_tempo_real import publicar_evento_edocs
@@ -169,6 +169,15 @@ def _retrato(patriarca: PatriarcaEdocs | None) -> dict:
     } | {
         "ativo": patriarca.ativo,
         "coletar_detalhes": patriarca.coletar_detalhes,
+        "codigo_municipio": patriarca.codigo_municipio,
+        "municipio_implantado": patriarca.municipio_implantado,
+        "municipio_em_implantacao": patriarca.municipio_em_implantacao,
+        "municipio_manifestou_interesse": (
+            patriarca.municipio_manifestou_interesse
+        ),
+        "municipio_implantado_sem_uso_edocs": (
+            patriarca.municipio_implantado_sem_uso_edocs
+        ),
         "versao": patriarca.versao,
     }
 
@@ -598,6 +607,138 @@ def definir_selecao_coleta_patriarca(
         {
             "patriarca_id": patriarca.pk,
             "coletar_detalhes": patriarca.coletar_detalhes,
+            "versao": patriarca.versao,
+        },
+    )
+    return patriarca
+
+
+@transaction.atomic
+def definir_indicador_municipio_sem_edocs(
+    patriarca_id: int,
+    *,
+    municipio_implantado_sem_uso_edocs: bool,
+    justificativa: str,
+    ator: AtorAuditoriaEdocs,
+) -> PatriarcaEdocs:
+    """Mantém o indicador manual e preserva a decisão na trilha de auditoria."""
+
+    patriarca = PatriarcaEdocs.objects.select_for_update().get(pk=patriarca_id)
+    justificativa = justificativa.strip()
+    if not justificativa:
+        raise ErroDecisaoPatriarcaEdocs("A alteração exige justificativa.")
+    if (
+        patriarca.municipio_implantado_sem_uso_edocs
+        == municipio_implantado_sem_uso_edocs
+    ):
+        return patriarca
+    anterior = _retrato(patriarca)
+    patriarca.municipio_implantado_sem_uso_edocs = (
+        municipio_implantado_sem_uso_edocs
+    )
+    patriarca.versao += 1
+    for campo, valor in _valores_atualizacao_auditoria(ator).items():
+        setattr(patriarca, campo, valor)
+    patriarca.save()
+    _criar_evento(
+        ator=ator,
+        patriarca=patriarca,
+        tipo_evento=TipoEventoAuditoriaPatriarca.INDICADOR_SEM_EDOCS_ALTERADO,
+        mensagem="Indicador de município implantado sem uso do E-Docs alterado.",
+        dados_anteriores=anterior,
+        dados_atuais=_retrato(patriarca),
+        metadados={"justificativa": justificativa},
+    )
+    publicar_evento_edocs(
+        "edocs.patriarcas.indicador_sem_edocs.alterado",
+        {
+            "patriarca_id": patriarca.pk,
+            "municipio_implantado_sem_uso_edocs": (
+                patriarca.municipio_implantado_sem_uso_edocs
+            ),
+            "versao": patriarca.versao,
+        },
+    )
+    return patriarca
+
+
+@transaction.atomic
+def definir_indicadores_municipais_patriarca(
+    patriarca_id: int,
+    *,
+    justificativa: str,
+    ator: AtorAuditoriaEdocs,
+    **alteracoes,
+) -> PatriarcaEdocs:
+    """Altera somente campos municipais explicitamente informados pelo gestor."""
+
+    campos_permitidos = {
+        "codigo_municipio",
+        "municipio_implantado",
+        "municipio_em_implantacao",
+        "municipio_manifestou_interesse",
+        "municipio_implantado_sem_uso_edocs",
+    }
+    if set(alteracoes) - campos_permitidos:
+        raise ErroDecisaoPatriarcaEdocs("Há indicador municipal não reconhecido.")
+    justificativa = justificativa.strip()
+    if not justificativa:
+        raise ErroDecisaoPatriarcaEdocs("A alteração exige justificativa.")
+    if not alteracoes:
+        raise ErroDecisaoPatriarcaEdocs("Informe ao menos um indicador municipal.")
+    codigo = alteracoes.get("codigo_municipio")
+    if codigo is not None and (
+        isinstance(codigo, bool)
+        or not isinstance(codigo, int)
+        or not 1_000_000 <= codigo <= 9_999_999
+    ):
+        raise ErroDecisaoPatriarcaEdocs("O código municipal deve ter sete dígitos.")
+
+    patriarca = PatriarcaEdocs.objects.select_for_update().get(pk=patriarca_id)
+    if codigo is not None and PatriarcaEdocs.objects.filter(
+        codigo_municipio=codigo
+    ).exclude(pk=patriarca.pk).exists():
+        raise ErroDecisaoPatriarcaEdocs(
+            "O código municipal já está associado a outro patriarca."
+        )
+    efetivas = {
+        campo: valor
+        for campo, valor in alteracoes.items()
+        if getattr(patriarca, campo) != valor
+    }
+    if not efetivas:
+        return patriarca
+    anterior = _retrato(patriarca)
+    for campo, valor in efetivas.items():
+        setattr(patriarca, campo, valor)
+    patriarca.versao += 1
+    for campo, valor in _valores_atualizacao_auditoria(ator).items():
+        setattr(patriarca, campo, valor)
+    try:
+        patriarca.save()
+    except IntegrityError as exc:
+        raise ErroDecisaoPatriarcaEdocs(
+            "O código municipal já está associado a outro patriarca."
+        ) from exc
+    _criar_evento(
+        ator=ator,
+        patriarca=patriarca,
+        tipo_evento=(
+            TipoEventoAuditoriaPatriarca.INDICADORES_MUNICIPAIS_ALTERADOS
+        ),
+        mensagem="Indicadores municipais do patriarca alterados.",
+        dados_anteriores=anterior,
+        dados_atuais=_retrato(patriarca),
+        metadados={
+            "justificativa": justificativa,
+            "campos_alterados": sorted(efetivas),
+        },
+    )
+    publicar_evento_edocs(
+        "edocs.patriarcas.indicadores_municipais.alterados",
+        {
+            "patriarca_id": patriarca.pk,
+            "campos_alterados": sorted(efetivas),
             "versao": patriarca.versao,
         },
     )

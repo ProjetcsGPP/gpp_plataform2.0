@@ -12,8 +12,9 @@ classificação propostos ainda aguardam as aprovações registradas em
 ## 1. Objetivo
 
 Automatizar a coleta mensal de quantitativos já fornecidos pela API V2 do
-E-Docs, preservar os JSONs de resposta e gerar uma planilha de apoio para a
-pessoa que executa a publicação atual.
+E-Docs, preservar cada revisão e seus JSONs de resposta no banco e manter a
+planilha apenas como exportação de apoio para a pessoa que executa o processo
+atual.
 
 O cliente E-Docs, os modelos, a reconciliação de patriarcas, os comandos e
 as notificações pertencem ao contexto de PUBLICAÇÕES e, portanto, residem
@@ -43,9 +44,9 @@ colunas conhecidas da planilha.
 
 ## 3. Seleção de patriarcas
 
-O catálogo definitivo passa a possuir o campo `coletar_detalhes`. Quando o
-fluxo administrativo estiver exposto e o catálogo inicial for aprovado, esse
-campo será a fonte canônica para selecionar EDOC-01 a EDOC-04. A consulta
+O catálogo definitivo possui o campo `coletar_detalhes`, que é a fonte
+canônica para selecionar EDOC-01 a EDOC-04 na coleta persistente. A seleção é
+congelada em `patriarcas_solicitados` ao criar cada revisão. A consulta
 EDOC-05, por sua vez, sempre considera o catálogo remoto completo para detectar
 novos registros, alterações e ausências.
 
@@ -94,6 +95,32 @@ explicitamente por `--patriarcas-config`; a troca de mês ou ano não altera a
 seleção.
 
 ## 4. Saídas
+
+### 4.1 Persistência mensal canônica
+
+O fluxo administrativo grava no schema `publicacoes`:
+
+| Entidade | Finalidade |
+|---|---|
+| `CompetenciaEdocs` | Identifica unicamente o par ano/mês. |
+| `ColetaMensalEdocs` | Preserva uma revisão da competência e a seleção usada. |
+| `FonteBrutaColetaMensalEdocs` | Preserva cada resposta JSON e seu SHA-256. |
+| `ResultadoMensalPatriarcaEdocs` | Normaliza processos, documentos e páginas por patriarca. |
+| `ResultadoMensalOrganizacaoEdocs` | Normaliza os mesmos totais por organização. |
+| `EventoAuditoriaColetaMensalEdocs` | Registra solicitação, início, conclusão ou falha. |
+
+Uma recoleta cria nova revisão. Nenhuma revisão anterior é atualizada ou
+apagada, e os dados não são copiados fisicamente para o mês seguinte. A série
+histórica é formada pela consulta das competências. O mês inicial da carga de
+2024 ainda será informado e não está fixado no código.
+
+O resultado por patriarca também congela `codigo_municipio` conforme o catálogo
+no instante da execução. Os campos `municipio_implantado`,
+`municipio_em_implantacao`, `municipio_manifestou_interesse` e
+`municipio_implantado_sem_uso_edocs` permanecem no cadastro administrativo;
+eles não são inferidos da API E-Docs.
+
+### 4.2 Exportação operacional legada
 
 Por padrão, o período é gravado em `var/edocs/AAAA-MM/`, ignorado pelo Git:
 
@@ -168,6 +195,14 @@ São usados caminhos e AppRoles independentes:
 | PRD | `gpp-shared/dev/edocs/prd` | `gpp-shared-edocs-prd-dev` |
 
 ## 7. Execução
+
+Pela API administrativa, enviar `POST` para
+`/api/pub-institucional/coletas-mensais-edocs/` com `ano` e `mes`. O backend
+retorna `202`, e o Celery processa a revisão. O frontend acompanha o recurso
+por HTTP; o WebSocket é apenas aviso para revalidação.
+
+O comando abaixo continua gerando arquivos para a demanda operacional
+específica. Ele não cria publicação e não substitui a coleta persistente:
 
 Selecionar o ambiente e o cofre sem inserir segredo no `.env`:
 

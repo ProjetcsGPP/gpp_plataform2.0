@@ -221,15 +221,23 @@ evidência histórica.
 versão. Isso reduz complexidade operacional sem transformar a role em fonte de
 autorização dentro do frontend.
 
-O catálogo inicial do recorte E-Docs é reconciliado pelo comando
-`python manage.py semear_publicacoes` e contém:
+O catálogo inicial é reconciliado pelo comando
+`python manage.py semear_publicacoes`. A navegação possui o agrupador raiz
+`PATRIARCAS`, sem capability própria, e mantém capabilities granulares nos
+itens filhos:
 
-| Capability | Menu | Rota |
-|---|---|---|
-| `CATALOGO_EDOCS` | `PATRIARCAS_EDOCS` | `/publicacoes/patriarcas` |
-| `COLETAS_EDOCS` | `COLETAS_EDOCS` | `/publicacoes/coletas` |
-| `DIVERGENCIAS_EDOCS` | `DIVERGENCIAS_EDOCS` | `/publicacoes/divergencias` |
-| `AUDITORIA_EDOCS` | `AUDITORIA_EDOCS` | `/publicacoes/auditoria` |
+| Menu pai | Capability | Menu filho | Rota |
+|---|---|---|---|
+| `PATRIARCAS` | `CATALOGO_EDOCS` | `PATRIARCAS_EDOCS` | `/publicacoes/patriarcas` |
+| `PATRIARCAS` | `COLETAS_EDOCS` | `COLETAS_EDOCS` | `/publicacoes/coletas` |
+| `PATRIARCAS` | `DIVERGENCIAS_EDOCS` | `DIVERGENCIAS_EDOCS` | `/publicacoes/divergencias` |
+| `PATRIARCAS` | `AUDITORIA_EDOCS` | `AUDITORIA_EDOCS` | `/publicacoes/auditoria` |
+| `COLETA_DADOS` | `COLETA_DADOS` | `COLETA_EFLOW` | `/publicacoes/coleta-dados/eflow` |
+
+`COLETA_DADOS` é também um agrupador raiz. Seu primeiro filho implementado é
+`E-Flow`; as futuras entradas E-Docs por API, planilha e digitação manual só
+serão acrescentadas quando seus respectivos contratos administrativos forem
+implementados, evitando menus sem operação backend correspondente.
 
 O seed também associa ao grupo do perfil as permissões técnicas dos models
 E-Docs, inclusive consulta, revisão, seleção, solicitação e visualização de

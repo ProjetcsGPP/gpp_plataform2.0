@@ -12,7 +12,8 @@ from apps.pub_institucional.models import (DecisaoDivergenciaPatriarca,
                                            TipoEventoAuditoriaPatriarca)
 from apps.pub_institucional.services.patriarcas_edocs import (
     AtorAuditoriaEdocs, ErroDecisaoPatriarcaEdocs,
-    aplicar_decisao_divergencia_patriarca, definir_selecao_coleta_patriarca,
+    aplicar_decisao_divergencia_patriarca,
+    definir_indicador_municipio_sem_edocs, definir_selecao_coleta_patriarca,
     sincronizar_patriarcas_edocs)
 
 pytestmark = pytest.mark.django_db
@@ -194,6 +195,35 @@ def test_selecao_detalhada_exige_ativo_e_gera_auditoria():
             patriarca.pk,
             coletar_detalhes=True,
             justificativa="Tentativa inválida.",
+            ator=ATOR,
+        )
+
+
+def test_indicador_municipio_sem_edocs_exige_justificativa_e_gera_auditoria():
+    patriarca = criar_patriarca_catalogo()
+
+    definir_indicador_municipio_sem_edocs(
+        patriarca.pk,
+        municipio_implantado_sem_uso_edocs=True,
+        justificativa="Implantação confirmada sem utilização do E-Docs.",
+        ator=ATOR,
+    )
+
+    patriarca.refresh_from_db()
+    assert patriarca.municipio_implantado_sem_uso_edocs is True
+    assert patriarca.versao == 2
+    evento = EventoAuditoriaPatriarcaEdocs.objects.get(
+        patriarca=patriarca,
+        tipo_evento=TipoEventoAuditoriaPatriarca.INDICADOR_SEM_EDOCS_ALTERADO,
+    )
+    assert evento.dados_anteriores["municipio_implantado_sem_uso_edocs"] is False
+    assert evento.dados_atuais["municipio_implantado_sem_uso_edocs"] is True
+
+    with pytest.raises(ErroDecisaoPatriarcaEdocs):
+        definir_indicador_municipio_sem_edocs(
+            patriarca.pk,
+            municipio_implantado_sem_uso_edocs=False,
+            justificativa=" ",
             ator=ATOR,
         )
 

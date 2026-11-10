@@ -5,16 +5,10 @@ from io import StringIO
 import pytest
 from django.core.management import call_command
 
-from apps.accounts.models import (
-    Aplicacao,
-    Capability,
-    Menu,
-    Role,
-    RoleCapability,
-)
-from apps.pub_institucional.services.recursos_funcionais import (
-    PERMISSOES_GESTOR_PUBLICACOES,
-)
+from apps.accounts.models import (Aplicacao, Capability, Menu, Role,
+                                  RoleCapability)
+from apps.pub_institucional.services.recursos_funcionais import \
+    PERMISSOES_GESTOR_PUBLICACOES
 
 pytestmark = pytest.mark.django_db
 
@@ -62,6 +56,7 @@ def test_seed_publicacoes_reconcilia_contrato_funcional_sem_ativar_operacao():
         "COLETAS_EDOCS",
         "DIVERGENCIAS_EDOCS",
         "AUDITORIA_EDOCS",
+        "COLETA_DADOS",
     }
     assert set(
         RoleCapability.objects.filter(
@@ -73,32 +68,69 @@ def test_seed_publicacoes_reconcilia_contrato_funcional_sem_ativar_operacao():
         "COLETAS_EDOCS",
         "DIVERGENCIAS_EDOCS",
         "AUDITORIA_EDOCS",
+        "COLETA_DADOS",
     }
 
-    menus = list(
-        Menu.objects.filter(
+    menus = {
+        codigo: (rota, capability, parent, nome)
+        for codigo, rota, capability, parent, nome in Menu.objects.filter(
             aplicacao=aplicacao,
             codigo__in={
+                "PATRIARCAS",
                 "PATRIARCAS_EDOCS",
                 "COLETAS_EDOCS",
                 "DIVERGENCIAS_EDOCS",
                 "AUDITORIA_EDOCS",
+                "COLETA_DADOS",
+                "COLETA_EDOCS_MENSAL",
+                "COLETA_EFLOW",
             },
         )
-        .order_by("ordem")
-        .values_list("codigo", "rota", "capability__codigo")
-    )
-    assert menus == [
-        (
-            "PATRIARCAS_EDOCS",
+        .values_list(
+            "codigo",
+            "rota",
+            "capability__codigo",
+            "parent__codigo",
+            "nome",
+        )
+    }
+    assert menus == {
+        "PATRIARCAS": ("", None, None, "Patriarcas"),
+        "PATRIARCAS_EDOCS": (
             "/publicacoes/patriarcas",
             "CATALOGO_EDOCS",
+            "PATRIARCAS",
+            "Catálogo",
         ),
-        ("COLETAS_EDOCS", "/publicacoes/coletas", "COLETAS_EDOCS"),
-        (
-            "DIVERGENCIAS_EDOCS",
+        "COLETAS_EDOCS": (
+            "/publicacoes/coletas",
+            "COLETAS_EDOCS",
+            "PATRIARCAS",
+            "Coletas",
+        ),
+        "DIVERGENCIAS_EDOCS": (
             "/publicacoes/divergencias",
             "DIVERGENCIAS_EDOCS",
+            "PATRIARCAS",
+            "Divergências",
         ),
-        ("AUDITORIA_EDOCS", "/publicacoes/auditoria", "AUDITORIA_EDOCS"),
-    ]
+        "AUDITORIA_EDOCS": (
+            "/publicacoes/auditoria",
+            "AUDITORIA_EDOCS",
+            "PATRIARCAS",
+            "Auditoria",
+        ),
+        "COLETA_DADOS": ("", None, None, "Coleta de Dados"),
+        "COLETA_EDOCS_MENSAL": (
+            "/publicacoes/coleta-dados/edocs",
+            "COLETA_DADOS",
+            "COLETA_DADOS",
+            "E-Docs",
+        ),
+        "COLETA_EFLOW": (
+            "/publicacoes/coleta-dados/eflow",
+            "COLETA_DADOS",
+            "COLETA_DADOS",
+            "E-Flow",
+        ),
+    }

@@ -37,6 +37,10 @@ apoio não substituem a publicação aprovada e imutável.
 | `tipoAgente` | E-Docs/EDOC-05 | Gerencial | Validar natureza do agente; códigos `1`, `2`, `3`, `4`, `5`, `6` e `99` | Não | Conforme evidência operacional |
 | `descricaoTipoAgente` | E-Docs/EDOC-05 | Gerencial | Conferência do enum `Cidadao`, `Papel`, `Grupo`, `Unidade`, `Organizacao`, `Sistema` ou `NaoIdentificado` | Não | Conforme evidência operacional |
 | `nomeConfigurado` | Lista local | Gerencial | Comparar configuração com catálogo remoto | Não | Enquanto a configuração estiver vigente |
+| `municipio_implantado_sem_uso_edocs` | Decisão manual do gestor | Gerencial | Identificar município implantado que não utiliza o E-Docs | Não por padrão | Enquanto o cadastro e sua auditoria forem necessários |
+| `municipio_implantado` | Decisão manual do gestor | Gerencial | Registrar implantação confirmada | Não por padrão | Enquanto o cadastro e sua auditoria forem necessários |
+| `municipio_em_implantacao` | Decisão manual do gestor | Gerencial | Registrar implantação em andamento | Não por padrão | Enquanto o cadastro e sua auditoria forem necessários |
+| `municipio_manifestou_interesse` | Decisão manual do gestor | Gerencial | Registrar manifestação de interesse | Não por padrão | Enquanto o cadastro e sua auditoria forem necessários |
 | `nomeEdocs` | Catálogo normalizado | Gerencial | Detectar mudança de nomenclatura | Não | Conforme evidência operacional |
 | `ambiente` | Configuração | Restrito operacional | Proveniência e diagnóstico | Não | Conforme evidência operacional |
 | `coletado_em_utc` | Coletor | Gerencial | Rastrear instante da coleta | Somente se o DTO de proveniência aprovar | Conforme evidência operacional |

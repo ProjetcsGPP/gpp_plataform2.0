@@ -51,6 +51,8 @@ Criar uma aplicação capaz de:
 | [EDOCS_ADMIN_API.md](./EDOCS_ADMIN_API.md) | Contrato HTTP administrativo de patriarcas, coletas, divergências e auditoria E-Docs |
 | [EDOCS_SOURCE_CONTRACT.md](./EDOCS_SOURCE_CONTRACT.md) | Contrato técnico proposto para EDOC-01 a EDOC-05, com lacunas e critérios de aceite explícitos |
 | [EDOCS_DATA_CLASSIFICATION.md](./EDOCS_DATA_CLASSIFICATION.md) | Inventário e classificação campo a campo da coleta E-Docs |
+| [EFLOW_CSV_ANALYSIS.md](./EFLOW_CSV_ANALYSIS.md) | Análise estrutural da exportação manual de definições disponíveis do E-Flow e lacunas para o contrato de fonte |
+| [EFLOW_ADMIN_API.md](./EFLOW_ADMIN_API.md) | Contrato HTTP e operacional da importação auditável de snapshots CSV do E-Flow |
 | [OPERATIONS_GUIDE.md](./OPERATIONS_GUIDE.md) | Como gestores, administradores e consumidores operarão a solução |
 | [SOURCE_CONTRACT_TEMPLATE.md](./SOURCE_CONTRACT_TEMPLATE.md) | Formulário obrigatório para integrar uma fonte sem presumir suas regras |
 | [CONSUMER_REGISTRATION_TEMPLATE.md](./CONSUMER_REGISTRATION_TEMPLATE.md) | Formulário para cadastrar aplicação consumidora e autorizar escopos |

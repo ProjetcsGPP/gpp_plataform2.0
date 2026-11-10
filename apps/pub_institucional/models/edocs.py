@@ -57,6 +57,14 @@ class TipoEventoAuditoriaPatriarca(models.TextChoices):
         "SELECAO_COLETA_ALTERADA",
         "Seleção para coleta alterada",
     )
+    INDICADOR_SEM_EDOCS_ALTERADO = (
+        "INDICADOR_SEM_EDOCS_ALTERADO",
+        "Indicador de município sem uso do E-Docs alterado",
+    )
+    INDICADORES_MUNICIPAIS_ALTERADOS = (
+        "INDICADORES_MUNICIPAIS_ALTERADOS",
+        "Indicadores municipais alterados",
+    )
 
 
 class TipoAgenteEdocs(models.IntegerChoices):
@@ -118,6 +126,28 @@ class PatriarcaEdocs(ModeloAuditavel):
         default=False,
         verbose_name="Coletar informações detalhadas",
     )
+    codigo_municipio = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        unique=True,
+        verbose_name="Código IBGE do município",
+    )
+    municipio_implantado = models.BooleanField(
+        default=False,
+        verbose_name="Município implantado",
+    )
+    municipio_em_implantacao = models.BooleanField(
+        default=False,
+        verbose_name="Município em implantação",
+    )
+    municipio_manifestou_interesse = models.BooleanField(
+        default=False,
+        verbose_name="Município que manifestou interesse",
+    )
+    municipio_implantado_sem_uso_edocs = models.BooleanField(
+        default=False,
+        verbose_name="Município implantado sem uso do E-Docs",
+    )
     ativo = models.BooleanField(default=True, verbose_name="Ativo")
     versao = models.PositiveIntegerField(default=1, editable=False)
 
@@ -137,6 +167,16 @@ class PatriarcaEdocs(ModeloAuditavel):
                 condition=condicao_tipo_agente_valido(),
                 name="edocs_patriarca_tipo_agente_valido",
             ),
+            models.CheckConstraint(
+                condition=(
+                    Q(codigo_municipio__isnull=True)
+                    | Q(
+                        codigo_municipio__gte=1_000_000,
+                        codigo_municipio__lte=9_999_999,
+                    )
+                ),
+                name="edocs_codigo_municipio_valido",
+            ),
         ]
         permissions = [
             ("consultar_patriarcas_edocs", "Pode consultar patriarcas no E-Docs"),
@@ -144,6 +184,14 @@ class PatriarcaEdocs(ModeloAuditavel):
             (
                 "selecionar_patriarcas_coleta",
                 "Pode selecionar patriarcas para coleta detalhada",
+            ),
+            (
+                "alterar_indicador_municipio_sem_edocs",
+                "Pode alterar o indicador de município sem uso do E-Docs",
+            ),
+            (
+                "alterar_indicadores_municipais_edocs",
+                "Pode alterar os indicadores municipais do E-Docs",
             ),
         ]
 

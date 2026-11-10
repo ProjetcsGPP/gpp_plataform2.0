@@ -8,30 +8,24 @@ import pytest
 from django.contrib.auth.models import Permission, User
 from django.urls import resolve
 from django.utils import timezone
-from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
+from rest_framework.test import (APIClient, APIRequestFactory,
+                                 force_authenticate)
 
-from apps.accounts.models import AccountsSession, Aplicacao, Role, UserRole
 from apps.accounts.middleware import AppContextMiddleware
+from apps.accounts.models import AccountsSession, Aplicacao, Role, UserRole
 from apps.core.middleware.application_context import URL_PREFIX_MAP
-from apps.pub_institucional.models import (
-    ColetaPatriarcasEdocs,
-    DivergenciaPatriarcaEdocs,
-    EventoAuditoriaPatriarcaEdocs,
-    PatriarcaEdocs,
-)
+from apps.pub_institucional.models import (ColetaPatriarcasEdocs,
+                                           DivergenciaPatriarcaEdocs,
+                                           EventoAuditoriaPatriarcaEdocs,
+                                           PatriarcaEdocs)
 from apps.pub_institucional.services.patriarcas_edocs import (
-    AtorAuditoriaEdocs,
-    sincronizar_patriarcas_edocs,
-)
-from apps.pub_institucional.services.recursos_funcionais import (
-    semear_recursos_funcionais_publicacoes,
-)
-from apps.pub_institucional.visoes import (
-    VisaoColetaPatriarcasEdocs,
-    VisaoDivergenciaPatriarcaEdocs,
-    VisaoEventoAuditoriaPatriarcaEdocs,
-    VisaoPatriarcaEdocs,
-)
+    AtorAuditoriaEdocs, sincronizar_patriarcas_edocs)
+from apps.pub_institucional.services.recursos_funcionais import \
+    semear_recursos_funcionais_publicacoes
+from apps.pub_institucional.visoes import (VisaoColetaPatriarcasEdocs,
+                                           VisaoDivergenciaPatriarcaEdocs,
+                                           VisaoEventoAuditoriaPatriarcaEdocs,
+                                           VisaoPatriarcaEdocs)
 
 pytestmark = pytest.mark.django_db
 
@@ -122,6 +116,10 @@ def test_mapas_de_permissao_nao_dependem_do_nome_da_role():
         "list": "view_patriarcaedocs",
         "retrieve": "view_patriarcaedocs",
         "selecao_coleta": "selecionar_patriarcas_coleta",
+        "indicador_municipio_sem_edocs": (
+            "alterar_indicador_municipio_sem_edocs"
+        ),
+        "indicadores_municipais": "alterar_indicadores_municipais_edocs",
     }
     assert VisaoColetaPatriarcasEdocs.mapa_permissoes == {
         "list": "view_coletapatriarcasedocs",
@@ -155,8 +153,14 @@ def test_lista_patriarcas_e_altera_selecao_com_auditoria(gestor_publicacoes):
     assert resposta.status_code == 200
     assert resposta.data["results"][0]["id"] == patriarca.pk
     assert resposta.data["results"][0]["acoes_disponiveis"] == [
-        "alterar_selecao_coleta"
+        "alterar_selecao_coleta",
+        "alterar_indicador_municipio_sem_edocs",
+        "alterar_indicadores_municipais",
     ]
+    assert (
+        resposta.data["results"][0]["municipio_implantado_sem_uso_edocs"]
+        is False
+    )
 
     selecionar = VisaoPatriarcaEdocs.as_view({"patch": "selecao_coleta"})
     resposta = selecionar(
@@ -177,6 +181,61 @@ def test_lista_patriarcas_e_altera_selecao_com_auditoria(gestor_publicacoes):
     assert EventoAuditoriaPatriarcaEdocs.objects.filter(
         patriarca=patriarca,
         tipo_evento="SELECAO_COLETA_ALTERADA",
+    ).exists()
+
+    alterar_indicador = VisaoPatriarcaEdocs.as_view(
+        {"patch": "indicador_municipio_sem_edocs"}
+    )
+    resposta = alterar_indicador(
+        _requisicao(
+            "patch",
+            (
+                f"/api/pub-institucional/patriarcas/{patriarca.pk}/"
+                "indicador-municipio-sem-edocs/"
+            ),
+            gestor_publicacoes,
+            {
+                "municipio_implantado_sem_uso_edocs": True,
+                "justificativa": "Implantação confirmada manualmente.",
+            },
+        ),
+        pk=patriarca.pk,
+    )
+    assert resposta.status_code == 200
+    assert resposta.data["municipio_implantado_sem_uso_edocs"] is True
+    assert EventoAuditoriaPatriarcaEdocs.objects.filter(
+        patriarca=patriarca,
+        tipo_evento="INDICADOR_SEM_EDOCS_ALTERADO",
+    ).exists()
+
+    alterar_indicadores = VisaoPatriarcaEdocs.as_view(
+        {"patch": "indicadores_municipais"}
+    )
+    resposta = alterar_indicadores(
+        _requisicao(
+            "patch",
+            (
+                f"/api/pub-institucional/patriarcas/{patriarca.pk}/"
+                "indicadores-municipais/"
+            ),
+            gestor_publicacoes,
+            {
+                "codigo_municipio": 3201100,
+                "municipio_implantado": True,
+                "municipio_em_implantacao": False,
+                "municipio_manifestou_interesse": True,
+                "justificativa": "Situação municipal validada pelo gestor.",
+            },
+        ),
+        pk=patriarca.pk,
+    )
+    assert resposta.status_code == 200
+    assert resposta.data["codigo_municipio"] == 3201100
+    assert resposta.data["municipio_implantado"] is True
+    assert resposta.data["municipio_manifestou_interesse"] is True
+    assert EventoAuditoriaPatriarcaEdocs.objects.filter(
+        patriarca=patriarca,
+        tipo_evento="INDICADORES_MUNICIPAIS_ALTERADOS",
     ).exists()
 
 

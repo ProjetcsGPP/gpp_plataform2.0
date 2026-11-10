@@ -5,13 +5,8 @@ from dataclasses import dataclass
 from django.contrib.auth.models import Group, Permission
 from django.db import transaction
 
-from apps.accounts.models import (
-    Aplicacao,
-    Capability,
-    Menu,
-    Role,
-    RoleCapability,
-)
+from apps.accounts.models import (Aplicacao, Capability, Menu, Role,
+                                  RoleCapability)
 
 
 @dataclass(frozen=True)
@@ -28,7 +23,8 @@ class DefinicaoMenu:
     rota: str
     icone: str
     ordem: int
-    codigo_capability: str
+    codigo_capability: str | None = None
+    codigo_parent: str | None = None
 
 
 CAPABILITIES_PUBLICACOES = (
@@ -52,16 +48,29 @@ CAPABILITIES_PUBLICACOES = (
         nome="Auditoria E-Docs",
         descricao="Consulta os eventos de auditoria do catálogo E-Docs.",
     ),
+    DefinicaoCapability(
+        codigo="COLETA_DADOS",
+        nome="Coleta de Dados",
+        descricao="Importa e consulta as fontes utilizadas nas publicações.",
+    ),
 )
 
 MENUS_PUBLICACOES = (
     DefinicaoMenu(
-        codigo="PATRIARCAS_EDOCS",
+        codigo="PATRIARCAS",
         nome="Patriarcas",
+        rota="",
+        icone="other_houses",
+        ordem=100,
+    ),
+    DefinicaoMenu(
+        codigo="PATRIARCAS_EDOCS",
+        nome="Catálogo",
         rota="/publicacoes/patriarcas",
         icone="other_houses",
         ordem=100,
         codigo_capability="CATALOGO_EDOCS",
+        codigo_parent="PATRIARCAS",
     ),
     DefinicaoMenu(
         codigo="COLETAS_EDOCS",
@@ -70,6 +79,7 @@ MENUS_PUBLICACOES = (
         icone="sync",
         ordem=200,
         codigo_capability="COLETAS_EDOCS",
+        codigo_parent="PATRIARCAS",
     ),
     DefinicaoMenu(
         codigo="DIVERGENCIAS_EDOCS",
@@ -78,6 +88,7 @@ MENUS_PUBLICACOES = (
         icone="rule",
         ordem=300,
         codigo_capability="DIVERGENCIAS_EDOCS",
+        codigo_parent="PATRIARCAS",
     ),
     DefinicaoMenu(
         codigo="AUDITORIA_EDOCS",
@@ -86,19 +97,61 @@ MENUS_PUBLICACOES = (
         icone="history",
         ordem=400,
         codigo_capability="AUDITORIA_EDOCS",
+        codigo_parent="PATRIARCAS",
+    ),
+    DefinicaoMenu(
+        codigo="COLETA_DADOS",
+        nome="Coleta de Dados",
+        rota="",
+        icone="database",
+        ordem=200,
+    ),
+    DefinicaoMenu(
+        codigo="COLETA_EDOCS_MENSAL",
+        nome="E-Docs",
+        rota="/publicacoes/coleta-dados/edocs",
+        icone="cloud_download",
+        ordem=100,
+        codigo_capability="COLETA_DADOS",
+        codigo_parent="COLETA_DADOS",
+    ),
+    DefinicaoMenu(
+        codigo="COLETA_EFLOW",
+        nome="E-Flow",
+        rota="/publicacoes/coleta-dados/eflow",
+        icone="upload_file",
+        ordem=200,
+        codigo_capability="COLETA_DADOS",
+        codigo_parent="COLETA_DADOS",
     ),
 )
 
 PERMISSOES_GESTOR_PUBLICACOES = (
+    "alterar_indicador_municipio_sem_edocs",
+    "alterar_indicadores_municipais_edocs",
+    "alterar_preferencia_exibicao_eflow",
     "consultar_patriarcas_edocs",
+    "importar_coleta_eflow",
     "revisar_patriarcas_edocs",
     "selecionar_patriarcas_coleta",
     "solicitar_coleta_patriarcas_edocs",
+    "solicitar_coleta_mensal_edocs",
     "view_coletapatriarcasedocs",
+    "view_coletaeflow",
+    "view_coletamensaledocs",
+    "view_definicaofluxoeflow",
     "view_divergenciapatriarcaedocs",
     "view_eventoauditoriapatriarcaedocs",
+    "view_eventoauditoriaeflow",
+    "view_eventoauditoriapreferenciaeflow",
+    "view_eventoauditoriacoletamensaledocs",
+    "view_fontebrutacoletamensaledocs",
     "view_observacaopatriarcaedocs",
     "view_patriarcaedocs",
+    "view_preferenciaexibicaoeflow",
+    "view_resultadocalculoeflow",
+    "view_resultadomensalorganizacaoedocs",
+    "view_resultadomensalpatriarcaedocs",
     "visualizar_coletas_patriarcas",
 )
 
@@ -158,8 +211,14 @@ def semear_recursos_funcionais_publicacoes() -> dict[str, int]:
             capability=capability,
         )
 
+    menus = {}
     for item in MENUS_PUBLICACOES:
-        Menu.objects.update_or_create(
+        parent = menus.get(item.codigo_parent)
+        if item.codigo_parent and parent is None:
+            raise RuntimeError(
+                f"Menu pai não definido antes do filho: {item.codigo_parent}"
+            )
+        menu, _ = Menu.objects.update_or_create(
             aplicacao=aplicacao,
             codigo=item.codigo,
             defaults={
@@ -169,10 +228,11 @@ def semear_recursos_funcionais_publicacoes() -> dict[str, int]:
                 "icone": item.icone,
                 "ordem": item.ordem,
                 "ativo": True,
-                "parent": None,
-                "capability": capabilities[item.codigo_capability],
+                "parent": parent,
+                "capability": capabilities.get(item.codigo_capability),
             },
         )
+        menus[item.codigo] = menu
 
     permissoes = Permission.objects.filter(
         content_type__app_label="pub_institucional",

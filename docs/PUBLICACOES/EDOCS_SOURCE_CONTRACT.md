@@ -4,8 +4,9 @@
 **Versão documental:** `1.0-proposta`  
 **Estado:** preenchido tecnicamente; pendente de responsáveis e aprovação  
 **Escopo:** EDOC-01 a EDOC-05 e normalização operacional existente  
-**Não autoriza:** publicação pública, agendamento ou ingestão em
-`PUBLICACOES`
+**Não autoriza:** publicação pública ou agendamento periódico automático. A
+ingestão administrativa versionada foi implementada, mas continua sem
+autorizar divulgação.
 
 Este documento especializa o
 [`SOURCE_CONTRACT_TEMPLATE.md`](./SOURCE_CONTRACT_TEMPLATE.md). Fatos
@@ -62,10 +63,10 @@ seja imutável.
 
 | Item | Definição atual |
 |---|---|
-| Tipo | Polling HTTPS da API V2 por comando mensal |
-| Evento ou agenda | Execução manual; agendamento não aprovado |
-| Identificador idempotente proposto | Ambiente + competência + método + `idPatriarca` + `idOrganizacao`, quando aplicável |
-| Agregado operacional | `quantitativo_mensal_patriarca` e `quantitativo_mensal_organizacao` |
+| Tipo | Polling HTTPS da API V2 por solicitação administrativa assíncrona |
+| Evento ou agenda | Solicitação manual pela API; agenda periódica não aprovada |
+| Identificador de revisão | Competência + número sequencial de revisão; somente uma revisão pode estar ativa por competência |
+| Agregado operacional | `ResultadoMensalPatriarcaEdocs` e `ResultadoMensalOrganizacaoEdocs` |
 | Versão da origem | Não fornecida |
 | Cursor de reconciliação | Não fornecido; reconciliação exige nova consulta integral |
 | Frequência/volume observado | Mensal; com 25 patriarcas, 53 GETs: catálogo, dois relatórios gerais e dois relatórios por patriarca |
@@ -88,9 +89,9 @@ A classificação normativa está em
 | `nomePatriarca` | texto | sim | Nome institucional do patriarca | E-Docs ou nome da seleção na visão por organização |
 | `idOrganizacao` | UUID | somente organização | Identificador da organização | E-Docs |
 | `nomeOrganizacao` | texto | somente organização | Nome institucional da organização | E-Docs |
-| `totalProcessos` | inteiro não negativo | sim | Processos da competência | E-Docs, EDOC-01/02 |
-| `totalDocumentos` | inteiro não negativo | sim | Documentos da competência | E-Docs, EDOC-03/04 |
-| `totalPaginas` | inteiro não negativo | sim | Páginas da competência | E-Docs, EDOC-03/04 |
+| `totalProcessos` | inteiro não negativo ou nulo | sim | Processos da competência; nulo quando a origem omite a dimensão | E-Docs, EDOC-01/02 |
+| `totalDocumentos` | inteiro não negativo ou nulo | sim | Documentos da competência; nulo quando a origem omite a dimensão | E-Docs, EDOC-03/04 |
+| `totalPaginas` | inteiro não negativo ou nulo | sim | Páginas da competência; nulo quando a origem omite a dimensão | E-Docs, EDOC-03/04 |
 | `mes` | inteiro de 1 a 12 | sim | Mês consultado | Parâmetro do coletor |
 | `ano` | inteiro de 1 a 9999 | sim | Ano consultado | Parâmetro do coletor |
 | `ambiente` | enum `HML`/`PRD` | evidência | Ambiente consultado | Configuração explícita |
@@ -139,6 +140,12 @@ Decisão funcional registrada em 06/11/2026:
   alimentarão EDOC-01 a EDOC-04;
 - alterar `coletar_detalhes` também exige ação explícita, justificativa e evento
   de auditoria;
+- `municipio_implantado_sem_uso_edocs` é indicador gerencial manual, não vem
+  do EDOC-05 e não pode ser alterado pela sincronização remota;
+- `codigo_municipio`, `municipio_implantado`, `municipio_em_implantacao` e
+  `municipio_manifestou_interesse` também são campos locais manuais;
+- alterar código ou indicadores exige permissão técnica, justificativa,
+  incremento de versão e evento de auditoria com valores anterior e atual;
 - eventos WebSocket informam apenas o resumo da execução ou decisão; o banco de
   dados permanece a fonte canônica para o frontend.
 
@@ -211,20 +218,20 @@ por publicação aprovada e imutável.
 | Divergência | Preservar as duas evidências e registrar decisão do gestor |
 | Reprocessamento | Responsável técnico executa; aprovação funcional permanece pendente |
 
-### Lacuna de versionamento
+### Versionamento implementado
 
-O coletor operacional atual grava um caminho fixo por competência e substitui
-atomicamente os arquivos numa reexecução. Isso evita arquivo parcial, mas não
-preserva revisões da mesma competência. Antes de ingestão oficial, cada coleta
-deverá receber identificador, hash, instante e armazenamento imutável; a
-reexecução deverá criar nova versão vinculada à anterior.
+Cada solicitação persistida recebe UUID, competência, revisão sequencial,
+ambiente, seleção congelada, instantes, situação, contagens e hash do resultado.
+Uma reexecução cria nova revisão e preserva as respostas brutas anteriores. O
+coletor de planilha continua sendo uma saída operacional independente e pode
+substituir arquivos do mesmo diretório; ele não é o repositório canônico.
 
 ## 8. Critérios de aceite
 
 - [ ] Responsáveis funcional e técnico da origem nomeados.
 - [ ] Semântica, fechamento e correção da competência confirmados.
-- [ ] Snapshot reproduzível e imutável por versão.
-- [ ] Reexecução não duplica nem sobrescreve evidência anterior.
+- [x] Snapshot reproduzível e imutável por revisão administrativa.
+- [x] Reexecução cria nova revisão e não sobrescreve evidência anterior.
 - [ ] Indisponibilidade não produz publicação incompleta.
 - [x] Campos desconhecidos não são autorizados automaticamente para o DTO.
 - [x] Existem testes sintéticos para autenticação, merge e exportação.
