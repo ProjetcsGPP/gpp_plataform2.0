@@ -57,6 +57,7 @@ def test_seed_publicacoes_reconcilia_contrato_funcional_sem_ativar_operacao():
         "DIVERGENCIAS_EDOCS",
         "AUDITORIA_EDOCS",
         "COLETA_DADOS",
+        "PUBLICACOES",
     }
     assert set(
         RoleCapability.objects.filter(
@@ -69,6 +70,7 @@ def test_seed_publicacoes_reconcilia_contrato_funcional_sem_ativar_operacao():
         "DIVERGENCIAS_EDOCS",
         "AUDITORIA_EDOCS",
         "COLETA_DADOS",
+        "PUBLICACOES",
     }
 
     menus = {
@@ -84,6 +86,10 @@ def test_seed_publicacoes_reconcilia_contrato_funcional_sem_ativar_operacao():
                 "COLETA_DADOS",
                 "COLETA_EDOCS_MENSAL",
                 "COLETA_EFLOW",
+                "PUBLICACOES",
+                "GESTAO_PUBLICACOES",
+                "VISOES_PUBLICACAO",
+                "HISTORICO_PUBLICACOES",
             },
         )
         .values_list(
@@ -132,5 +138,24 @@ def test_seed_publicacoes_reconcilia_contrato_funcional_sem_ativar_operacao():
             "COLETA_DADOS",
             "COLETA_DADOS",
             "E-Flow",
+        ),
+        "PUBLICACOES": ("", None, None, "Publicações"),
+        "GESTAO_PUBLICACOES": (
+            "/publicacoes/gestao",
+            "PUBLICACOES",
+            "PUBLICACOES",
+            "Gestão",
+        ),
+        "VISOES_PUBLICACAO": (
+            "/publicacoes/visoes",
+            "PUBLICACOES",
+            "PUBLICACOES",
+            "Visões",
+        ),
+        "HISTORICO_PUBLICACOES": (
+            "/publicacoes/historico",
+            "PUBLICACOES",
+            "PUBLICACOES",
+            "Histórico",
         ),
     }

@@ -11,7 +11,7 @@ from uuid import UUID
 from celery import signature
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Max
+from django.db.models import Count, Max, OuterRef, Subquery, Sum
 from django.utils import timezone
 
 from apps.pub_institucional.edocs_tempo_real import publicar_evento_edocs
@@ -25,10 +25,14 @@ from apps.pub_institucional.models import (CodigoFonteMensalEdocs,
                                            SituacaoColetaMensalEdocs,
                                            SituacaoColetaPatriarcas,
                                            TipoEventoColetaMensalEdocs)
+from apps.pub_institucional.services.calculos_edocs import (
+    VERSAO_CALCULO_EDOCS, calcular_indicadores_edocs)
 from apps.pub_institucional.services.cliente_edocs import (ClienteEdocs,
                                                            ErroEdocs)
 from apps.pub_institucional.services.patriarcas_edocs import (
     AtorAuditoriaEdocs, sincronizar_patriarcas_edocs)
+from apps.pub_institucional.services.implantacao_edocs import (
+    registrar_implantacoes_observadas)
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +85,15 @@ def _criar_evento(coleta, ator, tipo_evento, mensagem, metadados=None):
     )
 
 
+def _agendar_processamento(coleta_id) -> None:
+    transaction.on_commit(
+        lambda: signature(
+            "pub_institucional.processar_coleta_mensal_edocs",
+            args=(str(coleta_id),),
+        ).delay()
+    )
+
+
 @transaction.atomic
 def solicitar_coleta_mensal_edocs(
     *,
@@ -103,8 +116,8 @@ def solicitar_coleta_mensal_edocs(
     )
     if competencia.coletas.filter(
         situacao__in=(
-            SituacaoColetaMensalEdocs.AGENDADA,
-            SituacaoColetaMensalEdocs.EM_EXECUCAO,
+            SituacaoColetaMensalEdocs.SOLICITADA,
+            SituacaoColetaMensalEdocs.EXECUTANDO,
         )
     ).exists():
         raise ErroColetaMensalEdocs(
@@ -152,13 +165,44 @@ def solicitar_coleta_mensal_edocs(
         {"ano": ano, "mes": mes, "revisao": revisao},
     )
     if agendar:
-        transaction.on_commit(
-            lambda: signature(
-                "pub_institucional.processar_coleta_mensal_edocs",
-                args=(str(coleta.pk),),
-            ).delay()
-        )
+        _agendar_processamento(coleta.pk)
     publicar_evento_edocs("edocs.mensal.coleta.solicitada", _resumo(coleta))
+    return coleta
+
+
+@transaction.atomic
+def reencaminhar_coleta_mensal_edocs(
+    coleta_id,
+    *,
+    ator: AtorAuditoriaEdocs | None = None,
+) -> ColetaMensalEdocs:
+    """Reenvia uma solicitação que ainda não começou, sem criar nova revisão."""
+
+    coleta = ColetaMensalEdocs.objects.select_for_update().select_related(
+        "competencia"
+    ).get(pk=coleta_id)
+    if coleta.situacao != SituacaoColetaMensalEdocs.SOLICITADA:
+        raise ErroColetaMensalEdocs(
+            "Somente uma coleta ainda solicitada pode ser reencaminhada."
+        )
+    ator = ator or AtorAuditoriaEdocs(nome="recuperacao_automatica")
+    coleta.atualizado_por_id = ator.usuario_id
+    coleta.atualizado_por_nome = ator.nome
+    coleta.save(
+        update_fields=(
+            "atualizado_por_id",
+            "atualizado_por_nome",
+            "atualizado_em",
+        )
+    )
+    _criar_evento(
+        coleta,
+        ator,
+        TipoEventoColetaMensalEdocs.REENCAMINHADA,
+        "Solicitação mensal E-Docs reencaminhada para processamento.",
+    )
+    _agendar_processamento(coleta.pk)
+    publicar_evento_edocs("edocs.mensal.coleta.reencaminhada", _resumo(coleta))
     return coleta
 
 
@@ -260,17 +304,12 @@ def _normalizar_resultados(coleta, fontes, patriarcas, ator):
         dado_processos = processos.get(identificador, {})
         dado_documentos = documentos.get(identificador, {})
         resultados_patriarcas.append(
-            ResultadoMensalPatriarcaEdocs(
-                coleta=coleta,
-                patriarca=patriarca,
-                id_patriarca_externo=identificador,
-                sigla_patriarca=patriarca.sigla,
-                nome_patriarca=patriarca.nome,
-                codigo_municipio=patriarca.codigo_municipio,
-                total_processos=dado_processos.get("totalProcessos"),
-                total_documentos=dado_documentos.get("totalDocumentos"),
-                total_paginas=dado_documentos.get("totalPaginas"),
-                **_auditoria(ator),
+            _criar_resultado_patriarca(
+                coleta,
+                patriarca,
+                dado_processos,
+                dado_documentos,
+                ator,
             )
         )
         processos_org = _indexar_organizacoes(
@@ -306,6 +345,34 @@ def _normalizar_resultados(coleta, fontes, patriarcas, ator):
     return resultados_patriarcas, resultados_organizacoes
 
 
+def _criar_resultado_patriarca(
+    coleta,
+    patriarca,
+    dado_processos,
+    dado_documentos,
+    ator,
+):
+    total_processos = dado_processos.get("totalProcessos")
+    total_paginas = dado_documentos.get("totalPaginas")
+    indicadores = calcular_indicadores_edocs(
+        total_paginas=total_paginas,
+        total_processos=total_processos,
+    )
+    return ResultadoMensalPatriarcaEdocs(
+        coleta=coleta,
+        patriarca=patriarca,
+        id_patriarca_externo=patriarca.id_externo,
+        sigla_patriarca=patriarca.sigla,
+        nome_patriarca=patriarca.nome,
+        codigo_municipio=patriarca.codigo_municipio,
+        total_processos=total_processos,
+        total_documentos=dado_documentos.get("totalDocumentos"),
+        total_paginas=total_paginas,
+        **indicadores.__dict__,
+        **_auditoria(ator),
+    )
+
+
 def executar_coleta_mensal_edocs(  # pylint: disable=too-many-locals
     coleta_id,
     *,
@@ -317,9 +384,9 @@ def executar_coleta_mensal_edocs(  # pylint: disable=too-many-locals
         coleta = ColetaMensalEdocs.objects.select_for_update().select_related(
             "competencia"
         ).get(pk=coleta_id)
-        if coleta.situacao != SituacaoColetaMensalEdocs.AGENDADA:
+        if coleta.situacao != SituacaoColetaMensalEdocs.SOLICITADA:
             return coleta
-        coleta.situacao = SituacaoColetaMensalEdocs.EM_EXECUCAO
+        coleta.situacao = SituacaoColetaMensalEdocs.EXECUTANDO
         coleta.iniciada_em = timezone.now()
         coleta.save(update_fields=("situacao", "iniciada_em", "atualizado_em"))
         ator = AtorAuditoriaEdocs(
@@ -329,7 +396,7 @@ def executar_coleta_mensal_edocs(  # pylint: disable=too-many-locals
         _criar_evento(
             coleta,
             ator,
-            TipoEventoColetaMensalEdocs.INICIADA,
+            TipoEventoColetaMensalEdocs.EXECUCAO_INICIADA,
             "Coleta mensal E-Docs iniciada.",
         )
 
@@ -434,7 +501,7 @@ def _concluir_coleta(coleta, ator, resultados_patriarcas, resultados_organizacoe
     coleta = ColetaMensalEdocs.objects.select_for_update().get(pk=coleta.pk)
     ResultadoMensalPatriarcaEdocs.objects.bulk_create(resultados_patriarcas)
     ResultadoMensalOrganizacaoEdocs.objects.bulk_create(resultados_organizacoes)
-    coleta.situacao = SituacaoColetaMensalEdocs.CONCLUIDA
+    coleta.situacao = SituacaoColetaMensalEdocs.SUCESSO
     coleta.concluida_em = timezone.now()
     coleta.quantidade_patriarcas = len(resultados_patriarcas)
     coleta.quantidade_organizacoes = len(resultados_organizacoes)
@@ -446,15 +513,29 @@ def _concluir_coleta(coleta, ator, resultados_patriarcas, resultados_organizacoe
                 "processos": item.total_processos,
                 "documentos": item.total_documentos,
                 "paginas": item.total_paginas,
+                "versao_calculo": item.versao_calculo,
+                "economia_papel_kg": str(item.economia_papel_kg),
+                "gases_poluentes_kg": str(item.gases_poluentes_kg),
+                "economia_papel_reais": str(item.economia_papel_reais),
+                "economia_insumos_reais": str(item.economia_insumos_reais),
+                "economia_impressao_reais": str(item.economia_impressao_reais),
+                "economia_total_reais": str(item.economia_total_reais),
+                "economia_agua_m3": str(item.economia_agua_m3),
+                "arvores_salvas": str(item.arvores_salvas),
             }
             for item in resultados_patriarcas
         ]
     )
     coleta.save()
+    registrar_implantacoes_observadas(
+        coleta,
+        resultados_patriarcas,
+        ator=ator,
+    )
     _criar_evento(
         coleta,
         ator,
-        TipoEventoColetaMensalEdocs.CONCLUIDA,
+        TipoEventoColetaMensalEdocs.SUCESSO,
         "Coleta mensal E-Docs concluída.",
         _resumo(coleta),
     )
@@ -464,7 +545,7 @@ def _concluir_coleta(coleta, ator, resultados_patriarcas, resultados_organizacoe
 @transaction.atomic
 def _marcar_falha(coleta, ator, codigo, mensagem):
     coleta = ColetaMensalEdocs.objects.select_for_update().get(pk=coleta.pk)
-    coleta.situacao = SituacaoColetaMensalEdocs.FALHOU
+    coleta.situacao = SituacaoColetaMensalEdocs.ERRO
     coleta.concluida_em = timezone.now()
     coleta.quantidade_fontes_brutas = coleta.fontes_brutas.count()
     coleta.codigo_erro = codigo[:80]
@@ -473,7 +554,7 @@ def _marcar_falha(coleta, ator, codigo, mensagem):
     _criar_evento(
         coleta,
         ator,
-        TipoEventoColetaMensalEdocs.FALHOU,
+        TipoEventoColetaMensalEdocs.ERRO,
         "Coleta mensal E-Docs falhou.",
         {"codigo_erro": coleta.codigo_erro},
     )
@@ -491,4 +572,106 @@ def _resumo(coleta):
         "quantidade_patriarcas": coleta.quantidade_patriarcas,
         "quantidade_organizacoes": coleta.quantidade_organizacoes,
         "quantidade_fontes_brutas": coleta.quantidade_fontes_brutas,
+        "versao_calculo": VERSAO_CALCULO_EDOCS,
     }
+
+
+def _somar_resultados(resultados, **contagens) -> dict:
+    totais = resultados.aggregate(
+        **contagens,
+        total_processos=Sum("total_processos"),
+        total_documentos=Sum("total_documentos"),
+        total_paginas=Sum("total_paginas"),
+        economia_papel_kg=Sum("economia_papel_kg"),
+        gases_poluentes_kg=Sum("gases_poluentes_kg"),
+        economia_papel_reais=Sum("economia_papel_reais"),
+        economia_insumos_reais=Sum("economia_insumos_reais"),
+        economia_impressao_reais=Sum("economia_impressao_reais"),
+        economia_total_reais=Sum("economia_total_reais"),
+        economia_agua_m3=Sum("economia_agua_m3"),
+        arvores_salvas=Sum("arvores_salvas"),
+    )
+    campos_numericos = (
+        "total_processos",
+        "total_documentos",
+        "total_paginas",
+        "economia_papel_kg",
+        "gases_poluentes_kg",
+        "economia_papel_reais",
+        "economia_insumos_reais",
+        "economia_impressao_reais",
+        "economia_total_reais",
+        "economia_agua_m3",
+        "arvores_salvas",
+    )
+    for campo in campos_numericos:
+        if totais[campo] is None:
+            totais[campo] = 0
+    return totais
+
+
+def obter_totais_resultados_mensais_edocs(coleta_id) -> dict:
+    """Soma todos os resultados da revisao sem depender da pagina da API."""
+
+    resultados = ResultadoMensalPatriarcaEdocs.objects.filter(
+        coleta_id=coleta_id
+    )
+    totais = _somar_resultados(
+        resultados,
+        quantidade_municipios=Count("id"),
+    )
+    totais.update(
+        coleta_id=coleta_id,
+        versao_calculo=(
+            resultados.values_list("versao_calculo", flat=True).first()
+            or VERSAO_CALCULO_EDOCS
+        ),
+    )
+    return totais
+
+
+def obter_totais_historicos_edocs(
+    *,
+    ano: int | None = None,
+    patriarca_id: int | None = None,
+) -> dict:
+    """Consolida a ultima revisao bem-sucedida de cada competencia."""
+
+    ultima_coleta_sucesso = (
+        ColetaMensalEdocs.objects.filter(
+            competencia_id=OuterRef("coleta__competencia_id"),
+            situacao=SituacaoColetaMensalEdocs.SUCESSO,
+        )
+        .order_by("-revisao")
+        .values("pk")[:1]
+    )
+    resultados = ResultadoMensalPatriarcaEdocs.objects.filter(
+        coleta_id=Subquery(ultima_coleta_sucesso)
+    )
+    if ano is not None:
+        resultados = resultados.filter(coleta__competencia__ano=ano)
+    patriarca = None
+    if patriarca_id is not None:
+        resultados = resultados.filter(patriarca_id=patriarca_id)
+        patriarca = PatriarcaEdocs.objects.filter(pk=patriarca_id).first()
+
+    totais = _somar_resultados(
+        resultados,
+        quantidade_competencias=Count(
+            "coleta__competencia_id",
+            distinct=True,
+        ),
+        quantidade_municipios=Count("patriarca_id", distinct=True),
+    )
+    totais.update(
+        ano=ano,
+        patriarca_id=patriarca_id,
+        codigo_municipio=patriarca.codigo_municipio if patriarca else None,
+        nome_municipio=patriarca.nome if patriarca else None,
+        versoes_calculo=list(
+            resultados.order_by()
+            .values_list("versao_calculo", flat=True)
+            .distinct()
+        ),
+    )
+    return totais

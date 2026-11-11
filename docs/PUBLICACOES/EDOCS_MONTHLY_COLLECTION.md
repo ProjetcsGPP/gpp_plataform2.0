@@ -23,10 +23,10 @@ como o adaptador genérico do cofre de segredos, ficam em `common`. O `core`
 permanece reservado a mecanismos profundos da plataforma.
 
 A planilha existente `Localidade com cod + dados edocs.xlsx`, localizada fora
-do repositório, foi lida somente como referência. Ela não é alterada pelo
-comando. Colunas como localização, tamanho em disco, servidores treinados e
-cálculos ambientais não são geradas porque não existem nos contratos
-selecionados.
+do repositório, foi lida somente como referência e não é alterada. Localização,
+tamanho em disco e servidores treinados continuam fora dos contratos
+selecionados. Os indicadores ambientais e financeiros que possuem fórmula na
+aba `Municípios` são calculados no resultado mensal por patriarca.
 
 ## 2. Métodos selecionados
 
@@ -105,7 +105,7 @@ O fluxo administrativo grava no schema `publicacoes`:
 | `CompetenciaEdocs` | Identifica unicamente o par ano/mês. |
 | `ColetaMensalEdocs` | Preserva uma revisão da competência e a seleção usada. |
 | `FonteBrutaColetaMensalEdocs` | Preserva cada resposta JSON e seu SHA-256. |
-| `ResultadoMensalPatriarcaEdocs` | Normaliza processos, documentos e páginas por patriarca. |
+| `ResultadoMensalPatriarcaEdocs` | Normaliza processos, documentos e páginas por patriarca e persiste os indicadores derivados. |
 | `ResultadoMensalOrganizacaoEdocs` | Normaliza os mesmos totais por organização. |
 | `EventoAuditoriaColetaMensalEdocs` | Registra solicitação, início, conclusão ou falha. |
 
@@ -120,7 +120,58 @@ no instante da execução. Os campos `municipio_implantado`,
 `municipio_implantado_sem_uso_edocs` permanecem no cadastro administrativo;
 eles não são inferidos da API E-Docs.
 
-### 4.2 Exportação operacional legada
+Separadamente, a primeira competência bem-sucedida em que processos,
+documentos ou páginas possuam valor positivo cria
+`ImplantacaoPatriarcaEdocs`. O registro preserva mês, ano, coleta de evidência,
+critério, totais e auditoria, e não é sobrescrito por coletas posteriores. Uma
+coleta na qual o patriarca não foi selecionado ou possui apenas valores nulos
+ou zero não comprova implantação. Durante a carga histórica, as competências
+devem ser executadas em ordem cronológica; uma evidência retroativa posterior
+não altera automaticamente a primeira implantação já registrada.
+
+### 4.2 Indicadores calculados
+
+A metodologia `PLANILHA_MUNICIPIOS_V1` reproduz as fórmulas encontradas nas
+linhas da aba `Municípios`:
+
+| Campo persistido | Fórmula canônica |
+|---|---|
+| `economia_papel_kg` | páginas × `0,00469` |
+| `gases_poluentes_kg` | páginas × `0,0035` |
+| `economia_papel_reais` | páginas × `0,06` |
+| `economia_insumos_reais` | processos × `1,20` |
+| `economia_impressao_reais` | páginas × `0,10` |
+| `economia_total_reais` | economia de papel + insumos + impressão |
+| `economia_agua_m3` | páginas × `10 / 1.000`, equivalente a páginas × `0,01` |
+| `arvores_salvas` | páginas ÷ `10.000` |
+
+O texto da aba `Fontes` informa `0,005 kg` de gases por página, mas a fórmula
+efetivamente aplicada a todas as linhas da aba `Municípios` usa `0,0035 kg`.
+Conforme a decisão funcional, prevalece a fórmula da planilha. A divergência é
+mantida explicitamente documentada e a versão da metodologia é persistida para
+impedir que uma eventual revisão altere silenciosamente o histórico.
+
+A [fonte indicada para massa do papel](https://www.papersizes.org/weight-of-sheets.htm)
+confirma `4,69 g` para uma folha A4 de 75 gsm. A
+[referência sobre carbono](https://florestas.pt/saiba-mais/como-se-calcula-a-pegada-de-carbono-do-papel/)
+informa que o resultado varia segundo papel, fabricação, energia e metodologia
+e apresenta valores por tonelada, não um único fator universal por página.
+Portanto, ela contextualiza, mas não substitui o fator canônico conservador da
+planilha.
+
+Totais ausentes permanecem `null` nos dados recebidos. Somente para executar as
+fórmulas, um total ausente equivale a zero, reproduzindo o comportamento da
+planilha. Nas novas revisões, os valores derivados ficam persistidos, fazem
+parte do hash canônico e a versão do cálculo integra o evento de auditoria de
+sucesso. A migração `0010` retrocalcula os resultados anteriores sem alterar o
+hash original das respectivas coletas.
+
+Os consolidados anuais e históricos escolhem, em cada competência, somente a
+revisão bem-sucedida de maior número. Essa regra evita duplicar um mês quando
+há recoleta e impede que uma tentativa com erro substitua dados válidos. Os
+somatórios podem abranger todos os municípios ou um único patriarca.
+
+### 4.3 Exportação operacional legada
 
 Por padrão, o período é gravado em `var/edocs/AAAA-MM/`, ignorado pelo Git:
 
@@ -152,7 +203,8 @@ A planilha nova possui:
 cada competência. Assim, a coleta nunca sobrescreve a seleção manual.
 
 As colunas `mes` e `ano` vêm dos parâmetros obrigatórios da própria consulta.
-Nenhuma fórmula da planilha de referência é copiada.
+A exportação legada continua atendendo à demanda operacional específica; a
+persistência e a API administrativa são as fontes canônicas dos cálculos.
 
 ## 5. Métricas existentes apenas no dashboard
 
@@ -200,6 +252,11 @@ Pela API administrativa, enviar `POST` para
 `/api/pub-institucional/coletas-mensais-edocs/` com `ano` e `mes`. O backend
 retorna `202`, e o Celery processa a revisão. O frontend acompanha o recurso
 por HTTP; o WebSocket é apenas aviso para revalidação.
+
+Os estados funcionais são `SOLICITADA`, `EXECUTANDO`, `SUCESSO` e `ERRO`.
+Não existe estado `AGENDADA`: a fila é detalhe interno. Uma solicitação que não
+chegou a iniciar pode ser reencaminhada pela ação HTTP da própria coleta e é
+recuperada periodicamente pelo Celery Beat após a retomada da infraestrutura.
 
 O comando abaixo continua gerando arquivos para a demanda operacional
 específica. Ele não cria publicação e não substitui a coleta persistente:

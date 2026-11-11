@@ -244,7 +244,12 @@ def test_api_importa_csv_e_retorna_resultado_ao_front(
     )
     requisicao = APIRequestFactory().post(
         "/api/pub-institucional/coletas-eflow/",
-        {"arquivo": arquivo},
+        {
+            "arquivo": arquivo,
+            "ano_vigencia_inicio": 2024,
+            "mes_vigencia_inicio": 1,
+            "vigencia_retroativa": True,
+        },
         format="multipart",
         HTTP_X_APP_CODE="PUB_INSTITUCIONAL",
     )
@@ -254,6 +259,9 @@ def test_api_importa_csv_e_retorna_resultado_ao_front(
 
     assert resposta.status_code == 201
     assert resposta.data["situacao"] == "CONCLUIDA"
+    assert resposta.data["ano_vigencia_inicio"] == 2024
+    assert resposta.data["mes_vigencia_inicio"] == 1
+    assert resposta.data["vigencia_retroativa"] is True
     assert resposta.data["quantidade_fluxos"] == 1
     assert {
         resultado["perfil"] for resultado in resposta.data["resultados_calculo"]

@@ -7,6 +7,9 @@ from django.db import transaction
 
 from apps.accounts.models import (Aplicacao, Capability, Menu, Role,
                                   RoleCapability)
+from apps.pub_institucional.models import (
+    ConfiguracaoVisaoPublicacao, EscopoVisaoPublicacao,
+    FonteVisaoPublicacao, PerfilCalculoEflow)
 
 
 @dataclass(frozen=True)
@@ -52,6 +55,11 @@ CAPABILITIES_PUBLICACOES = (
         codigo="COLETA_DADOS",
         nome="Coleta de Dados",
         descricao="Importa e consulta as fontes utilizadas nas publicações.",
+    ),
+    DefinicaoCapability(
+        codigo="PUBLICACOES",
+        nome="Publicações",
+        descricao="Prepara, valida, publica e preserva versões institucionais.",
     ),
 )
 
@@ -124,6 +132,40 @@ MENUS_PUBLICACOES = (
         codigo_capability="COLETA_DADOS",
         codigo_parent="COLETA_DADOS",
     ),
+    DefinicaoMenu(
+        codigo="PUBLICACOES",
+        nome="Publicações",
+        rota="",
+        icone="publish",
+        ordem=300,
+    ),
+    DefinicaoMenu(
+        codigo="GESTAO_PUBLICACOES",
+        nome="Gestão",
+        rota="/publicacoes/gestao",
+        icone="edit_document",
+        ordem=100,
+        codigo_capability="PUBLICACOES",
+        codigo_parent="PUBLICACOES",
+    ),
+    DefinicaoMenu(
+        codigo="VISOES_PUBLICACAO",
+        nome="Visões",
+        rota="/publicacoes/visoes",
+        icone="filter_alt",
+        ordem=200,
+        codigo_capability="PUBLICACOES",
+        codigo_parent="PUBLICACOES",
+    ),
+    DefinicaoMenu(
+        codigo="HISTORICO_PUBLICACOES",
+        nome="Histórico",
+        rota="/publicacoes/historico",
+        icone="history",
+        ordem=300,
+        codigo_capability="PUBLICACOES",
+        codigo_parent="PUBLICACOES",
+    ),
 )
 
 PERMISSOES_GESTOR_PUBLICACOES = (
@@ -131,11 +173,19 @@ PERMISSOES_GESTOR_PUBLICACOES = (
     "alterar_indicadores_municipais_edocs",
     "alterar_preferencia_exibicao_eflow",
     "consultar_patriarcas_edocs",
+    "add_publicacao",
+    "calcular_publicacao",
+    "change_publicacao",
+    "configurar_visao_publicacao",
     "importar_coleta_eflow",
     "revisar_patriarcas_edocs",
     "selecionar_patriarcas_coleta",
     "solicitar_coleta_patriarcas_edocs",
     "solicitar_coleta_mensal_edocs",
+    "substituir_publicacao",
+    "publicar_publicacao",
+    "revogar_publicacao",
+    "validar_publicacao",
     "view_coletapatriarcasedocs",
     "view_coletaeflow",
     "view_coletamensaledocs",
@@ -145,14 +195,47 @@ PERMISSOES_GESTOR_PUBLICACOES = (
     "view_eventoauditoriaeflow",
     "view_eventoauditoriapreferenciaeflow",
     "view_eventoauditoriacoletamensaledocs",
+    "view_configuracaovisaopublicacao",
+    "view_historicopublicacao",
+    "view_implantacaopatriarcaedocs",
     "view_fontebrutacoletamensaledocs",
     "view_observacaopatriarcaedocs",
     "view_patriarcaedocs",
     "view_preferenciaexibicaoeflow",
+    "view_publicacao",
     "view_resultadocalculoeflow",
     "view_resultadomensalorganizacaoedocs",
     "view_resultadomensalpatriarcaedocs",
     "visualizar_coletas_patriarcas",
+    "visualizar_previa_publicacao",
+)
+
+
+VISOES_INICIAIS_PUBLICACAO = (
+    {
+        "codigo": "MUNICIPIOS_EDOCS",
+        "nome": "Municípios E-Docs",
+        "descricao": "Patriarcas municipais com código IBGE na competência.",
+        "fonte": FonteVisaoPublicacao.EDOCS,
+        "escopo": EscopoVisaoPublicacao.MUNICIPIOS,
+        "perfil_calculo_eflow": "",
+    },
+    {
+        "codigo": "GERAL_EFLOW",
+        "nome": "E-Flow Geral",
+        "descricao": "Todas as definições do snapshot E-Flow vigente.",
+        "fonte": FonteVisaoPublicacao.EFLOW,
+        "escopo": EscopoVisaoPublicacao.TODOS,
+        "perfil_calculo_eflow": PerfilCalculoEflow.CONSOLIDADO_PUBLICACAO,
+    },
+    {
+        "codigo": "MUNICIPIOS_EFLOW",
+        "nome": "Municípios E-Flow",
+        "descricao": "Definições dos patriarcas com código IBGE.",
+        "fonte": FonteVisaoPublicacao.EFLOW,
+        "escopo": EscopoVisaoPublicacao.MUNICIPIOS,
+        "perfil_calculo_eflow": PerfilCalculoEflow.CONSOLIDADO_PUBLICACAO,
+    },
 )
 
 
@@ -258,10 +341,17 @@ def semear_recursos_funcionais_publicacoes() -> dict[str, int]:
     if permissoes_novas:
         perfil.group.permissions.add(*permissoes_novas)
 
+    for definicao in VISOES_INICIAIS_PUBLICACAO:
+        ConfiguracaoVisaoPublicacao.objects.update_or_create(
+            codigo=definicao["codigo"],
+            defaults={**definicao, "ativa": True},
+        )
+
     return {
         "aplicacao_criada": int(criada),
         "capabilities": len(CAPABILITIES_PUBLICACOES),
         "associacoes": len(CAPABILITIES_PUBLICACOES),
         "menus": len(MENUS_PUBLICACOES),
         "permissoes": len(PERMISSOES_GESTOR_PUBLICACOES),
+        "visoes_publicacao": len(VISOES_INICIAIS_PUBLICACAO),
     }

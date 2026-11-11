@@ -20,7 +20,7 @@ e 100.000 registros, configurável por `GPP_EFLOW_CSV_MAX_BYTES` e
 
 | Método | Rota | Permissão | Finalidade |
 |---|---|---|---|
-| `POST` | `coletas-eflow/` | `importar_coleta_eflow` | Envia `arquivo` como multipart e processa o snapshot |
+| `POST` | `coletas-eflow/` | `importar_coleta_eflow` | Envia o arquivo e a competência inicial de vigência |
 | `GET` | `coletas-eflow/` | `view_coletaeflow` | Lista coletas e indicadores congelados |
 | `GET` | `coletas-eflow/{uuid}/` | `view_coletaeflow` | Consulta uma coleta |
 | `GET` | `definicoes-eflow/` | `view_definicaofluxoeflow` | Lista linhas normalizadas |
@@ -36,6 +36,18 @@ O `POST` retorna `201` com `situacao=CONCLUIDA` quando o conteúdo é aceito. Um
 falha descoberta após a preservação do arquivo também retorna a coleta criada,
 com `situacao=FALHOU`, `codigo_erro` e `mensagem_erro`. Erros de transporte,
 extensão ou tamanho que impedem criar o snapshot retornam `400`.
+
+O multipart deve conter `arquivo`, `ano_vigencia_inicio` e
+`mes_vigencia_inicio`; `vigencia_retroativa` é opcional. O primeiro snapshot
+conhecido usa `2024`, `1` e `vigencia_retroativa=true`. Uma
+nova importação passa a atender publicações a partir da competência informada;
+snapshots e publicações anteriores não são reescritos. Se houver mais de uma
+leitura para a mesma competência inicial, a concluída mais recentemente será a
+vigente para novas publicações; as anteriores permanecem preservadas.
+
+A vigência retroativa do primeiro arquivo representa a melhor informação
+disponível para a série, não evidência de que aquela mesma fotografia existia
+em janeiro de 2024. Essa proveniência deverá permanecer visível na publicação.
 
 ## 3. Filtros e ordenação
 
@@ -112,7 +124,10 @@ preservada junto com a referência normalizada.
 Após aplicar as migrações e reconciliar o seed:
 
 ```bash
-.venv/bin/python manage.py importar_eflow_csv /caminho/exportacao.csv
+.venv/bin/python manage.py importar_eflow_csv /caminho/exportacao.csv \
+  --ano-vigencia 2024 \
+  --mes-vigencia 1 \
+  --vigencia-retroativa
 .venv/bin/python manage.py gerar_resultados_eflow
 ```
 

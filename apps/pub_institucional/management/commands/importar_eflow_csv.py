@@ -15,6 +15,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("arquivo", type=Path)
+        parser.add_argument("--ano-vigencia", type=int, required=True)
+        parser.add_argument("--mes-vigencia", type=int, required=True)
+        parser.add_argument("--vigencia-retroativa", action="store_true")
 
     def handle(self, *args, **options):
         caminho = options["arquivo"]
@@ -24,6 +27,9 @@ class Command(BaseCommand):
             coleta = importar_csv_eflow(
                 nome_arquivo=caminho.name,
                 conteudo=caminho.read_bytes(),
+                ano_vigencia_inicio=options["ano_vigencia"],
+                mes_vigencia_inicio=options["mes_vigencia"],
+                vigencia_retroativa=options["vigencia_retroativa"],
                 ator=AtorAuditoriaEflow(nome="comando:importar_eflow_csv"),
             )
         except ErroValidacaoEflow as exc:

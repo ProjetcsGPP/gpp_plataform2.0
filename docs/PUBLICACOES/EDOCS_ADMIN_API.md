@@ -50,11 +50,15 @@ da plataforma. Nenhum endpoint verifica o nome de uma role.
 | `GET /auditoria/` | Lista eventos append-only. |
 | `GET /auditoria/{id}/` | Consulta um evento de auditoria. |
 | `GET /coletas-mensais-edocs/` | Lista revisões mensais persistidas. |
-| `POST /coletas-mensais-edocs/` | Agenda a coleta de uma competência e retorna `202`. |
+| `POST /coletas-mensais-edocs/` | Solicita a coleta de uma competência e retorna `202`. |
+| `POST /coletas-mensais-edocs/{uuid}/reencaminhar/` | Reencaminha uma solicitação que ainda não começou. |
 | `GET /resultados-mensais-patriarcas-edocs/` | Lista os quantitativos normalizados por patriarca. |
+| `GET /resultados-mensais-patriarcas-edocs/totais/` | Consolida todos os municípios de uma revisão mensal. |
+| `GET /resultados-mensais-patriarcas-edocs/totais-historicos/` | Consolida resultados entre competências e anos. |
 | `GET /resultados-mensais-organizacoes-edocs/` | Lista os quantitativos normalizados por organização. |
 | `GET /fontes-brutas-coletas-mensais-edocs/` | Lista hashes e metadados das respostas preservadas. |
 | `GET /auditoria-coletas-mensais-edocs/` | Lista eventos da execução mensal. |
+| `GET /implantacoes-edocs/` | Lista a primeira implantação observada por patriarca. |
 
 Todos os caminhos da tabela são relativos a `/api/pub-institucional/`.
 Listagens usam o envelope paginado padrão do projeto, com `count`, `next`,
@@ -73,6 +77,7 @@ Listagens usam o envelope paginado padrão do projeto, com `count`, `next`,
 - coletas mensais: `ano`, `mes`, `situacao` e `ordering`;
 - resultados mensais: `coleta_id`, `patriarca_id`, `search` e `ordering`;
 - fontes brutas e auditoria mensal: `coleta_id` e `ordering`.
+- implantações observadas: `ano`, `mes`, `search` e `ordering`.
 
 Booleanos aceitam `true`, `false`, `1` ou `0`. Identificadores e enums
 inválidos retornam `400`, em vez de serem ignorados.
@@ -147,20 +152,63 @@ A coleta nunca altera automaticamente o catálogo definitivo.
 }
 ```
 
-A resposta `202` representa uma revisão `AGENDADA`. O worker consulta EDOC-05,
+A resposta `202` representa uma revisão `SOLICITADA`. O worker consulta EDOC-05,
 compara o catálogo sem aplicá-lo automaticamente e executa EDOC-01 a EDOC-04
 para a seleção congelada no instante da solicitação. As situações possíveis
-são `AGENDADA`, `EM_EXECUCAO`, `CONCLUIDA` e `FALHOU`.
+são `SOLICITADA`, `EXECUTANDO`, `SUCESSO` e `ERRO`.
 
 Uma nova solicitação da mesma competência cria a revisão seguinte e nunca
 sobrescreve resultados ou fontes anteriores. Duas revisões ativas da mesma
 competência são rejeitadas com `409`. Totais ausentes em uma resposta são
 persistidos como `null`, e não inferidos como zero.
 
+O resultado por patriarca também retorna `versao_calculo` e os campos
+`economia_papel_kg`, `gases_poluentes_kg`, `economia_papel_reais`,
+`economia_insumos_reais`, `economia_impressao_reais`,
+`economia_total_reais`, `economia_agua_m3` e `arvores_salvas`. Esses valores
+são calculados e persistidos no processamento da revisão, não pelo frontend.
+Para os cálculos derivados, exclusivamente, totais ausentes equivalem a zero,
+como ocorre nas fórmulas da planilha de referência.
+
+Para a consulta consolidada, enviar obrigatoriamente `coleta_id` para
+`GET /resultados-mensais-patriarcas-edocs/totais/`. O backend soma todos os
+resultados da revisão, independentemente da paginação usada na tabela, e
+retorna `quantidade_municipios`, os três quantitativos de origem e os oito
+indicadores calculados. O frontend não deve recalcular o total a partir da
+página visível.
+
+Os quatro somatórios históricos usam o mesmo endpoint, variando os filtros:
+
+| Escopo | Parâmetros |
+|---|---|
+| Somatório por ano | `ano=AAAA` |
+| Somatório de todos os anos | sem parâmetros |
+| Somatório anual de um município | `ano=AAAA&patriarca_id=ID` |
+| Somatório de todos os anos de um município | `patriarca_id=ID` |
+
+Para cada competência mensal, o backend considera somente a revisão de maior
+número com situação `SUCESSO`. Revisões anteriores e revisões em situação
+`SOLICITADA`, `EXECUTANDO` ou `ERRO` não participam do somatório. A resposta
+informa `quantidade_competencias`, `quantidade_municipios`, `versoes_calculo`,
+o ano e município aplicados e todos os quantitativos e indicadores somados.
+
 As respostas JSON integrais ficam no banco restrito com SHA-256. A API
 administrativa lista apenas seus metadados e hashes; o conteúdo bruto não é
 transferido pelas listagens usuais. A coleta é independente de publicação e
 nenhuma publicação é criada implicitamente.
+
+Enquanto a situação for `SOLICITADA`, a resposta contém
+`acoes_disponiveis: ["reencaminhar"]` para usuários com a permissão de
+solicitar. O reencaminhamento reutiliza a mesma revisão e não duplica a coleta.
+Solicitações antigas também são reencaminhadas pelo Celery Beat. Por padrão, o
+monitor executa a cada 60 segundos e considera recuperável uma solicitação sem
+início há pelo menos 120 segundos. Esses intervalos são configuráveis por
+`GPP_EDOCS_RECOVERY_INTERVAL_SECONDS` e
+`GPP_EDOCS_REQUEST_STALE_SECONDS`.
+
+Mensagens duplicadas são idempotentes: o worker somente inicia a coleta se o
+estado persistido ainda for `SOLICITADA`. Um registro `EXECUTANDO`, `SUCESSO`
+ou `ERRO` não é reiniciado pela mesma mensagem.
 
 ### Decisão de divergência
 

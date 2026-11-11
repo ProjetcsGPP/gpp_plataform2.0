@@ -1,6 +1,7 @@
 """Modelos da série histórica mensal dos relatórios quantitativos E-Docs."""
 
 import uuid
+from decimal import Decimal
 
 from django.db import models
 from django.db.models import Q
@@ -11,10 +12,10 @@ from .edocs import AmbienteEdocs, PatriarcaEdocs
 
 
 class SituacaoColetaMensalEdocs(models.TextChoices):
-    AGENDADA = "AGENDADA", "Agendada"
-    EM_EXECUCAO = "EM_EXECUCAO", "Em execução"
-    CONCLUIDA = "CONCLUIDA", "Concluída"
-    FALHOU = "FALHOU", "Falhou"
+    SOLICITADA = "SOLICITADA", "Solicitada"
+    EXECUTANDO = "EXECUTANDO", "Executando"
+    SUCESSO = "SUCESSO", "Sucesso"
+    ERRO = "ERRO", "Erro"
 
 
 class CodigoFonteMensalEdocs(models.TextChoices):
@@ -27,9 +28,10 @@ class CodigoFonteMensalEdocs(models.TextChoices):
 
 class TipoEventoColetaMensalEdocs(models.TextChoices):
     SOLICITADA = "SOLICITADA", "Coleta solicitada"
-    INICIADA = "INICIADA", "Coleta iniciada"
-    CONCLUIDA = "CONCLUIDA", "Coleta concluída"
-    FALHOU = "FALHOU", "Coleta falhou"
+    EXECUCAO_INICIADA = "EXECUCAO_INICIADA", "Execução iniciada"
+    SUCESSO = "SUCESSO", "Coleta concluída com sucesso"
+    ERRO = "ERRO", "Coleta concluída com erro"
+    REENCAMINHADA = "REENCAMINHADA", "Solicitação reencaminhada"
 
 
 class CompetenciaEdocs(ModeloAuditavel):
@@ -74,7 +76,7 @@ class ColetaMensalEdocs(ModeloAuditavel):
     situacao = models.CharField(
         max_length=20,
         choices=SituacaoColetaMensalEdocs.choices,
-        default=SituacaoColetaMensalEdocs.AGENDADA,
+        default=SituacaoColetaMensalEdocs.SOLICITADA,
     )
     iniciada_em = models.DateTimeField(null=True, blank=True)
     concluida_em = models.DateTimeField(null=True, blank=True)
@@ -98,8 +100,8 @@ class ColetaMensalEdocs(ModeloAuditavel):
                 fields=("competencia",),
                 condition=Q(
                     situacao__in=(
-                        SituacaoColetaMensalEdocs.AGENDADA,
-                        SituacaoColetaMensalEdocs.EM_EXECUCAO,
+                        SituacaoColetaMensalEdocs.SOLICITADA,
+                        SituacaoColetaMensalEdocs.EXECUTANDO,
                     )
                 ),
                 name="edocs_uma_coleta_mensal_ativa",
@@ -177,6 +179,59 @@ class ResultadoMensalPatriarcaEdocs(ModeloAuditavel):
     total_processos = models.PositiveBigIntegerField(null=True, blank=True)
     total_documentos = models.PositiveBigIntegerField(null=True, blank=True)
     total_paginas = models.PositiveBigIntegerField(null=True, blank=True)
+    versao_calculo = models.CharField(
+        max_length=40,
+        default="PLANILHA_MUNICIPIOS_V1",
+        editable=False,
+    )
+    economia_papel_kg = models.DecimalField(
+        max_digits=24,
+        decimal_places=5,
+        default=Decimal("0"),
+        editable=False,
+    )
+    gases_poluentes_kg = models.DecimalField(
+        max_digits=24,
+        decimal_places=4,
+        default=Decimal("0"),
+        editable=False,
+    )
+    economia_papel_reais = models.DecimalField(
+        max_digits=24,
+        decimal_places=2,
+        default=Decimal("0"),
+        editable=False,
+    )
+    economia_insumos_reais = models.DecimalField(
+        max_digits=24,
+        decimal_places=2,
+        default=Decimal("0"),
+        editable=False,
+    )
+    economia_impressao_reais = models.DecimalField(
+        max_digits=24,
+        decimal_places=2,
+        default=Decimal("0"),
+        editable=False,
+    )
+    economia_total_reais = models.DecimalField(
+        max_digits=24,
+        decimal_places=2,
+        default=Decimal("0"),
+        editable=False,
+    )
+    economia_agua_m3 = models.DecimalField(
+        max_digits=24,
+        decimal_places=2,
+        default=Decimal("0"),
+        editable=False,
+    )
+    arvores_salvas = models.DecimalField(
+        max_digits=24,
+        decimal_places=4,
+        default=Decimal("0"),
+        editable=False,
+    )
 
     class Meta:
         db_table = '"publicacoes"."resultado_mensal_patriarca_edocs"'

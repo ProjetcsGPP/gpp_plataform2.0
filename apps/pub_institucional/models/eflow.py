@@ -62,6 +62,9 @@ class ColetaEflow(ModeloAuditavel):
     arquivo_conteudo = models.BinaryField(editable=False)
     iniciada_em = models.DateTimeField()
     concluida_em = models.DateTimeField(null=True, blank=True)
+    ano_vigencia_inicio = models.PositiveSmallIntegerField(default=2024)
+    mes_vigencia_inicio = models.PositiveSmallIntegerField(default=1)
+    vigencia_retroativa = models.BooleanField(default=False)
     quantidade_fluxos = models.PositiveIntegerField(default=0)
     quantidade_orgaos_participantes = models.PositiveIntegerField(default=0)
     quantidade_setores_ativos = models.PositiveIntegerField(default=0)
@@ -76,7 +79,23 @@ class ColetaEflow(ModeloAuditavel):
         permissions = [
             ("importar_coleta_eflow", "Pode importar coleta do E-Flow"),
         ]
-        indexes = [models.Index(fields=("situacao", "iniciada_em"))]
+        indexes = [
+            models.Index(fields=("situacao", "iniciada_em")),
+            models.Index(fields=("ano_vigencia_inicio", "mes_vigencia_inicio")),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(ano_vigencia_inicio__gte=2024),
+                name="eflow_vigencia_ano_valido",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    mes_vigencia_inicio__gte=1,
+                    mes_vigencia_inicio__lte=12,
+                ),
+                name="eflow_vigencia_mes_valido",
+            ),
+        ]
 
 
 class DefinicaoFluxoEflow(ModeloAuditavel):

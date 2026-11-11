@@ -195,9 +195,7 @@ banco de negócio e nunca serão devolvidas ao frontend.
 | `AssinaturaDistribuicao` | Recursos e versões acessíveis ao consumidor |
 | `EventoOutbox` | Entrega confiável e idempotente de notificações |
 
-## 6. Workflow proposto, pendente do contrato administrativo
-
-Proposta inicial:
+## 6. Workflow editorial administrativo
 
 ```text
 RASCUNHO
@@ -208,6 +206,10 @@ RASCUNHO
 
 Saídas excepcionais: REJEITADA, CANCELADA, REVOGADA
 ```
+
+O recorte implementado usa `RASCUNHO`, `EM_VALIDACAO`,
+`AGUARDANDO_PUBLICACAO`, `PUBLICADA`, `SUBSTITUIDA` e `REVOGADA`. Rejeição e
+cancelamento permanecem reservados para ampliação posterior do contrato.
 
 Após `PUBLICADA`, conteúdo e metadados distribuídos tornam-se imutáveis. Uma
 correção cria nova versão e referencia a anterior. Revogação não apaga a
@@ -233,6 +235,9 @@ itens filhos:
 | `PATRIARCAS` | `DIVERGENCIAS_EDOCS` | `DIVERGENCIAS_EDOCS` | `/publicacoes/divergencias` |
 | `PATRIARCAS` | `AUDITORIA_EDOCS` | `AUDITORIA_EDOCS` | `/publicacoes/auditoria` |
 | `COLETA_DADOS` | `COLETA_DADOS` | `COLETA_EFLOW` | `/publicacoes/coleta-dados/eflow` |
+| `PUBLICACOES` | `PUBLICACOES` | `GESTAO_PUBLICACOES` | `/publicacoes/gestao` |
+| `PUBLICACOES` | `PUBLICACOES` | `VISOES_PUBLICACAO` | `/publicacoes/visoes` |
+| `PUBLICACOES` | `PUBLICACOES` | `HISTORICO_PUBLICACOES` | `/publicacoes/historico` |
 
 `COLETA_DADOS` é também um agrupador raiz. Seu primeiro filho implementado é
 `E-Flow`; as futuras entradas E-Docs por API, planilha e digitação manual só

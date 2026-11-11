@@ -348,11 +348,23 @@ CARGA_ORG_LOT_REMOTE_INDETERMINATE_AFTER_SECONDS = env.int(
     "CARGA_ORG_LOT_REMOTE_INDETERMINATE_AFTER_SECONDS",
     default=7200,
 )
+GPP_EDOCS_RECOVERY_INTERVAL_SECONDS = env.int(
+    "GPP_EDOCS_RECOVERY_INTERVAL_SECONDS",
+    default=60,
+)
+GPP_EDOCS_REQUEST_STALE_SECONDS = env.int(
+    "GPP_EDOCS_REQUEST_STALE_SECONDS",
+    default=120,
+)
 CELERY_BEAT_SCHEDULE = {
     "monitorar-envios-organograma-prodest": {
         "task": "carga_org_lot.monitorar_envios_organograma",
         "schedule": CARGA_ORG_LOT_MONITOR_INTERVAL_SECONDS,
-    }
+    },
+    "recuperar-coletas-mensais-edocs": {
+        "task": "pub_institucional.recuperar_coletas_mensais_edocs",
+        "schedule": GPP_EDOCS_RECOVERY_INTERVAL_SECONDS,
+    },
 }
 
 CHANNEL_REDIS_URL = env(

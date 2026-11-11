@@ -405,6 +405,33 @@ def _calcular_indicadores(normalizados: list[dict], perfil: str) -> dict:
     }
 
 
+def calcular_indicadores_eflow_filtrados(
+    coleta: ColetaEflow,
+    *,
+    perfil: str,
+    patriarcas_ids: list[int] | None = None,
+) -> dict:
+    """Filtra o snapshot antes de recalcular totais, Top 5 e percentuais."""
+
+    definicoes = coleta.definicoes.all()
+    if patriarcas_ids is not None:
+        definicoes = definicoes.filter(patriarca_id__in=patriarcas_ids)
+    registros = list(
+        definicoes.values(
+            "patriarca_texto",
+            "orgao",
+            "setor",
+            "publico_alvo",
+        )
+    )
+    if not registros:
+        raise ErroValidacaoEflow(
+            "VISAO_SEM_DEFINICOES",
+            "A visão não possui definições E-Flow na coleta selecionada.",
+        )
+    return _calcular_indicadores(registros, perfil)
+
+
 def garantir_resultados_calculo_eflow(
     coleta: ColetaEflow,
     *,
@@ -486,9 +513,22 @@ def importar_csv_eflow(
     nome_arquivo: str,
     conteudo: bytes,
     ator: AtorAuditoriaEflow,
+    ano_vigencia_inicio: int = 2024,
+    mes_vigencia_inicio: int = 1,
+    vigencia_retroativa: bool = False,
 ) -> ColetaEflow:
     """Preserva, valida e normaliza um snapshot manual do E-Flow."""
 
+    if ano_vigencia_inicio < 2024:
+        raise ErroValidacaoEflow(
+            "ANO_VIGENCIA_INVALIDO",
+            "O ano inicial da vigência E-Flow deve ser igual ou posterior a 2024.",
+        )
+    if mes_vigencia_inicio not in range(1, 13):
+        raise ErroValidacaoEflow(
+            "MES_VIGENCIA_INVALIDO",
+            "O mês inicial da vigência E-Flow deve estar entre 1 e 12.",
+        )
     if len(conteudo) > settings.GPP_EFLOW_CSV_MAX_BYTES:
         raise ErroValidacaoEflow(
             "ARQUIVO_ACIMA_DO_LIMITE",
@@ -506,6 +546,9 @@ def importar_csv_eflow(
         arquivo_tamanho_bytes=len(conteudo),
         arquivo_conteudo=conteudo,
         iniciada_em=timezone.now(),
+        ano_vigencia_inicio=ano_vigencia_inicio,
+        mes_vigencia_inicio=mes_vigencia_inicio,
+        vigencia_retroativa=vigencia_retroativa,
         **_valores_auditoria(ator),
     )
     _evento(
@@ -513,6 +556,11 @@ def importar_csv_eflow(
         ator,
         TipoEventoAuditoriaEflow.COLETA_INICIADA,
         "Importação do CSV E-Flow iniciada.",
+        {
+            "ano_vigencia_inicio": ano_vigencia_inicio,
+            "mes_vigencia_inicio": mes_vigencia_inicio,
+            "vigencia_retroativa": vigencia_retroativa,
+        },
     )
 
     try:
