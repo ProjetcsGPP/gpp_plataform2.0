@@ -109,6 +109,15 @@ de `PUB-017` descrito em `PUBLIC_DISTRIBUTION_CONTRACT.md`. A apresentação em
 slides e os demais componentes visuais permanecem sob responsabilidade do
 frontend e não alteram o snapshot canônico.
 
+No schema `1.1` do mapa, `unidade de valor` é `R$` e não existe mais `valor`
+em `municipios[]`. Cada município contém `edocs.mes` quando há resultado na
+competência e `edocs.acumulado` quando há resultado em alguma competência até
+ela. O acumulado inclui `competencias_consideradas` e segue a precedência das
+séries históricas. Se a publicação tiver seção E-Flow, `eflow` contém o estoque
+do snapshot selecionado, calculado por código IBGE e segundo o perfil da seção.
+Municípios sem dados de uma fonte simplesmente não recebem o respectivo bloco;
+zero só é enviado quando consta de um resultado coletado.
+
 ## 7. Séries históricas congeladas
 
 Cada seção calculada contém `resultado.series_historicas`. O contrato é neutro

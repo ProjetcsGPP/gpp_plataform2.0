@@ -37,6 +37,8 @@ O backend entrega dados independentes de componente visual:
 - consolidados históricos por município, já ordenados para rankings, sem impor
   quantidade de barras ou componente visual;
 - mapas congelados, categorias, legenda e alternativa textual/tabular;
+- no mapa municipal schema `1.1`, `unidade de valor: "R$"` e blocos opcionais
+  `edocs.mes`, `edocs.acumulado` e `eflow` por município, sem `valor` genérico;
 - data de publicação e versão do schema público.
 
 Para E-Docs, cada série é um fluxo mensal e fornece `valor` e
@@ -86,6 +88,31 @@ O frontend decide, sem alterar os valores canônicos:
 
 O frontend não soma pontos, recalcula percentuais, muda categorias do mapa nem
 substitui valores ausentes por zero.
+
+O mapa `IMPLANTACAO_EDOCS` gerado a partir de agora usa `schema_version: "1.1"`.
+Os municípios continuam presentes para o GeoJSON, mas os blocos de indicadores
+só aparecem quando a fonte tem registro para aquele código IBGE. Exemplo
+reduzido de um item com dados:
+
+```json
+{
+  "codigo_ibge": "3200201",
+  "nome": "Alegre",
+  "categoria": "IMPLANTADO_COM_USO_EDOCS",
+  "edocs": {
+    "mes": {"total_paginas": "100"},
+    "acumulado": {"competencias_consideradas": 2, "total_paginas": "180"}
+  },
+  "eflow": {"quantidade_fluxos": 3}
+}
+```
+
+No DTO real, cada bloco inclui todos os indicadores calculados da respectiva
+fonte. `edocs.acumulado` soma apenas competências com dados, segundo a mesma
+precedência das séries históricas. `eflow` representa o snapshot da seção
+E-Flow da publicação, sem soma temporal. A unidade monetária no cabeçalho do
+mapa é a chave literal `"unidade de valor": "R$"`; não há `valor` genérico em
+`municipios[]`. Snapshots de publicações já aprovadas permanecem imutáveis.
 
 ## 4. Schema neutro de série histórica
 

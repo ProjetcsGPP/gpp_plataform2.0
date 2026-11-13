@@ -133,7 +133,7 @@ def _publicacao(*, mes=1, situacao=SituacaoPublicacao.PUBLICADA):
             ],
             "mapas": [
                 {
-                    "schema_version": "1.0",
+                    "schema_version": "1.1",
                     "tipo": "MAPA_MUNICIPAL",
                     "indicador": "IMPLANTACAO_EDOCS",
                     "titulo": "Implantação E-Docs nos municípios",
@@ -142,7 +142,7 @@ def _publicacao(*, mes=1, situacao=SituacaoPublicacao.PUBLICADA):
                     "quantidade_municipios": 1,
                     "referencia_temporal": "COMPETENCIA",
                     "modo": "CATEGORICO",
-                    "unidade": None,
+                    "unidade de valor": "R$",
                     "precisao": None,
                     "texto_sem_dados": "Sem dados disponíveis",
                     "legenda": [
@@ -158,7 +158,19 @@ def _publicacao(*, mes=1, situacao=SituacaoPublicacao.PUBLICADA):
                             "codigo_ibge": "3200001",
                             "nome": "Município de Teste",
                             "categoria": "SEM_DADOS",
-                            "valor": None,
+                            "edocs": {
+                                "mes": {"total_paginas": "10", "segredo_interno": "oculto"},
+                                "acumulado": {
+                                    "total_paginas": "30",
+                                    "competencias_consideradas": 2,
+                                },
+                            },
+                            "eflow": {
+                                "quantidade_fluxos": 1,
+                                "segredo_interno": "oculto",
+                                "orgaos_maior_quantidade_fluxos": [],
+                                "distribuicao_publico_alvo": [],
+                            },
                             "texto_alternativo": (
                                 "Município de Teste: sem dados disponíveis"
                             ),
@@ -243,13 +255,26 @@ def test_detalhe_publico_aplica_allowlist_e_nao_varia_por_cookie():
     assert "patriarca_id" not in ranking[0]
     mapa = conteudo["secoes"][0]["conteudo"]["mapas"][0]
     assert mapa["codigo_uf"] == 32
+    assert mapa["unidade de valor"] == "R$"
+    assert "unidade" not in mapa
     assert mapa["quantidade_municipios"] == 1
     assert mapa["municipios"] == [
         {
             "codigo_ibge": "3200001",
             "nome": "Município de Teste",
             "categoria": "SEM_DADOS",
-            "valor": None,
+            "edocs": {
+                "mes": {"total_paginas": "10"},
+                "acumulado": {
+                    "total_paginas": "30",
+                    "competencias_consideradas": 2,
+                },
+            },
+            "eflow": {
+                "quantidade_fluxos": 1,
+                "orgaos_maior_quantidade_fluxos": [],
+                "distribuicao_publico_alvo": [],
+            },
             "texto_alternativo": (
                 "Município de Teste: sem dados disponíveis"
             ),

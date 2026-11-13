@@ -454,6 +454,8 @@ def test_publicacao_congela_mapa_municipal_por_competencia_com_api_prevalente():
     }
 
     assert mapa["competencia"] == "2024-06"
+    assert mapa["unidade de valor"] == "R$"
+    assert "unidade" not in mapa
     assert mapa["codigo_uf"] == 32
     assert mapa["quantidade_municipios"] == 4
     assert [item["nome"] for item in mapa["municipios"]] == [
@@ -468,7 +470,90 @@ def test_publicacao_congela_mapa_municipal_por_competencia_com_api_prevalente():
         "3200003": "SEM_DADOS",
         "3200004": "EM_IMPLANTACAO",
     }
+    por_codigo = {item["codigo_ibge"]: item for item in mapa["municipios"]}
+    assert "valor" not in por_codigo["3200001"]
+    assert por_codigo["3200001"]["edocs"]["mes"]["total_paginas"] == "3"
+    assert por_codigo["3200001"]["edocs"]["acumulado"]["total_paginas"] == "3"
+    assert "edocs" not in por_codigo["3200003"]
+    assert "eflow" not in por_codigo["3200003"]
     assert mapa["proveniencia"]["regra"] == "IMPLANTACAO_EDOCS_V2"
     assert mapa["proveniencia"]["fonte_catalogo_municipal"] == (
         "API de Localidades do IBGE"
     )
+
+
+def test_mapa_congela_acumulado_edocs_e_eflow_por_municipio():
+    primeiro = _patriarca(1, codigo_municipio=3200001)
+    segundo = _patriarca(2, codigo_municipio=3200002)
+    coleta_janeiro = _coleta(2024, 1)
+    _resultado(coleta_janeiro, primeiro, paginas=10)
+    coleta_fevereiro = _coleta(2024, 2)
+    _resultado(coleta_fevereiro, primeiro, paginas=20)
+    _resultado(coleta_fevereiro, segundo, paginas=5)
+    coleta_eflow = ColetaEflow.objects.create(
+        situacao=SituacaoColetaEflow.CONCLUIDA,
+        arquivo_nome="eflow.csv",
+        arquivo_hash_sha256="1" * 64,
+        arquivo_tamanho_bytes=1,
+        arquivo_conteudo=b"x",
+        iniciada_em=timezone.now(),
+        concluida_em=timezone.now(),
+        ano_vigencia_inicio=2024,
+        mes_vigencia_inicio=1,
+        vigencia_retroativa=True,
+    )
+    DefinicaoFluxoEflow.objects.create(
+        coleta=coleta_eflow,
+        id_externo=UUID("00000000-0000-0000-0000-000000000001"),
+        nome="Fluxo 1",
+        versao_origem=1,
+        publico_alvo="Cidadão",
+        patriarca=segundo,
+        patriarca_texto=segundo.sigla,
+        orgao="Órgão",
+        setor="Setor",
+    )
+    visao_edocs = ConfiguracaoVisaoPublicacao.objects.create(
+        codigo="MAPA_EDOCS_COM_EFLOW",
+        nome="Mapa E-Docs",
+        fonte=FonteVisaoPublicacao.EDOCS,
+        escopo=EscopoVisaoPublicacao.MUNICIPIOS,
+    )
+    visao_eflow = ConfiguracaoVisaoPublicacao.objects.create(
+        codigo="MAPA_EFLOW",
+        nome="Mapa E-Flow",
+        fonte=FonteVisaoPublicacao.EFLOW,
+        escopo=EscopoVisaoPublicacao.MUNICIPIOS,
+        perfil_calculo_eflow=PerfilCalculoEflow.CONSOLIDADO_PUBLICACAO,
+    )
+    ator = AtorAuditoriaPublicacao(usuario_id=7, nome="Gestor")
+    publicacao = criar_publicacao(
+        titulo="Resultados de fevereiro", ano=2024, mes=2, ator=ator
+    )
+    adicionar_secao(
+        publicacao=publicacao,
+        configuracao=visao_edocs,
+        titulo="E-Docs",
+        ordem=1,
+        ator=ator,
+    )
+    adicionar_secao(
+        publicacao=publicacao,
+        configuracao=visao_eflow,
+        titulo="E-Flow",
+        ordem=2,
+        coleta_id=coleta_eflow.pk,
+        ator=ator,
+    )
+    recalcular_publicacao(publicacao, ator=ator)
+    mapa = publicacao.secoes.get(fonte=FonteVisaoPublicacao.EDOCS).resultado[
+        "mapas"
+    ][0]
+    municipios = {item["codigo_ibge"]: item for item in mapa["municipios"]}
+    assert municipios["3200001"]["edocs"]["mes"]["total_paginas"] == "20"
+    assert municipios["3200001"]["edocs"]["acumulado"]["total_paginas"] == "30"
+    assert municipios["3200001"]["edocs"]["acumulado"]["competencias_consideradas"] == 2
+    assert "eflow" not in municipios["3200001"]
+    assert municipios["3200002"]["eflow"]["quantidade_fluxos"] == 1
+    assert "edocs" not in municipios["3200003"]
+    assert "eflow" not in municipios["3200003"]

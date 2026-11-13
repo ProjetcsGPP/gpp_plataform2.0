@@ -432,6 +432,33 @@ def calcular_indicadores_eflow_filtrados(
     return _calcular_indicadores(registros, perfil)
 
 
+def calcular_indicadores_eflow_por_municipio(
+    coleta: ColetaEflow,
+    *,
+    perfil: str,
+    patriarcas_ids: list[int] | None = None,
+) -> dict[int, dict]:
+    """Calcula indicadores apenas para municípios com definições no snapshot."""
+
+    definicoes = coleta.definicoes.filter(patriarca__codigo_municipio__isnull=False)
+    if patriarcas_ids is not None:
+        definicoes = definicoes.filter(patriarca_id__in=patriarcas_ids)
+    por_municipio = {}
+    for registro in definicoes.values(
+        "patriarca__codigo_municipio",
+        "patriarca_texto",
+        "orgao",
+        "setor",
+        "publico_alvo",
+    ):
+        codigo = registro.pop("patriarca__codigo_municipio")
+        por_municipio.setdefault(codigo, []).append(registro)
+    return {
+        codigo: _calcular_indicadores(registros, perfil)
+        for codigo, registros in por_municipio.items()
+    }
+
+
 def garantir_resultados_calculo_eflow(
     coleta: ColetaEflow,
     *,

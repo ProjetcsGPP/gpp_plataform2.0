@@ -60,6 +60,39 @@ def _projetar_series(series):
     return resultado
 
 
+def _projetar_municipio_mapa(item):
+    municipio = _selecionar(
+        item, ("codigo_ibge", "nome", "categoria", "texto_alternativo")
+    )
+    if item.get("edocs"):
+        municipio["edocs"] = {
+            periodo: _selecionar(
+                indicadores,
+                CAMPOS_INDICADORES_EDOCS + ("competencias_consideradas",),
+            )
+            for periodo, indicadores in item["edocs"].items()
+            if periodo in ("mes", "acumulado")
+        }
+    if item.get("eflow"):
+        eflow = item["eflow"]
+        municipio["eflow"] = {
+            **_selecionar(eflow, CAMPOS_INDICADORES_EFLOW),
+            "orgaos_maior_quantidade_fluxos": [
+                _selecionar(
+                    orgao, ("patriarca", "orgao", "quantidade_fluxos", "percentual")
+                )
+                for orgao in eflow.get("orgaos_maior_quantidade_fluxos", [])
+            ],
+            "distribuicao_publico_alvo": [
+                _selecionar(
+                    publico, ("publico_alvo", "quantidade_fluxos", "percentual")
+                )
+                for publico in eflow.get("distribuicao_publico_alvo", [])
+            ],
+        }
+    return municipio
+
+
 def _projetar_mapas(mapas):
     resultado = []
     for mapa in mapas or []:
@@ -74,7 +107,7 @@ def _projetar_mapas(mapas):
                 "quantidade_municipios": mapa.get("quantidade_municipios"),
                 "referencia_temporal": mapa.get("referencia_temporal"),
                 "modo": mapa.get("modo"),
-                "unidade": mapa.get("unidade"),
+                "unidade de valor": mapa.get("unidade de valor"),
                 "precisao": mapa.get("precisao"),
                 "texto_sem_dados": mapa.get("texto_sem_dados"),
                 "legenda": [
@@ -82,16 +115,7 @@ def _projetar_mapas(mapas):
                     for item in mapa.get("legenda", [])
                 ],
                 "municipios": [
-                    _selecionar(
-                        item,
-                        (
-                            "codigo_ibge",
-                            "nome",
-                            "categoria",
-                            "valor",
-                            "texto_alternativo",
-                        ),
-                    )
+                    _projetar_municipio_mapa(item)
                     for item in mapa.get("municipios", [])
                 ],
                 "proveniencia": _selecionar(

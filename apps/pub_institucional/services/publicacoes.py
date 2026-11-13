@@ -31,7 +31,10 @@ from apps.pub_institucional.models import (
     SituacaoPublicacao,
     TipoEventoPublicacao,
 )
-from apps.pub_institucional.services.eflow import calcular_indicadores_eflow_filtrados
+from apps.pub_institucional.services.eflow import (
+    calcular_indicadores_eflow_filtrados,
+    calcular_indicadores_eflow_por_municipio,
+)
 from common.services.ibge import ErroIbge, listar_municipios_ibge
 
 
@@ -576,7 +579,7 @@ def adicionar_secao(
     return secao
 
 
-def _resultado_edocs(secao, ids_patriarcas):
+def _resultado_edocs(secao, ids_patriarcas, secoes):
     catalogo_ibge = _catalogo_municipal_ibge()
     nomes_municipios = {item["id"]: item["nome"] for item in catalogo_ibge}
     consulta = ResultadoMensalPatriarcaEdocs.objects.filter(
@@ -638,7 +641,9 @@ def _resultado_edocs(secao, ids_patriarcas):
     resultado_secao["consolidados_historicos_patriarcas"] = (
         _consolidados_historicos_patriarcas(pontos, nomes_municipios)
     )
-    mapa = _mapa_implantacao_edocs(secao, ids_patriarcas, catalogo_ibge)
+    mapa = _mapa_implantacao_edocs(
+        secao, ids_patriarcas, catalogo_ibge, itens, pontos, secoes
+    )
     if mapa["municipios"]:
         resultado_secao["mapas"] = [mapa]
     return resultado_secao
@@ -654,12 +659,71 @@ def _catalogo_municipal_ibge():
         ) from exc
 
 
-def _mapa_implantacao_edocs(secao, ids_patriarcas, catalogo_ibge):
+def _indicadores_edocs_por_municipio(itens):
+    por_municipio = {}
+    for item in itens:
+        codigo = item.get("codigo_municipio")
+        if codigo is None:
+            continue
+        indicadores = por_municipio.setdefault(
+            int(codigo),
+            {campo: Decimal("0") for campo, *_ in INDICADORES_SERIE_EDOCS},
+        )
+        for campo in indicadores:
+            indicadores[campo] += Decimal(item.get(campo) or 0)
+    return por_municipio
+
+
+def _mapa_implantacao_edocs(
+    secao, ids_patriarcas, catalogo_ibge, itens, pontos, secoes
+):
     """Congela a situação municipal conhecida na competência da publicação."""
 
     ano = secao.publicacao.ano_referencia
     mes = secao.publicacao.mes_referencia
     referencia = (ano, mes)
+    mensais = _indicadores_edocs_por_municipio(itens)
+    acumulados = {}
+    for ponto in pontos:
+        for codigo, indicadores in _indicadores_edocs_por_municipio(
+            ponto.get("patriarcas", [])
+        ).items():
+            acumulado = acumulados.setdefault(
+                codigo,
+                {
+                    "competencias_consideradas": 0,
+                    **{
+                        campo: Decimal("0")
+                        for campo, *_ in INDICADORES_SERIE_EDOCS
+                    },
+                },
+            )
+            acumulado["competencias_consideradas"] += 1
+            for campo in indicadores:
+                acumulado[campo] += indicadores[campo]
+    secoes_eflow = [
+        candidata
+        for candidata in secoes
+        if candidata.fonte == FonteVisaoPublicacao.EFLOW
+    ]
+    secao_eflow = next(
+        (
+            candidata
+            for candidata in secoes_eflow
+            if candidata.configuracao_visao.escopo
+            == secao.configuracao_visao.escopo
+        ),
+        secoes_eflow[0] if secoes_eflow else None,
+    )
+    eflow_por_municipio = (
+        calcular_indicadores_eflow_por_municipio(
+            secao_eflow.coleta_eflow,
+            perfil=secao_eflow.perfil_calculo,
+            patriarcas_ids=_ids_patriarcas(secao_eflow.configuracao_visao),
+        )
+        if secao_eflow is not None
+        else {}
+    )
     consulta_municipios = MunicipioEdocs.objects.filter(ativo=True).prefetch_related(
         "vigencias_situacao"
     )
@@ -722,17 +786,29 @@ def _mapa_implantacao_edocs(secao, ids_patriarcas, catalogo_ibge):
             "MANIFESTOU_INTERESSE": "manifestou interesse",
             "SEM_DADOS": "sem dados disponíveis",
         }
-        municipios.append(
-            {
-                "codigo_ibge": f"{codigo_ibge:07d}",
-                "nome": nome,
-                "categoria": categoria,
-                "valor": None,
-                "texto_alternativo": f"{nome}: {textos[categoria]}",
-            }
-        )
+        item_municipio = {
+            "codigo_ibge": f"{codigo_ibge:07d}",
+            "nome": nome,
+            "categoria": categoria,
+            "texto_alternativo": f"{nome}: {textos[categoria]}",
+        }
+        if codigo_ibge in mensais or codigo_ibge in acumulados:
+            item_municipio["edocs"] = {}
+            if codigo_ibge in mensais:
+                item_municipio["edocs"]["mes"] = _jsonificavel(
+                    mensais[codigo_ibge]
+                )
+            if codigo_ibge in acumulados:
+                item_municipio["edocs"]["acumulado"] = _jsonificavel(
+                    acumulados[codigo_ibge]
+                )
+        if codigo_ibge in eflow_por_municipio:
+            item_municipio["eflow"] = _jsonificavel(
+                eflow_por_municipio[codigo_ibge]
+            )
+        municipios.append(item_municipio)
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "tipo": "MAPA_MUNICIPAL",
         "indicador": "IMPLANTACAO_EDOCS",
         "titulo": "Implantação E-Docs nos municípios",
@@ -741,7 +817,7 @@ def _mapa_implantacao_edocs(secao, ids_patriarcas, catalogo_ibge):
         "quantidade_municipios": len(municipios),
         "referencia_temporal": "COMPETENCIA",
         "modo": "CATEGORICO",
-        "unidade": None,
+        "unidade de valor": "R$",
         "precisao": None,
         "texto_sem_dados": "Sem dados disponíveis",
         "legenda": [
@@ -833,7 +909,7 @@ def recalcular_publicacao(publicacao: Publicacao, *, ator):
             "perfil_calculo": secao.perfil_calculo,
         }
         if secao.fonte == FonteVisaoPublicacao.EDOCS:
-            resultado = _resultado_edocs(secao, ids_patriarcas)
+            resultado = _resultado_edocs(secao, ids_patriarcas, secoes)
         else:
             congelada["snapshot_eflow"] = {
                 "coleta_id": str(secao.coleta_eflow_id),
