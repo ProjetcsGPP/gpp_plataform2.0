@@ -148,6 +148,16 @@ class PatriarcaEdocs(ModeloAuditavel):
         default=False,
         verbose_name="Município implantado sem uso do E-Docs",
     )
+    ano_inicio_implantacao_sem_uso_edocs = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Ano inicial da implantação sem uso do E-Docs",
+    )
+    mes_inicio_implantacao_sem_uso_edocs = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Mês inicial da implantação sem uso do E-Docs",
+    )
     ativo = models.BooleanField(default=True, verbose_name="Ativo")
     versao = models.PositiveIntegerField(default=1, editable=False)
 
@@ -176,6 +186,27 @@ class PatriarcaEdocs(ModeloAuditavel):
                     )
                 ),
                 name="edocs_codigo_municipio_valido",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        municipio_implantado_sem_uso_edocs=False,
+                        ano_inicio_implantacao_sem_uso_edocs__isnull=True,
+                        mes_inicio_implantacao_sem_uso_edocs__isnull=True,
+                    )
+                    | Q(
+                        municipio_implantado_sem_uso_edocs=True,
+                        ano_inicio_implantacao_sem_uso_edocs__isnull=True,
+                        mes_inicio_implantacao_sem_uso_edocs__isnull=True,
+                    )
+                    | Q(
+                        municipio_implantado_sem_uso_edocs=True,
+                        ano_inicio_implantacao_sem_uso_edocs__gte=2024,
+                        mes_inicio_implantacao_sem_uso_edocs__gte=1,
+                        mes_inicio_implantacao_sem_uso_edocs__lte=12,
+                    )
+                ),
+                name="edocs_sem_uso_vigencia_coerente",
             ),
         ]
         permissions = [

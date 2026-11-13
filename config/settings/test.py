@@ -55,6 +55,7 @@ CHANNEL_LAYERS = {
 # 2. Throttle — limites absurdamente altos para nunca bloquear testes
 # ---------------------------------------------------------------------------
 LOGIN_THROTTLE_RATE = "999999/min"
+PUBLICACOES_PUBLIC_THROTTLE_RATE = "999999/min"
 
 REST_FRAMEWORK = {
     **REST_FRAMEWORK,  # noqa: F405
@@ -62,6 +63,7 @@ REST_FRAMEWORK = {
         "anon": "999999/min",
         "user": "999999/min",
         "login": "999999/min",
+        "publicacoes_publicas": "999999/min",
     },
 }
 

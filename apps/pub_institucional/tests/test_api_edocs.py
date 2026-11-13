@@ -6,6 +6,7 @@ from uuid import UUID
 
 import pytest
 from django.contrib.auth.models import Permission, User
+from django.test import override_settings
 from django.urls import resolve
 from django.utils import timezone
 from rest_framework.test import (APIClient, APIRequestFactory,
@@ -17,14 +18,19 @@ from apps.core.middleware.application_context import URL_PREFIX_MAP
 from apps.pub_institucional.models import (ColetaPatriarcasEdocs,
                                            DivergenciaPatriarcaEdocs,
                                            EventoAuditoriaPatriarcaEdocs,
-                                           PatriarcaEdocs)
+                                           MunicipioEdocs, PatriarcaEdocs)
 from apps.pub_institucional.services.patriarcas_edocs import (
     AtorAuditoriaEdocs, sincronizar_patriarcas_edocs)
 from apps.pub_institucional.services.recursos_funcionais import \
     semear_recursos_funcionais_publicacoes
 from apps.pub_institucional.visoes import (VisaoColetaPatriarcasEdocs,
+                                           VisaoConfiguracaoIbge,
                                            VisaoDivergenciaPatriarcaEdocs,
+                                           VisaoEstadosIbge,
                                            VisaoEventoAuditoriaPatriarcaEdocs,
+                                           VisaoMunicipioEdocs,
+                                           VisaoMunicipiosIbge,
+                                           VisaoMunicipiosUfPadraoIbge,
                                            VisaoPatriarcaEdocs)
 
 pytestmark = pytest.mark.django_db
@@ -73,12 +79,117 @@ def _requisicao(metodo, caminho, usuario, dados=None):
 
 
 def test_rotas_resolvem_as_quatro_areas_administrativas():
+    assert (
+        resolve("/api/pub-institucional/municipios-edocs/").func.cls
+        is VisaoMunicipioEdocs
+    )
     assert resolve("/api/pub-institucional/patriarcas/").func.cls is VisaoPatriarcaEdocs
     assert resolve("/api/pub-institucional/coletas/").func.cls is VisaoColetaPatriarcasEdocs
     assert (
         resolve("/api/pub-institucional/divergencias/").func.cls
         is VisaoDivergenciaPatriarcaEdocs
     )
+
+
+def test_rotas_ibge_resolvem_na_api_administrativa_de_publicacoes():
+    assert (
+        resolve("/api/pub-institucional/ibge/configuracao/").func.view_class
+        is VisaoConfiguracaoIbge
+    )
+    assert (
+        resolve("/api/pub-institucional/ibge/estados/").func.view_class
+        is VisaoEstadosIbge
+    )
+    assert (
+        resolve(
+            "/api/pub-institucional/ibge/estados/32/municipios/"
+        ).func.view_class
+        is VisaoMunicipiosIbge
+    )
+    assert (
+        resolve("/api/pub-institucional/ibge/municipios/").func.view_class
+        is VisaoMunicipiosUfPadraoIbge
+    )
+
+
+@override_settings(IBGE_UF_PADRAO=32)
+@patch("apps.pub_institucional.visoes.listar_municipios_ibge")
+def test_api_ibge_uf_padrao_retorna_apenas_municipios_nao_cadastrados(
+    listar_municipios,
+    gestor_publicacoes,
+):
+    listar_municipios.return_value = [
+        {"id": 3200102, "nome": "Afonso Cláudio", "codigo_uf": 32},
+        {"id": 3200201, "nome": "Alegre", "codigo_uf": 32},
+        {"id": 3200300, "nome": "Alfredo Chaves", "codigo_uf": 32},
+    ]
+    MunicipioEdocs.objects.create(codigo_ibge=3200201, nome="Alegre")
+    resposta = VisaoMunicipiosUfPadraoIbge.as_view()(
+        _requisicao(
+            "get",
+            "/api/pub-institucional/ibge/municipios/",
+            gestor_publicacoes,
+        )
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.data == [
+        {"nome": "Afonso Cláudio", "codigo_ibge": 3200102},
+        {"nome": "Alfredo Chaves", "codigo_ibge": 3200300},
+    ]
+    assert list(resposta.data[0]) == ["nome", "codigo_ibge"]
+    listar_municipios.assert_called_once_with(32)
+
+
+def test_municipio_sem_patriarca_pode_ser_cadastrado_e_mudar_situacao(
+    gestor_publicacoes,
+):
+    criar = VisaoMunicipioEdocs.as_view({"post": "create"})
+    resposta = criar(
+        _requisicao(
+            "post",
+            "/api/pub-institucional/municipios-edocs/",
+            gestor_publicacoes,
+            {
+                "codigo_ibge": 3200102,
+                "nome": "Município sem patriarca",
+                "situacao": "MANIFESTOU_INTERESSE",
+                "ano_inicio": 2024,
+                "mes_inicio": 6,
+                "justificativa": "Manifestação formal recebida.",
+            },
+        )
+    )
+
+    assert resposta.status_code == 201
+    assert resposta.data["patriarca_edocs"] is None
+    assert not PatriarcaEdocs.objects.filter(codigo_municipio=3200102).exists()
+    municipio = MunicipioEdocs.objects.get(codigo_ibge=3200102)
+
+    alterar = VisaoMunicipioEdocs.as_view({"patch": "situacao"})
+    resposta = alterar(
+        _requisicao(
+            "patch",
+            f"/api/pub-institucional/municipios-edocs/{municipio.pk}/situacao/",
+            gestor_publicacoes,
+            {
+                "situacao": "EM_IMPLANTACAO",
+                "ano_inicio": 2024,
+                "mes_inicio": 8,
+                "versao": municipio.versao,
+                "justificativa": "Implantação iniciada.",
+            },
+        ),
+        pk=municipio.pk,
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.data["situacao_atual"]["situacao"] == "EM_IMPLANTACAO"
+    vigencias = municipio.vigencias_situacao.order_by("ano_inicio", "mes_inicio")
+    assert [(item.situacao, item.mes_inicio, item.mes_fim) for item in vigencias] == [
+        ("MANIFESTOU_INTERESSE", 6, 7),
+        ("EM_IMPLANTACAO", 8, None),
+    ]
 
 
 def test_middlewares_reconhecem_o_contexto_da_aplicacao():
@@ -196,6 +307,8 @@ def test_lista_patriarcas_e_altera_selecao_com_auditoria(gestor_publicacoes):
             gestor_publicacoes,
             {
                 "municipio_implantado_sem_uso_edocs": True,
+                "ano_inicio": 2024,
+                "mes_inicio": 6,
                 "justificativa": "Implantação confirmada manualmente.",
             },
         ),
@@ -203,6 +316,8 @@ def test_lista_patriarcas_e_altera_selecao_com_auditoria(gestor_publicacoes):
     )
     assert resposta.status_code == 200
     assert resposta.data["municipio_implantado_sem_uso_edocs"] is True
+    assert resposta.data["ano_inicio_implantacao_sem_uso_edocs"] == 2024
+    assert resposta.data["mes_inicio_implantacao_sem_uso_edocs"] == 6
     assert EventoAuditoriaPatriarcaEdocs.objects.filter(
         patriarca=patriarca,
         tipo_evento="INDICADOR_SEM_EDOCS_ALTERADO",

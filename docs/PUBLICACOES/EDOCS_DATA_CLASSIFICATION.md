@@ -41,6 +41,8 @@ apoio não substituem a publicação aprovada e imutável.
 | `municipio_implantado` | Decisão manual do gestor | Gerencial | Registrar implantação confirmada | Não por padrão | Enquanto o cadastro e sua auditoria forem necessários |
 | `municipio_em_implantacao` | Decisão manual do gestor | Gerencial | Registrar implantação em andamento | Não por padrão | Enquanto o cadastro e sua auditoria forem necessários |
 | `municipio_manifestou_interesse` | Decisão manual do gestor | Gerencial | Registrar manifestação de interesse | Não por padrão | Enquanto o cadastro e sua auditoria forem necessários |
+| `MunicipioEdocs.codigo_ibge` e `nome` | Cadastro manual/IBGE | Público gerencial | Identificar município independentemente de patriarca E-Docs | Sim, no mapa congelado | Enquanto houver publicação e auditoria associada |
+| `VigenciaSituacaoMunicipioEdocs.situacao` | Decisão manual do gestor | Gerencial | Registrar interesse, implantação ou implantação sem uso por competência | Sim, após congelamento na publicação | Enquanto houver publicação e auditoria associada |
 | `nomeEdocs` | Catálogo normalizado | Gerencial | Detectar mudança de nomenclatura | Não | Conforme evidência operacional |
 | `ambiente` | Configuração | Restrito operacional | Proveniência e diagnóstico | Não | Conforme evidência operacional |
 | `coletado_em_utc` | Coletor | Gerencial | Rastrear instante da coleta | Somente se o DTO de proveniência aprovar | Conforme evidência operacional |

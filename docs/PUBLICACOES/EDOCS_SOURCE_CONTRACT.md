@@ -140,12 +140,21 @@ Decisão funcional registrada em 06/11/2026:
   alimentarão EDOC-01 a EDOC-04;
 - alterar `coletar_detalhes` também exige ação explícita, justificativa e evento
   de auditoria;
-- `municipio_implantado_sem_uso_edocs` é indicador gerencial manual, não vem
-  do EDOC-05 e não pode ser alterado pela sincronização remota;
-- `codigo_municipio`, `municipio_implantado`, `municipio_em_implantacao` e
-  `municipio_manifestou_interesse` também são campos locais manuais;
-- alterar código ou indicadores exige permissão técnica, justificativa,
-  incremento de versão e evento de auditoria com valores anterior e atual;
+- município e patriarca são entidades distintas: um município pode ser
+  cadastrado pelo código IBGE antes de existir na API e nunca recebe UUID
+  externo fictício;
+- `MunicipioEdocs` guarda código IBGE, nome e versão do cadastro; as situações
+  `MANIFESTOU_INTERESSE`, `EM_IMPLANTACAO`, `IMPLANTADO_SEM_USO_EDOCS` e
+  `SEM_DADOS` possuem vigência mensal própria;
+- quando o patriarca real surgir, a associação é reconhecida pelo código IBGE;
+  a implantação observada pela API oficial prevalece sobre a situação manual;
+- ao observar a primeira atividade positiva, o backend cria ou completa o
+  cadastro municipal, encerra a vigência manual anterior e registra auditoria
+  automática; o usuário não precisa confirmar essa transição;
+- alterar cadastro ou situação exige permissão técnica, justificativa,
+  competência inicial, incremento de versão e evento de auditoria;
+- os campos municipais ainda presentes em `PatriarcaEdocs` são compatibilidade
+  legada e não são mais a fonte canônica do mapa;
 - eventos WebSocket informam apenas o resumo da execução ou decisão; o banco de
   dados permanece a fonte canônica para o frontend.
 
@@ -160,6 +169,9 @@ com uma alteração já aprovada pelo gestor.
 | Resposta normalizada | `ObservacaoPatriarcaEdocs` | `publicacoes.observacao_patriarca_edocs` |
 | Alteração pendente | `DivergenciaPatriarcaEdocs` | `publicacoes.divergencia_patriarca_edocs` |
 | Trilha de auditoria | `EventoAuditoriaPatriarcaEdocs` | `publicacoes.evento_auditoria_patriarca_edocs` |
+| Cadastro municipal | `MunicipioEdocs` | `publicacoes.municipio_edocs` |
+| Vigência municipal | `VigenciaSituacaoMunicipioEdocs` | `publicacoes.vigencia_situacao_municipio_edocs` |
+| Auditoria municipal | `EventoAuditoriaMunicipioEdocs` | `publicacoes.evento_auditoria_municipio_edocs` |
 
 Entidades, campos, estados, decisões, permissões e eventos próprios deste
 domínio usam nomenclatura em português. Permanecem com a grafia original

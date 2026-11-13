@@ -76,3 +76,68 @@ seção. Publicar exige justificativa e `versao_registro`; valor desatualizado
 retorna conflito. Uma versão publicada não aceita recálculo. A substituição
 cria novo rascunho na mesma série e somente marca a anterior como substituída
 quando a nova versão é efetivamente publicada.
+
+## 6. Mapa municipal congelado no resultado E-Docs
+
+Uma seção E-Docs municipal calculada contém `resultado.mapas` com o mapa
+`IMPLANTACAO_EDOCS` na competência da publicação. A regra `V2` possui cinco
+categorias:
+
+- `IMPLANTADO_COM_USO_EDOCS`: a primeira atividade positiva observada na API
+  oficial ocorreu até a competência; essa evidência prevalece;
+- `IMPLANTADO_SEM_USO_EDOCS`: não há atividade observada até a competência e
+  a situação manual já estava vigente;
+- `EM_IMPLANTACAO`: processo de implantação informado pelo gestor estava
+  vigente na competência;
+- `MANIFESTOU_INTERESSE`: manifestação de interesse informada pelo gestor
+  estava vigente na competência;
+- `SEM_DADOS`: nenhuma das evidências anteriores está disponível.
+
+O município é cadastrado separadamente do patriarca e não recebe ID externo
+fictício. Código IBGE e nome são obrigatórios. As situações manuais possuem
+vigência mensal e auditoria; quando existir uso observado pela API oficial,
+essa evidência prevalece e atualiza automaticamente o cadastro municipal, sem
+decisão adicional do usuário. O resultado congela código IBGE, nome, categoria,
+legenda, cores, texto alternativo e proveniência. Municípios ausentes do
+cadastro também são incluídos no DTO, a partir do catálogo do IBGE, com a
+categoria `SEM_DADOS`. Assim, o frontend recebe todos os municípios de uma só
+vez e usa o GeoJSON apenas para associar a geometria pelo `codigo_ibge`.
+
+Esse mapa faz parte do snapshot administrativo imutável. A API pública projeta
+uma allowlist desse conteúdo em `conteudo.mapas`, conforme o contrato versionado
+de `PUB-017` descrito em `PUBLIC_DISTRIBUTION_CONTRACT.md`. A apresentação em
+slides e os demais componentes visuais permanecem sob responsabilidade do
+frontend e não alteram o snapshot canônico.
+
+## 7. Séries históricas congeladas
+
+Cada seção calculada contém `resultado.series_historicas`. O contrato é neutro
+quanto ao componente visual: informa código, título, periodicidade, natureza,
+unidade, precisão, completude e pontos mensais. Cabe ao frontend escolher
+gráfico, cartão, tabela, slide e composição sem recalcular os valores.
+
+Cada ponto anterior à competência da publicação usa, nesta ordem, o resultado
+congelado de uma publicação válida da mesma visão ou a última coleta
+bem-sucedida. A competência da própria publicação usa a seção que está sendo
+calculada. Ausência de fonte gera valor nulo e origem `SEM_DADOS`, nunca zero
+inferido.
+
+No E-Docs, `valor_acumulado` é calculado pelo backend. No E-Flow, os valores
+representam o estoque do snapshot vigente e não são acumulados entre meses. A
+primeira base E-Flow continua retroativa a janeiro de 2024 e cada nova leitura
+vale de sua competência inicial em diante.
+
+Seções E-Docs também contêm
+`resultado.consolidados_historicos_patriarcas`, com todos os patriarcas da visão
+ordenados pela economia total acumulada. Cada item informa posição, município,
+`codigo_municipio`, `nome_municipio`, quantidade de competências e os mesmos
+indicadores canônicos acumulados. O nome é obtido do catálogo oficial do IBGE
+congelado durante o recálculo, e não do nome organizacional do patriarca. Esse
+resultado permite ao frontend escolher quantos municípios exibir no ranking
+sem refazer somas. A referência visual analisada não fixa quantidade, cores ou
+tipo de gráfico no backend.
+
+As séries permanecem dentro do snapshot editorial e da prévia administrativa.
+Sua distribuição sem autenticação é feita somente pela API separada descrita
+em [`PUBLIC_DISTRIBUTION_CONTRACT.md`](./PUBLIC_DISTRIBUTION_CONTRACT.md), nunca
+por esta API administrativa.

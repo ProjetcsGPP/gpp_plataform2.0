@@ -117,12 +117,13 @@ o procedimento de resposta.
 
 #### Insumo encaminhado para outros contratos
 
-Foi proposta a possibilidade de preparar uma publicação com a última
-informação disponível quando uma ou mais fontes estiverem com problema. Isso
-não integra PRE-001 e ainda não está aprovado como comportamento funcional.
-Deverá ser definido em PRE-002, PUB-017, PUB-024 e no workflow editorial,
-incluindo idade/competência do dado, fontes afetadas, sinalização pública,
-justificativa do gestor, rastreabilidade e correção posterior.
+Foi aprovada a composição histórica que usa primeiro o resultado publicado da
+competência e, na ausência dele, a última coleta E-Docs bem-sucedida ou o
+snapshot E-Flow vigente. Cada ponto identifica sua proveniência e ausência de
+fonte produz valor nulo, não zero. O resultado é congelado na publicação; a API
+pública não consulta a fonte operacional para completar conteúdo publicado.
+Ainda cabe ao frontend definir como sinalizar visualmente lacunas e estados de
+indisponibilidade, conforme `PUB-024` e `PUB-025`.
 
 ## 2. Componentes a provisionar
 

@@ -205,12 +205,16 @@ def test_indicador_municipio_sem_edocs_exige_justificativa_e_gera_auditoria():
     definir_indicador_municipio_sem_edocs(
         patriarca.pk,
         municipio_implantado_sem_uso_edocs=True,
+        ano_inicio=2024,
+        mes_inicio=6,
         justificativa="Implantação confirmada sem utilização do E-Docs.",
         ator=ATOR,
     )
 
     patriarca.refresh_from_db()
     assert patriarca.municipio_implantado_sem_uso_edocs is True
+    assert patriarca.ano_inicio_implantacao_sem_uso_edocs == 2024
+    assert patriarca.mes_inicio_implantacao_sem_uso_edocs == 6
     assert patriarca.versao == 2
     evento = EventoAuditoriaPatriarcaEdocs.objects.get(
         patriarca=patriarca,
@@ -218,6 +222,8 @@ def test_indicador_municipio_sem_edocs_exige_justificativa_e_gera_auditoria():
     )
     assert evento.dados_anteriores["municipio_implantado_sem_uso_edocs"] is False
     assert evento.dados_atuais["municipio_implantado_sem_uso_edocs"] is True
+    assert evento.dados_atuais["ano_inicio_implantacao_sem_uso_edocs"] == 2024
+    assert evento.dados_atuais["mes_inicio_implantacao_sem_uso_edocs"] == 6
 
     with pytest.raises(ErroDecisaoPatriarcaEdocs):
         definir_indicador_municipio_sem_edocs(

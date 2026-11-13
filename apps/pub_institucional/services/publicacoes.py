@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -18,6 +19,9 @@ from apps.pub_institucional.models import (
     EscopoVisaoPublicacao,
     FonteVisaoPublicacao,
     HistoricoPublicacao,
+    ImplantacaoPatriarcaEdocs,
+    MunicipioEdocs,
+    PatriarcaEdocs,
     PerfilCalculoEflow,
     Publicacao,
     ResultadoMensalPatriarcaEdocs,
@@ -27,9 +31,8 @@ from apps.pub_institucional.models import (
     SituacaoPublicacao,
     TipoEventoPublicacao,
 )
-from apps.pub_institucional.services.eflow import (
-    calcular_indicadores_eflow_filtrados,
-)
+from apps.pub_institucional.services.eflow import calcular_indicadores_eflow_filtrados
+from common.services.ibge import ErroIbge, listar_municipios_ibge
 
 
 class ErroPublicacao(ValueError):
@@ -81,6 +84,309 @@ def _hash(valor) -> str:
         default=str,
     ).encode("utf-8")
     return hashlib.sha256(bruto).hexdigest()
+
+
+INDICADORES_SERIE_EDOCS = (
+    ("total_processos", "Processos", "processos", 0),
+    ("total_documentos", "Documentos", "documentos", 0),
+    ("total_paginas", "Páginas", "páginas", 0),
+    ("economia_papel_kg", "Economia de papel", "kg", 5),
+    ("gases_poluentes_kg", "Gases poluentes evitados", "kg", 4),
+    ("economia_papel_reais", "Economia de papel", "BRL", 2),
+    ("economia_insumos_reais", "Economia de insumos", "BRL", 2),
+    ("economia_impressao_reais", "Economia de impressão", "BRL", 2),
+    ("economia_total_reais", "Economia total", "BRL", 2),
+    ("economia_agua_m3", "Economia de água", "m³", 2),
+    ("arvores_salvas", "Árvores salvas", "árvores", 4),
+)
+
+INDICADORES_SERIE_EFLOW = (
+    ("quantidade_fluxos", "Total de fluxos", "fluxos", 0),
+    (
+        "quantidade_orgaos_participantes",
+        "Órgãos participantes",
+        "órgãos",
+        0,
+    ),
+    ("quantidade_setores_ativos", "Setores ativos", "setores", 0),
+)
+
+
+def _competencias_ate(ano_final: int, mes_final: int):
+    ano, mes = 2024, 1
+    while (ano, mes) <= (ano_final, mes_final):
+        yield ano, mes
+        mes += 1
+        if mes == 13:
+            ano += 1
+            mes = 1
+
+
+def _mesma_visao_congelada(secao, candidata, ids_patriarcas) -> bool:
+    congelada = candidata.configuracao_congelada or {}
+    return (
+        congelada.get("codigo") == secao.configuracao_visao.codigo
+        and congelada.get("fonte") == secao.fonte
+        and congelada.get("escopo") == secao.configuracao_visao.escopo
+        and congelada.get("patriarcas_ids") == ids_patriarcas
+        and congelada.get("perfil_calculo", "") == secao.perfil_calculo
+    )
+
+
+def _secao_publicada_da_competencia(secao, ids_patriarcas, ano, mes):
+    candidatas = (
+        SecaoPublicacao.objects.filter(
+            fonte=secao.fonte,
+            publicacao__ano_referencia=ano,
+            publicacao__mes_referencia=mes,
+            publicacao__situacao=SituacaoPublicacao.PUBLICADA,
+        )
+        .exclude(publicacao_id=secao.publicacao_id)
+        .select_related("publicacao")
+        .order_by("-publicacao__publicada_em", "-publicacao__versao")
+    )
+    return next(
+        (
+            candidata
+            for candidata in candidatas
+            if _mesma_visao_congelada(secao, candidata, ids_patriarcas)
+        ),
+        None,
+    )
+
+
+def _resultado_historico_edocs_da_coleta(coleta, ids_patriarcas):
+    consulta = ResultadoMensalPatriarcaEdocs.objects.filter(coleta=coleta)
+    if ids_patriarcas is not None:
+        consulta = consulta.filter(patriarca_id__in=ids_patriarcas)
+    totais = {codigo: Decimal("0") for codigo, *_ in INDICADORES_SERIE_EDOCS}
+    patriarcas = []
+    for resultado in consulta:
+        item = {
+            "patriarca_id": resultado.patriarca_id,
+            "codigo_municipio": resultado.codigo_municipio,
+            "sigla_patriarca": resultado.sigla_patriarca,
+            "nome_patriarca": resultado.nome_patriarca,
+            "versao_calculo": resultado.versao_calculo,
+        }
+        for codigo in totais:
+            valor = Decimal(getattr(resultado, codigo) or 0)
+            item[codigo] = valor
+            totais[codigo] += valor
+        patriarcas.append(item)
+    if not patriarcas:
+        return None, []
+    return totais, patriarcas
+
+
+def _pontos_historicos_edocs(
+    secao,
+    ids_patriarcas,
+    totais_atuais,
+    patriarcas_atuais,
+):
+    pontos = []
+    competencia_atual = (
+        secao.publicacao.ano_referencia,
+        secao.publicacao.mes_referencia,
+    )
+    for ano, mes in _competencias_ate(*competencia_atual):
+        competencia = f"{ano:04d}-{mes:02d}"
+        if (ano, mes) == competencia_atual:
+            totais = totais_atuais
+            patriarcas = patriarcas_atuais
+            proveniencia = {
+                "tipo": "SECAO_PUBLICACAO_ATUAL",
+                "publicacao_id": str(secao.publicacao_id),
+                "coleta_id": str(secao.coleta_edocs_id),
+                "revisao": secao.coleta_edocs.revisao,
+            }
+        else:
+            publicada = _secao_publicada_da_competencia(
+                secao,
+                ids_patriarcas,
+                ano,
+                mes,
+            )
+            if publicada is not None:
+                totais = publicada.resultado.get("totais")
+                patriarcas = publicada.resultado.get("patriarcas", [])
+                proveniencia = {
+                    "tipo": "PUBLICACAO",
+                    "publicacao_id": str(publicada.publicacao_id),
+                    "versao": publicada.publicacao.versao,
+                }
+            else:
+                coleta = selecionar_coleta_edocs(ano, mes)
+                totais, patriarcas = (
+                    _resultado_historico_edocs_da_coleta(
+                        coleta,
+                        ids_patriarcas,
+                    )
+                    if coleta is not None
+                    else (None, [])
+                )
+                proveniencia = (
+                    {
+                        "tipo": "ULTIMA_COLETA_COM_SUCESSO",
+                        "coleta_id": str(coleta.pk),
+                        "revisao": coleta.revisao,
+                    }
+                    if totais is not None
+                    else {"tipo": "SEM_DADOS"}
+                )
+        pontos.append(
+            {
+                "competencia": competencia,
+                "totais": totais,
+                "patriarcas": patriarcas,
+                "proveniencia": proveniencia,
+            }
+        )
+    return pontos
+
+
+def _consolidados_historicos_patriarcas(pontos, nomes_municipios):
+    acumulados = {}
+    for ponto in pontos:
+        for item in ponto.get("patriarcas", []):
+            chave = item.get("patriarca_id")
+            if chave is None:
+                continue
+            acumulado = acumulados.setdefault(
+                chave,
+                {
+                    "patriarca_id": chave,
+                    "codigo_municipio": item.get("codigo_municipio"),
+                    "nome_municipio": nomes_municipios.get(
+                        item.get("codigo_municipio")
+                    ),
+                    "sigla_patriarca": item.get("sigla_patriarca"),
+                    "nome_patriarca": item.get("nome_patriarca"),
+                    "competencias_consideradas": 0,
+                    **{codigo: Decimal("0") for codigo, *_ in INDICADORES_SERIE_EDOCS},
+                },
+            )
+            acumulado["competencias_consideradas"] += 1
+            for codigo, *_ in INDICADORES_SERIE_EDOCS:
+                acumulado[codigo] += Decimal(item.get(codigo) or 0)
+    ordenados = sorted(
+        acumulados.values(),
+        key=lambda item: (
+            -item["economia_total_reais"],
+            item["nome_patriarca"] or "",
+        ),
+    )
+    return [
+        _jsonificavel({"posicao": posicao, **item})
+        for posicao, item in enumerate(ordenados, start=1)
+    ]
+
+
+def _pontos_historicos_eflow(secao, ids_patriarcas, resultado_atual):
+    pontos = []
+    competencia_atual = (
+        secao.publicacao.ano_referencia,
+        secao.publicacao.mes_referencia,
+    )
+    for ano, mes in _competencias_ate(*competencia_atual):
+        competencia = f"{ano:04d}-{mes:02d}"
+        if (ano, mes) == competencia_atual:
+            totais = resultado_atual
+            proveniencia = {
+                "tipo": "SECAO_PUBLICACAO_ATUAL",
+                "publicacao_id": str(secao.publicacao_id),
+                "coleta_id": str(secao.coleta_eflow_id),
+            }
+        else:
+            publicada = _secao_publicada_da_competencia(
+                secao,
+                ids_patriarcas,
+                ano,
+                mes,
+            )
+            if publicada is not None:
+                totais = publicada.resultado
+                proveniencia = {
+                    "tipo": "PUBLICACAO",
+                    "publicacao_id": str(publicada.publicacao_id),
+                    "versao": publicada.publicacao.versao,
+                }
+            else:
+                coleta = selecionar_coleta_eflow(ano, mes)
+                totais = (
+                    calcular_indicadores_eflow_filtrados(
+                        coleta,
+                        perfil=secao.perfil_calculo,
+                        patriarcas_ids=ids_patriarcas,
+                    )
+                    if coleta is not None
+                    else None
+                )
+                proveniencia = (
+                    {
+                        "tipo": "SNAPSHOT_VIGENTE",
+                        "coleta_id": str(coleta.pk),
+                        "vigencia_inicio": (
+                            f"{coleta.ano_vigencia_inicio:04d}-"
+                            f"{coleta.mes_vigencia_inicio:02d}"
+                        ),
+                    }
+                    if totais is not None
+                    else {"tipo": "SEM_DADOS"}
+                )
+        pontos.append(
+            {
+                "competencia": competencia,
+                "totais": totais,
+                "proveniencia": proveniencia,
+            }
+        )
+    return pontos
+
+
+def _series_historicas(indicadores, pontos, *, natureza):
+    series = []
+    for codigo, titulo, unidade, precisao in indicadores:
+        acumulado = Decimal("0")
+        pontos_indicador = []
+        completa = True
+        for ponto in pontos:
+            totais = ponto["totais"]
+            valor = totais.get(codigo) if totais is not None else None
+            if valor is None:
+                completa = False
+                valor_serializado = None
+                acumulado_serializado = None
+            else:
+                valor_decimal = Decimal(valor)
+                valor_serializado = _jsonificavel(valor_decimal)
+                if natureza == "FLUXO_MENSAL":
+                    acumulado += valor_decimal
+                    acumulado_serializado = _jsonificavel(acumulado)
+                else:
+                    acumulado_serializado = None
+            pontos_indicador.append(
+                {
+                    "competencia": ponto["competencia"],
+                    "valor": valor_serializado,
+                    "valor_acumulado": acumulado_serializado,
+                    "proveniencia": ponto["proveniencia"],
+                }
+            )
+        series.append(
+            {
+                "codigo": codigo.upper(),
+                "titulo": titulo,
+                "periodicidade": "MENSAL",
+                "natureza": natureza,
+                "unidade": unidade,
+                "precisao": precisao,
+                "serie_completa": completa,
+                "pontos": pontos_indicador,
+            }
+        )
+    return series
 
 
 def _evento(
@@ -271,6 +577,8 @@ def adicionar_secao(
 
 
 def _resultado_edocs(secao, ids_patriarcas):
+    catalogo_ibge = _catalogo_municipal_ibge()
+    nomes_municipios = {item["id"]: item["nome"] for item in catalogo_ibge}
     consulta = ResultadoMensalPatriarcaEdocs.objects.filter(
         coleta=secao.coleta_edocs
     ).select_related("patriarca")
@@ -296,6 +604,7 @@ def _resultado_edocs(secao, ids_patriarcas):
             "patriarca_id": resultado.patriarca_id,
             "id_patriarca_externo": str(resultado.id_patriarca_externo),
             "codigo_municipio": resultado.codigo_municipio,
+            "nome_municipio": nomes_municipios.get(resultado.codigo_municipio),
             "sigla_patriarca": resultado.sigla_patriarca,
             "nome_patriarca": resultado.nome_patriarca,
             "versao_calculo": resultado.versao_calculo,
@@ -310,10 +619,171 @@ def _resultado_edocs(secao, ids_patriarcas):
             "VISAO_SEM_DADOS_EDOCS",
             "A visão não possui dados E-Docs na revisão selecionada.",
         )
-    return {
+    resultado_secao = {
         "quantidade_patriarcas": len(itens),
         "totais": _jsonificavel(totais),
         "patriarcas": itens,
+    }
+    pontos = _pontos_historicos_edocs(
+        secao,
+        ids_patriarcas,
+        totais,
+        itens,
+    )
+    resultado_secao["series_historicas"] = _series_historicas(
+        INDICADORES_SERIE_EDOCS,
+        pontos,
+        natureza="FLUXO_MENSAL",
+    )
+    resultado_secao["consolidados_historicos_patriarcas"] = (
+        _consolidados_historicos_patriarcas(pontos, nomes_municipios)
+    )
+    mapa = _mapa_implantacao_edocs(secao, ids_patriarcas, catalogo_ibge)
+    if mapa["municipios"]:
+        resultado_secao["mapas"] = [mapa]
+    return resultado_secao
+
+
+def _catalogo_municipal_ibge():
+    try:
+        return listar_municipios_ibge(settings.IBGE_UF_PADRAO)
+    except (ErroIbge, ValueError) as exc:
+        raise ErroPublicacao(
+            "CATALOGO_IBGE_INDISPONIVEL",
+            "Não foi possível obter o catálogo municipal do IBGE.",
+        ) from exc
+
+
+def _mapa_implantacao_edocs(secao, ids_patriarcas, catalogo_ibge):
+    """Congela a situação municipal conhecida na competência da publicação."""
+
+    ano = secao.publicacao.ano_referencia
+    mes = secao.publicacao.mes_referencia
+    referencia = (ano, mes)
+    consulta_municipios = MunicipioEdocs.objects.filter(ativo=True).prefetch_related(
+        "vigencias_situacao"
+    )
+    consulta_patriarcas = PatriarcaEdocs.objects.filter(
+        ativo=True, codigo_municipio__isnull=False
+    ).select_related("implantacao_edocs_observada")
+    if (
+        secao.configuracao_visao.escopo == EscopoVisaoPublicacao.PERSONALIZADO
+        and ids_patriarcas is not None
+    ):
+        consulta_patriarcas = consulta_patriarcas.filter(pk__in=ids_patriarcas)
+        codigos_permitidos = consulta_patriarcas.values_list(
+            "codigo_municipio", flat=True
+        )
+        consulta_municipios = consulta_municipios.filter(
+            codigo_ibge__in=codigos_permitidos
+        )
+    patriarcas_por_codigo = {
+        item.codigo_municipio: item for item in consulta_patriarcas
+    }
+    municipios_por_codigo = {item.codigo_ibge: item for item in consulta_municipios}
+
+    municipios = []
+    for referencia_ibge in sorted(catalogo_ibge, key=lambda item: item["id"]):
+        codigo_ibge = referencia_ibge["id"]
+        nome = referencia_ibge["nome"]
+        municipio = municipios_por_codigo.get(codigo_ibge)
+        patriarca = patriarcas_por_codigo.get(codigo_ibge)
+        implantacao = None
+        if patriarca is not None:
+            try:
+                implantacao = patriarca.implantacao_edocs_observada
+            except ImplantacaoPatriarcaEdocs.DoesNotExist:
+                pass
+        implantado_pela_api = bool(
+            implantacao and (implantacao.ano, implantacao.mes) <= referencia
+        )
+        vigencia = None
+        if municipio is not None:
+            vigencia = next(
+                (
+                    item
+                    for item in municipio.vigencias_situacao.all()
+                    if (item.ano_inicio, item.mes_inicio) <= referencia
+                    and (
+                        item.ano_fim is None
+                        or (item.ano_fim, item.mes_fim) >= referencia
+                    )
+                ),
+                None,
+            )
+        if implantado_pela_api:
+            categoria = "IMPLANTADO_COM_USO_EDOCS"
+        else:
+            categoria = vigencia.situacao if vigencia else "SEM_DADOS"
+        textos = {
+            "IMPLANTADO_COM_USO_EDOCS": ("implantado com uso observado do E-Docs"),
+            "IMPLANTADO_SEM_USO_EDOCS": "implantado sem uso do E-Docs",
+            "EM_IMPLANTACAO": "em processo de implantação",
+            "MANIFESTOU_INTERESSE": "manifestou interesse",
+            "SEM_DADOS": "sem dados disponíveis",
+        }
+        municipios.append(
+            {
+                "codigo_ibge": f"{codigo_ibge:07d}",
+                "nome": nome,
+                "categoria": categoria,
+                "valor": None,
+                "texto_alternativo": f"{nome}: {textos[categoria]}",
+            }
+        )
+    return {
+        "schema_version": "1.0",
+        "tipo": "MAPA_MUNICIPAL",
+        "indicador": "IMPLANTACAO_EDOCS",
+        "titulo": "Implantação E-Docs nos municípios",
+        "competencia": f"{ano:04d}-{mes:02d}",
+        "codigo_uf": settings.IBGE_UF_PADRAO,
+        "quantidade_municipios": len(municipios),
+        "referencia_temporal": "COMPETENCIA",
+        "modo": "CATEGORICO",
+        "unidade": None,
+        "precisao": None,
+        "texto_sem_dados": "Sem dados disponíveis",
+        "legenda": [
+            {
+                "codigo": "IMPLANTADO_COM_USO_EDOCS",
+                "rotulo": "Implantado com uso observado do E-Docs",
+                "cor": "#13c7a3",
+                "ordem": 1,
+            },
+            {
+                "codigo": "IMPLANTADO_SEM_USO_EDOCS",
+                "rotulo": "Implantado sem uso do E-Docs",
+                "cor": "#f59e0b",
+                "ordem": 2,
+            },
+            {
+                "codigo": "EM_IMPLANTACAO",
+                "rotulo": "Em processo de implantação",
+                "cor": "#facc15",
+                "ordem": 3,
+            },
+            {
+                "codigo": "MANIFESTOU_INTERESSE",
+                "rotulo": "Manifestou interesse",
+                "cor": "#93c5fd",
+                "ordem": 4,
+            },
+            {
+                "codigo": "SEM_DADOS",
+                "rotulo": "Sem dados disponíveis",
+                "cor": "#d1d5db",
+                "ordem": 99,
+            },
+        ],
+        "municipios": municipios,
+        "proveniencia": {
+            "fonte_uso": "API oficial E-Docs",
+            "fonte_situacao_manual": "Cadastro municipal administrativo",
+            "fonte_catalogo_municipal": "API de Localidades do IBGE",
+            "regra": "IMPLANTACAO_EDOCS_V2",
+            "coleta_edocs_id": str(secao.coleta_edocs_id),
+        },
     }
 
 
@@ -375,6 +845,16 @@ def recalcular_publicacao(publicacao: Publicacao, *, ator):
                 secao.coleta_eflow,
                 perfil=secao.perfil_calculo,
                 patriarcas_ids=ids_patriarcas,
+            )
+            pontos = _pontos_historicos_eflow(
+                secao,
+                ids_patriarcas,
+                resultado,
+            )
+            resultado["series_historicas"] = _series_historicas(
+                INDICADORES_SERIE_EFLOW,
+                pontos,
+                natureza="ESTOQUE_VIGENTE",
             )
         secao.configuracao_congelada = congelada
         secao.resultado = _jsonificavel(resultado)

@@ -282,16 +282,19 @@ justificativa, validação e imutabilidade continuam obrigatórias.
   mas o administrador não pode ignorar workflow, imutabilidade, validações,
   justificativas ou auditoria do domínio.
 
-## 8. Contratos de distribuição propostos
+## 8. Contratos de distribuição
 
-Paths ilustrativos da versão inicial, ainda não aprovados como OpenAPI:
+A fronteira e os recursos iniciais foram aprovados em
+[`PUBLIC_DISTRIBUTION_CONTRACT.md`](./PUBLIC_DISTRIBUTION_CONTRACT.md). A API
+pública está implementada em namespace próprio e não reutiliza router, sessão
+ou serializers administrativos. O OpenAPI executável descreve os quatro
+recursos públicos; a integração com o Portal continua pertencendo à F3.
 
 ```text
-GET /api/public/v1/dashboard/
-GET /api/public/v1/publicacoes/
-GET /api/public/v1/publicacoes/{uuid}/
-GET /api/public/v1/indicadores/{codigo}/series/
-GET /api/distribuicao/v1/...
+GET /api/public/v1/publicacoes-institucionais/vigente/
+GET /api/public/v1/publicacoes-institucionais/
+GET /api/public/v1/publicacoes-institucionais/{uuid}/
+GET /api/public/v1/publicacoes-institucionais/{uuid}/series/
 ```
 
 Toda resposta pública informará `publication_id`, versão, competência,

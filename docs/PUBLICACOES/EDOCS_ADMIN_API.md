@@ -27,6 +27,7 @@ A API usa a sessão compartilhada da plataforma no cookie
 | Consultar resultados por organização | `view_resultadomensalorganizacaoedocs` |
 | Consultar metadados das fontes brutas | `view_fontebrutacoletamensaledocs` |
 | Consultar auditoria mensal | `view_eventoauditoriacoletamensaledocs` |
+| Consultar localidades do IBGE | `view_municipioedocs` |
 
 Capabilities controlam a distribuição funcional. A autorização efetiva de
 cada requisição continua sendo feita pelas permissões técnicas materializadas
@@ -59,10 +60,72 @@ da plataforma. Nenhum endpoint verifica o nome de uma role.
 | `GET /fontes-brutas-coletas-mensais-edocs/` | Lista hashes e metadados das respostas preservadas. |
 | `GET /auditoria-coletas-mensais-edocs/` | Lista eventos da execução mensal. |
 | `GET /implantacoes-edocs/` | Lista a primeira implantação observada por patriarca. |
+| `GET /ibge/configuracao/` | Informa a UF padrão configurada no backend. |
+| `GET /ibge/estados/` | Lista os estados obtidos da API oficial do IBGE. |
+| `GET /ibge/estados/{codigo_uf}/municipios/` | Lista os municípios da UF informada. |
+| `GET /ibge/municipios/` | Lista, por nome, apenas municípios da UF padrão ainda não cadastrados. |
 
 Todos os caminhos da tabela são relativos a `/api/pub-institucional/`.
 Listagens usam o envelope paginado padrão do projeto, com `count`, `next`,
 `previous` e `results`.
+
+### 2.1 Cadastro municipal independente
+
+Municípios que ainda não existem no catálogo oficial usam recursos próprios:
+
+| Método e caminho | Finalidade |
+|---|---|
+| `GET /municipios-edocs/` | Lista municípios e suas vigências. |
+| `POST /municipios-edocs/` | Cadastra município por código IBGE, sem UUID externo fictício. |
+| `GET /municipios-edocs/{id}/` | Consulta cadastro, patriarca associado e histórico. |
+| `PATCH /municipios-edocs/{id}/situacao/` | Abre uma nova situação a partir de uma competência. |
+| `PATCH /municipios-edocs/{id}/cadastro/` | Corrige código IBGE ou nome com controle de versão. |
+| `GET /auditoria-municipios-edocs/` | Consulta eventos auditáveis do cadastro municipal. |
+
+A inclusão exige código IBGE de município do Espírito Santo (`32xxxxx`), nome,
+situação, ano/mês inicial e justificativa. As situações aceitas são
+`SEM_DADOS`, `MANIFESTOU_INTERESSE`,
+`EM_IMPLANTACAO` e `IMPLANTADO_SEM_USO_EDOCS`. Cada alteração encerra a
+vigência anterior no mês precedente. O DTO informa `patriarca_edocs: null`
+enquanto não houver patriarca real associado ao mesmo código IBGE.
+
+Quando uma coleta oficial detectar a primeira atividade positiva, o backend
+cria o município caso necessário, associa o patriarca pelo código IBGE,
+encerra a situação manual anterior e passa a retornar
+`IMPLANTADO_COM_USO_EDOCS` com origem `API_OFICIAL_EDOCS`. Essa transição gera
+auditoria e não exige confirmação nem preenchimento manual pelo usuário. Se o
+patriarca ainda não possuir código IBGE válido, a coleta é preservada, mas a
+associação ao mapa continuará pendente até a correção do código.
+
+Os campos municipais ainda expostos em `/patriarcas/` são compatibilidade
+legada. O cadastro acima é a fonte canônica para novos registros e para o mapa.
+
+### 2.2 Localidades oficiais do IBGE
+
+O navegador não acessa diretamente a API externa. O frontend de Publicações
+consulta inicialmente `GET /api/pub-institucional/ibge/municipios/`; o backend
+usa `IBGE_UF_PADRAO=32`, consulta o serviço oficial, normaliza o contrato e
+mantém códigos e nomes municipais em cache sem expiração. Assim, a consulta
+externa ocorre somente no primeiro acesso após uma invalidação, reinício do
+serviço de cache ou evicção. O valor padrão também é devolvido por
+`/ibge/configuracao/`, mas não precisa ser codificado no frontend.
+
+A rota simplificada `/ibge/municipios/` compara o catálogo em cache com
+`municipio_edocs` a cada requisição. Sua resposta contém somente `nome` e
+`codigo_ibge`, nessa ordem, exclui inclusive cadastros inativos e é ordenada
+alfabeticamente pelo nome. Portanto, um município recém-cadastrado deixa de
+aparecer imediatamente, sem invalidar nem consultar novamente o IBGE.
+
+Os nomes persistidos podem ser auditados e reconciliados novamente com
+`python manage.py sincronizar_nomes_municipios_ibge`. Sem argumentos, o
+comando apenas lista divergências; `--aplicar` atualiza pelo serviço de domínio,
+incrementa a versão e cria `CADASTRO_CORRIGIDO` para cada município alterado.
+
+O cliente HTTP e o cache ficam em `common`, pois podem atender outras
+aplicações. A exposição autenticada permanece em `pub_institucional`, seguindo
+o contexto, a sessão e a permissão técnica da aplicação. As rotas genéricas de
+estados e municípios por UF ficam disponíveis para evolução futura sem obrigar
+uma consulta prévia no fluxo atual.
 
 ## 3. Filtros e ordenação
 
@@ -96,20 +159,27 @@ inválidos retornam `400`, em vez de serem ignorados.
 Patriarca inativo não pode ser selecionado. Mudança efetiva incrementa a
 versão e gera `SELECAO_COLETA_ALTERADA` na auditoria.
 
-### Município implantado sem uso do E-Docs
+### Município implantado sem uso do E-Docs (compatibilidade legada)
 
 ```json
 {
   "municipio_implantado_sem_uso_edocs": true,
+  "ano_inicio": 2024,
+  "mes_inicio": 6,
   "justificativa": "Implantação confirmada sem utilização do E-Docs."
 }
 ```
 
 O indicador é manual, não é inferido do catálogo remoto e não é alterado pela
-sincronização E-Docs. Mudança efetiva incrementa a versão do patriarca e gera
-`INDICADOR_SEM_EDOCS_ALTERADO`, preservando valores anterior e atual.
+sincronização E-Docs. A ativação exige a primeira competência em que a situação
+deve valer; a desativação limpa essa vigência. Registros legados já marcados,
+mas ainda sem competência, continuam preservados e não entram em mapas
+históricos até serem confirmados pelo gestor. Novas decisões devem usar
+`/municipios-edocs/{id}/situacao/`. Mudança efetiva nesta rota antiga incrementa a
+versão do patriarca e gera `INDICADOR_SEM_EDOCS_ALTERADO`, preservando valores
+anterior e atual.
 
-### Código e indicadores municipais
+### Código e indicadores municipais (compatibilidade legada)
 
 ```json
 {
@@ -122,10 +192,12 @@ sincronização E-Docs. Mudança efetiva incrementa a versão do patriarca e ger
 }
 ```
 
-O `PATCH` é parcial: somente os campos enviados são alterados. Todos são
+O `PATCH` é parcial e foi preservado para o frontend anterior; somente os
+campos enviados são alterados. Todos são
 manuais, não vêm do EDOC-05 e não são recalculados pela coleta. `COD_MUNIC`
 aceita sete dígitos ou `null`, é único quando preenchido e é congelado no
-resultado de cada revisão mensal. Não foi imposta exclusividade entre os
+resultado de cada revisão mensal. Esses campos não alimentam mais o mapa
+`IMPLANTACAO_EDOCS_V2`. Não foi imposta exclusividade entre os
 indicadores porque a regra funcional de transição entre interesse,
 implantação e implantação concluída ainda não foi formalizada.
 

@@ -3,29 +3,67 @@
 from django.conf import settings
 from rest_framework import serializers
 
-from apps.pub_institucional.models import (ColetaEflow, ColetaMensalEdocs,
-                                           ConfiguracaoVisaoPublicacao,
-                                           ColetaPatriarcasEdocs,
-                                           DecisaoDivergenciaPatriarca,
-                                           DefinicaoFluxoEflow,
-                                           DivergenciaPatriarcaEdocs,
-                                           EventoAuditoriaColetaMensalEdocs,
-                                           EventoAuditoriaEflow,
-                                           EventoAuditoriaPatriarcaEdocs,
-                                           EventoAuditoriaPreferenciaEflow,
-                                           FonteBrutaColetaMensalEdocs,
-                                           HistoricoPublicacao,
-                                           ImplantacaoPatriarcaEdocs,
-                                           PatriarcaEdocs, PerfilCalculoEflow,
-                                           PreferenciaExibicaoEflow,
-                                           Publicacao,
-                                           ResultadoCalculoEflow,
-                                           ResultadoMensalOrganizacaoEdocs,
-                                           ResultadoMensalPatriarcaEdocs,
-                                           SecaoPublicacao,
-                                           SituacaoColetaMensalEdocs,
-                                           SituacaoDivergenciaPatriarca)
+from apps.pub_institucional.models import (
+    ColetaEflow,
+    ColetaMensalEdocs,
+    ColetaPatriarcasEdocs,
+    ConfiguracaoVisaoPublicacao,
+    DecisaoDivergenciaPatriarca,
+    DefinicaoFluxoEflow,
+    DivergenciaPatriarcaEdocs,
+    EventoAuditoriaColetaMensalEdocs,
+    EventoAuditoriaEflow,
+    EventoAuditoriaMunicipioEdocs,
+    EventoAuditoriaPatriarcaEdocs,
+    EventoAuditoriaPreferenciaEflow,
+    FonteBrutaColetaMensalEdocs,
+    HistoricoPublicacao,
+    ImplantacaoPatriarcaEdocs,
+    MunicipioEdocs,
+    PatriarcaEdocs,
+    PerfilCalculoEflow,
+    PreferenciaExibicaoEflow,
+    Publicacao,
+    ResultadoCalculoEflow,
+    ResultadoMensalOrganizacaoEdocs,
+    ResultadoMensalPatriarcaEdocs,
+    SecaoPublicacao,
+    SituacaoColetaMensalEdocs,
+    SituacaoDivergenciaPatriarca,
+    SituacaoMunicipioEdocs,
+    VigenciaSituacaoMunicipioEdocs,
+)
 from apps.pub_institucional.services.patriarcas_edocs import DECISOES_VALIDAS
+
+
+class SerializadorRegiaoIbge(serializers.Serializer):
+    id = serializers.IntegerField()
+    sigla = serializers.CharField()
+    nome = serializers.CharField()
+
+
+class SerializadorEstadoIbge(serializers.Serializer):
+    id = serializers.IntegerField()
+    sigla = serializers.CharField()
+    nome = serializers.CharField()
+    regiao = SerializadorRegiaoIbge()
+
+
+class SerializadorMunicipioIbge(serializers.Serializer):
+    id = serializers.IntegerField()
+    nome = serializers.CharField()
+    codigo_uf = serializers.IntegerField()
+
+
+class SerializadorOpcaoMunicipioIbge(serializers.Serializer):
+    """Opção disponível para inclusão no cadastro municipal."""
+
+    nome = serializers.CharField()
+    codigo_ibge = serializers.IntegerField()
+
+
+class SerializadorConfiguracaoIbge(serializers.Serializer):
+    codigo_uf_padrao = serializers.IntegerField()
 
 
 class SerializadorPatriarcaEdocs(serializers.ModelSerializer):
@@ -49,6 +87,8 @@ class SerializadorPatriarcaEdocs(serializers.ModelSerializer):
             "municipio_em_implantacao",
             "municipio_manifestou_interesse",
             "municipio_implantado_sem_uso_edocs",
+            "ano_inicio_implantacao_sem_uso_edocs",
+            "mes_inicio_implantacao_sem_uso_edocs",
             "implantacao_edocs_observada",
             "ativo",
             "versao",
@@ -109,6 +149,187 @@ class SerializadorImplantacaoPatriarcaEdocs(serializers.ModelSerializer):
 
     def get_competencia(self, objeto) -> str:
         return f"{objeto.ano:04d}-{objeto.mes:02d}"
+
+
+class SerializadorVigenciaSituacaoMunicipioEdocs(serializers.ModelSerializer):
+    competencia_inicio = serializers.SerializerMethodField()
+    competencia_fim = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VigenciaSituacaoMunicipioEdocs
+        fields = (
+            "id",
+            "situacao",
+            "ano_inicio",
+            "mes_inicio",
+            "competencia_inicio",
+            "ano_fim",
+            "mes_fim",
+            "competencia_fim",
+            "criado_em",
+        )
+        read_only_fields = fields
+
+    def get_competencia_inicio(self, objeto) -> str:
+        return f"{objeto.ano_inicio:04d}-{objeto.mes_inicio:02d}"
+
+    def get_competencia_fim(self, objeto) -> str | None:
+        if objeto.ano_fim is None or objeto.mes_fim is None:
+            return None
+        return f"{objeto.ano_fim:04d}-{objeto.mes_fim:02d}"
+
+
+class SerializadorMunicipioEdocs(serializers.ModelSerializer):
+    situacao_atual = serializers.SerializerMethodField()
+    vigencias = SerializadorVigenciaSituacaoMunicipioEdocs(
+        source="vigencias_situacao",
+        many=True,
+        read_only=True,
+    )
+    patriarca_edocs = serializers.SerializerMethodField()
+    acoes_disponiveis = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MunicipioEdocs
+        fields = (
+            "id",
+            "codigo_ibge",
+            "nome",
+            "ativo",
+            "versao",
+            "situacao_atual",
+            "vigencias",
+            "patriarca_edocs",
+            "criado_em",
+            "atualizado_em",
+            "acoes_disponiveis",
+        )
+        read_only_fields = fields
+
+    def get_situacao_atual(self, objeto) -> dict | None:
+        patriarca = self.context.get("patriarcas_por_codigo", {}).get(
+            objeto.codigo_ibge
+        )
+        if patriarca is not None:
+            try:
+                implantacao = patriarca.implantacao_edocs_observada
+            except ImplantacaoPatriarcaEdocs.DoesNotExist:
+                implantacao = None
+            if implantacao is not None:
+                return {
+                    "situacao": "IMPLANTADO_COM_USO_EDOCS",
+                    "ano_inicio": implantacao.ano,
+                    "mes_inicio": implantacao.mes,
+                    "competencia_inicio": (
+                        f"{implantacao.ano:04d}-{implantacao.mes:02d}"
+                    ),
+                    "ano_fim": None,
+                    "mes_fim": None,
+                    "competencia_fim": None,
+                    "origem": "API_OFICIAL_EDOCS",
+                }
+        vigencia = next(
+            (
+                item
+                for item in objeto.vigencias_situacao.all()
+                if item.ano_fim is None and item.mes_fim is None
+            ),
+            None,
+        )
+        if vigencia is None:
+            return None
+        dados = dict(SerializadorVigenciaSituacaoMunicipioEdocs(vigencia).data)
+        dados["origem"] = "CADASTRO_MANUAL"
+        return dados
+
+    def get_patriarca_edocs(self, objeto) -> dict | None:
+        patriarca = self.context.get("patriarcas_por_codigo", {}).get(
+            objeto.codigo_ibge
+        )
+        if patriarca is None:
+            return None
+        dados = {
+            "id": patriarca.pk,
+            "id_externo": str(patriarca.id_externo),
+            "sigla": patriarca.sigla,
+            "nome": patriarca.nome,
+        }
+        try:
+            implantacao = patriarca.implantacao_edocs_observada
+        except ImplantacaoPatriarcaEdocs.DoesNotExist:
+            implantacao = None
+        dados["implantacao_observada"] = (
+            {
+                "ano": implantacao.ano,
+                "mes": implantacao.mes,
+                "competencia": f"{implantacao.ano:04d}-{implantacao.mes:02d}",
+                "criterio": implantacao.criterio,
+            }
+            if implantacao is not None
+            else None
+        )
+        return dados
+
+    def get_acoes_disponiveis(self, objeto) -> list[str]:
+        if not self.context.get("pode_alterar"):
+            return []
+        acoes = ["corrigir_cadastro"]
+        patriarca = self.context.get("patriarcas_por_codigo", {}).get(
+            objeto.codigo_ibge
+        )
+        if patriarca is None or not hasattr(patriarca, "implantacao_edocs_observada"):
+            acoes.append("alterar_situacao")
+        return acoes
+
+
+class SerializadorEventoAuditoriaMunicipioEdocs(serializers.ModelSerializer):
+    municipio_codigo_ibge = serializers.IntegerField(
+        source="municipio.codigo_ibge",
+        read_only=True,
+    )
+    municipio_nome = serializers.CharField(source="municipio.nome", read_only=True)
+
+    class Meta:
+        model = EventoAuditoriaMunicipioEdocs
+        fields = (
+            "id",
+            "municipio_id",
+            "municipio_codigo_ibge",
+            "municipio_nome",
+            "tipo_evento",
+            "mensagem",
+            "dados_anteriores",
+            "dados_atuais",
+            "metadados",
+            "criado_por_id",
+            "criado_por_nome",
+            "criado_em",
+        )
+        read_only_fields = fields
+
+
+class SerializadorCriacaoMunicipioEdocs(serializers.Serializer):
+    codigo_ibge = serializers.IntegerField(min_value=3_200_000, max_value=3_299_999)
+    nome = serializers.CharField(max_length=200, trim_whitespace=True)
+    situacao = serializers.ChoiceField(choices=SituacaoMunicipioEdocs.choices)
+    ano_inicio = serializers.IntegerField(min_value=2024, max_value=9999)
+    mes_inicio = serializers.IntegerField(min_value=1, max_value=12)
+    justificativa = serializers.CharField(trim_whitespace=True, allow_blank=False)
+
+
+class SerializadorAlteracaoSituacaoMunicipioEdocs(serializers.Serializer):
+    situacao = serializers.ChoiceField(choices=SituacaoMunicipioEdocs.choices)
+    ano_inicio = serializers.IntegerField(min_value=2024, max_value=9999)
+    mes_inicio = serializers.IntegerField(min_value=1, max_value=12)
+    versao = serializers.IntegerField(min_value=1)
+    justificativa = serializers.CharField(trim_whitespace=True, allow_blank=False)
+
+
+class SerializadorCorrecaoMunicipioEdocs(serializers.Serializer):
+    codigo_ibge = serializers.IntegerField(min_value=3_200_000, max_value=3_299_999)
+    nome = serializers.CharField(max_length=200, trim_whitespace=True)
+    versao = serializers.IntegerField(min_value=1)
+    justificativa = serializers.CharField(trim_whitespace=True, allow_blank=False)
 
 
 class SerializadorColetaPatriarcasEdocs(serializers.ModelSerializer):
@@ -227,7 +448,33 @@ class SerializadorIndicadorMunicipioSemEdocs(serializers.Serializer):
     """Valida a manutenção manual do indicador municipal."""
 
     municipio_implantado_sem_uso_edocs = serializers.BooleanField()
+    ano_inicio = serializers.IntegerField(
+        min_value=2024,
+        max_value=9999,
+        required=False,
+        allow_null=True,
+    )
+    mes_inicio = serializers.IntegerField(
+        min_value=1,
+        max_value=12,
+        required=False,
+        allow_null=True,
+    )
     justificativa = serializers.CharField(trim_whitespace=True, allow_blank=False)
+
+    def validate(self, attrs):
+        ativo = attrs["municipio_implantado_sem_uso_edocs"]
+        ano = attrs.get("ano_inicio")
+        mes = attrs.get("mes_inicio")
+        if ativo and (ano is None or mes is None):
+            raise serializers.ValidationError(
+                "Informe ano e mês iniciais para o indicador sem uso do E-Docs."
+            )
+        if not ativo and (ano is not None or mes is not None):
+            raise serializers.ValidationError(
+                "A competência inicial só pode ser informada ao ativar o indicador."
+            )
+        return attrs
 
 
 class SerializadorIndicadoresMunicipaisEdocs(serializers.Serializer):
@@ -243,12 +490,38 @@ class SerializadorIndicadoresMunicipaisEdocs(serializers.Serializer):
     municipio_em_implantacao = serializers.BooleanField(required=False)
     municipio_manifestou_interesse = serializers.BooleanField(required=False)
     municipio_implantado_sem_uso_edocs = serializers.BooleanField(required=False)
+    ano_inicio_implantacao_sem_uso_edocs = serializers.IntegerField(
+        min_value=2024,
+        max_value=9999,
+        required=False,
+        allow_null=True,
+    )
+    mes_inicio_implantacao_sem_uso_edocs = serializers.IntegerField(
+        min_value=1,
+        max_value=12,
+        required=False,
+        allow_null=True,
+    )
     justificativa = serializers.CharField(trim_whitespace=True, allow_blank=False)
 
     def validate(self, attrs):
         if set(attrs) == {"justificativa"}:
             raise serializers.ValidationError(
                 "Informe ao menos um indicador municipal."
+            )
+        indicador = attrs.get("municipio_implantado_sem_uso_edocs")
+        ano = attrs.get("ano_inicio_implantacao_sem_uso_edocs")
+        mes = attrs.get("mes_inicio_implantacao_sem_uso_edocs")
+        if indicador is True and (ano is None or mes is None):
+            raise serializers.ValidationError(
+                "Informe ano e mês iniciais para o indicador sem uso do E-Docs."
+            )
+        if indicador is False:
+            attrs["ano_inicio_implantacao_sem_uso_edocs"] = None
+            attrs["mes_inicio_implantacao_sem_uso_edocs"] = None
+        elif indicador is None and (ano is not None or mes is not None):
+            raise serializers.ValidationError(
+                "Informe o indicador sem uso ao alterar sua competência inicial."
             )
         return attrs
 

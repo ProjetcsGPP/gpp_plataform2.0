@@ -54,6 +54,7 @@ Criar uma aplicação capaz de:
 | [EFLOW_CSV_ANALYSIS.md](./EFLOW_CSV_ANALYSIS.md) | Análise estrutural da exportação manual de definições disponíveis do E-Flow e lacunas para o contrato de fonte |
 | [EFLOW_ADMIN_API.md](./EFLOW_ADMIN_API.md) | Contrato HTTP e operacional da importação auditável de snapshots CSV do E-Flow |
 | [PUBLICACOES_ADMIN_API.md](./PUBLICACOES_ADMIN_API.md) | Competência, visões, seções, workflow e API administrativa de publicações |
+| [PUBLIC_DISTRIBUTION_CONTRACT.md](./PUBLIC_DISTRIBUTION_CONTRACT.md) | Fronteira, schema neutro, séries e estados da futura API pública, separada da administração |
 | [OPERATIONS_GUIDE.md](./OPERATIONS_GUIDE.md) | Como gestores, administradores e consumidores operarão a solução |
 | [SOURCE_CONTRACT_TEMPLATE.md](./SOURCE_CONTRACT_TEMPLATE.md) | Formulário obrigatório para integrar uma fonte sem presumir suas regras |
 | [CONSUMER_REGISTRATION_TEMPLATE.md](./CONSUMER_REGISTRATION_TEMPLATE.md) | Formulário para cadastrar aplicação consumidora e autorizar escopos |

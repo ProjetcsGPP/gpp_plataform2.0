@@ -4,6 +4,7 @@
 
 from uuid import UUID
 
+from django.conf import settings
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -14,24 +15,26 @@ from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.accounts.services.authorization_service import AuthorizationService
 from apps.core.permissions import CanPermission
 from apps.pub_institucional.models import (ColetaEflow, ColetaMensalEdocs,
-                                           ConfiguracaoVisaoPublicacao,
                                            ColetaPatriarcasEdocs,
+                                           ConfiguracaoVisaoPublicacao,
                                            DefinicaoFluxoEflow,
                                            DivergenciaPatriarcaEdocs,
                                            EventoAuditoriaColetaMensalEdocs,
                                            EventoAuditoriaEflow,
+                                           EventoAuditoriaMunicipioEdocs,
                                            EventoAuditoriaPatriarcaEdocs,
                                            EventoAuditoriaPreferenciaEflow,
                                            FonteBrutaColetaMensalEdocs,
                                            HistoricoPublicacao,
                                            ImplantacaoPatriarcaEdocs,
-                                           PatriarcaEdocs, PerfilCalculoEflow,
+                                           MunicipioEdocs, PatriarcaEdocs,
+                                           PerfilCalculoEflow, Publicacao,
                                            PublicoAlvoEflow,
-                                           Publicacao,
                                            ResultadoCalculoEflow,
                                            ResultadoMensalOrganizacaoEdocs,
                                            ResultadoMensalPatriarcaEdocs,
@@ -43,29 +46,33 @@ from apps.pub_institucional.models import (ColetaEflow, ColetaMensalEdocs,
                                            TipoEventoAuditoriaEflow,
                                            TipoEventoAuditoriaPatriarca)
 from apps.pub_institucional.serializadores import (
-    SerializadorAlteracaoPreferenciaEflow, SerializadorArquivoEflow,
+    SerializadorAlteracaoPreferenciaEflow,
+    SerializadorAlteracaoSituacaoMunicipioEdocs, SerializadorArquivoEflow,
     SerializadorColetaEflow, SerializadorColetaMensalEdocs,
-    SerializadorColetaPatriarcasEdocs, SerializadorDecisaoDivergencia,
-    SerializadorDefinicaoFluxoEflow, SerializadorDivergenciaPatriarcaEdocs,
+    SerializadorColetaPatriarcasEdocs, SerializadorConfiguracaoIbge,
+    SerializadorConfiguracaoVisaoPublicacao,
+    SerializadorCorrecaoMunicipioEdocs, SerializadorCriacaoMunicipioEdocs,
+    SerializadorCriacaoPublicacao, SerializadorCriacaoSecaoPublicacao,
+    SerializadorDecisaoDivergencia, SerializadorDefinicaoFluxoEflow,
+    SerializadorDivergenciaPatriarcaEdocs, SerializadorEstadoIbge,
     SerializadorEventoAuditoriaColetaMensalEdocs,
     SerializadorEventoAuditoriaEflow,
+    SerializadorEventoAuditoriaMunicipioEdocs,
     SerializadorEventoAuditoriaPatriarcaEdocs,
     SerializadorEventoAuditoriaPreferenciaEflow,
-    SerializadorFonteBrutaColetaMensalEdocs,
-    SerializadorIndicadoresMunicipaisEdocs,
+    SerializadorFonteBrutaColetaMensalEdocs, SerializadorHistoricoPublicacao,
     SerializadorImplantacaoPatriarcaEdocs,
-    SerializadorIndicadorMunicipioSemEdocs, SerializadorPatriarcaEdocs,
-    SerializadorPreferenciaExibicaoEflow, SerializadorResultadoCalculoEflow,
+    SerializadorIndicadoresMunicipaisEdocs,
+    SerializadorIndicadorMunicipioSemEdocs, SerializadorMunicipioEdocs,
+    SerializadorMunicipioIbge, SerializadorOpcaoMunicipioIbge,
+    SerializadorPatriarcaEdocs, SerializadorPreferenciaExibicaoEflow,
+    SerializadorPublicacao, SerializadorRemocaoSecaoPublicacao,
+    SerializadorResultadoCalculoEflow,
     SerializadorResultadoMensalOrganizacaoEdocs,
     SerializadorResultadoMensalPatriarcaEdocs, SerializadorSelecaoColeta,
-    SerializadorConfiguracaoVisaoPublicacao,
-    SerializadorCriacaoPublicacao, SerializadorCriacaoSecaoPublicacao,
-    SerializadorHistoricoPublicacao, SerializadorPublicacao,
-    SerializadorRemocaoSecaoPublicacao,
     SerializadorSolicitacaoColetaMensalEdocs,
-    SerializadorTransicaoPublicacao,
-    SerializadorTotaisHistoricosEdocs,
-    SerializadorTotaisResultadoMensalEdocs)
+    SerializadorTotaisHistoricosEdocs, SerializadorTotaisResultadoMensalEdocs,
+    SerializadorTransicaoPublicacao)
 from apps.pub_institucional.services.edocs_mensal import (
     ErroColetaMensalEdocs, obter_totais_historicos_edocs,
     obter_totais_resultados_mensais_edocs, reencaminhar_coleta_mensal_edocs,
@@ -73,6 +80,9 @@ from apps.pub_institucional.services.edocs_mensal import (
 from apps.pub_institucional.services.eflow import (
     AtorAuditoriaEflow, ErroValidacaoEflow, alterar_preferencia_exibicao_eflow,
     importar_csv_eflow, obter_preferencia_exibicao_eflow)
+from apps.pub_institucional.services.municipios_edocs import (
+    ErroMunicipioEdocs, alterar_situacao_municipio_edocs,
+    cadastrar_municipio_edocs, corrigir_cadastro_municipio_edocs)
 from apps.pub_institucional.services.patriarcas_edocs import (
     AtorAuditoriaEdocs, ErroDecisaoPatriarcaEdocs,
     aplicar_decisao_divergencia_patriarca,
@@ -80,10 +90,11 @@ from apps.pub_institucional.services.patriarcas_edocs import (
     definir_indicadores_municipais_patriarca, definir_selecao_coleta_patriarca,
     sincronizar_patriarcas_edocs)
 from apps.pub_institucional.services.publicacoes import (
-    AtorAuditoriaPublicacao, ErroPublicacao, adicionar_secao,
-    criar_publicacao, iniciar_substituicao, publicar_publicacao,
-    recalcular_publicacao, reabrir_publicacao, remover_secao,
-    revogar_publicacao)
+    AtorAuditoriaPublicacao, ErroPublicacao, adicionar_secao, criar_publicacao,
+    iniciar_substituicao, publicar_publicacao, reabrir_publicacao,
+    recalcular_publicacao, remover_secao, revogar_publicacao)
+from common.services.ibge import (ErroIbge, listar_estados_ibge,
+                                  listar_municipios_ibge)
 
 
 class ConflitoCatalogoEdocs(APIException):
@@ -101,6 +112,23 @@ class ConflitoCatalogoEdocs(APIException):
             },
             code=self.default_code,
         )
+
+
+class ConflitoMunicipioEdocs(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "conflito_municipio_edocs"
+
+    def __init__(self, detalhe):
+        super().__init__(
+            {"codigo": self.default_code, "detalhe": detalhe},
+            code=self.default_code,
+        )
+
+
+class ServicoIbgeIndisponivel(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "servico_ibge_indisponivel"
+    default_detail = "O serviço de localidades do IBGE está indisponível."
 
 
 class ConflitoPublicacao(APIException):
@@ -182,6 +210,182 @@ def _parametro_inteiro(request, nome):
     if convertido <= 0:
         raise ValidationError({nome: "Informe um número inteiro positivo."})
     return convertido
+
+
+class VisaoIbgeBase(APIView):
+    permission_classes = [IsAuthenticated, CanPermission]
+    required_permission = "view_municipioedocs"
+
+    @staticmethod
+    def _municipios(codigo_uf):
+        try:
+            return listar_municipios_ibge(codigo_uf)
+        except ValueError as exc:
+            raise ValidationError({"codigo_uf": str(exc)}) from exc
+        except ErroIbge as exc:
+            raise ServicoIbgeIndisponivel() from exc
+
+
+@extend_schema(tags=["7 - Publicações Institucionais"])
+class VisaoConfiguracaoIbge(VisaoIbgeBase):
+    @extend_schema(responses=SerializadorConfiguracaoIbge)
+    def get(self, request):
+        return Response({"codigo_uf_padrao": settings.IBGE_UF_PADRAO})
+
+
+@extend_schema(tags=["7 - Publicações Institucionais"])
+class VisaoEstadosIbge(VisaoIbgeBase):
+    @extend_schema(responses=SerializadorEstadoIbge(many=True))
+    def get(self, request):
+        try:
+            estados = listar_estados_ibge()
+        except ErroIbge as exc:
+            raise ServicoIbgeIndisponivel() from exc
+        return Response(estados)
+
+
+@extend_schema(tags=["7 - Publicações Institucionais"])
+class VisaoMunicipiosIbge(VisaoIbgeBase):
+    @extend_schema(responses=SerializadorMunicipioIbge(many=True))
+    def get(self, request, codigo_uf):
+        return Response(self._municipios(codigo_uf))
+
+
+@extend_schema(tags=["7 - Publicações Institucionais"])
+class VisaoMunicipiosUfPadraoIbge(VisaoIbgeBase):
+    @extend_schema(responses=SerializadorOpcaoMunicipioIbge(many=True))
+    def get(self, request):
+        cadastrados = set(
+            MunicipioEdocs.objects.values_list("codigo_ibge", flat=True)
+        )
+        disponiveis = [
+            {"nome": item["nome"], "codigo_ibge": item["id"]}
+            for item in self._municipios(settings.IBGE_UF_PADRAO)
+            if item["id"] not in cadastrados
+        ]
+        disponiveis.sort(
+            key=lambda item: (item["nome"].casefold(), item["codigo_ibge"])
+        )
+        return Response(
+            SerializadorOpcaoMunicipioIbge(disponiveis, many=True).data
+        )
+
+
+@extend_schema(tags=["7 - Publicações Institucionais"])
+class VisaoMunicipioEdocs(MixinPermissaoPorAcao, viewsets.ReadOnlyModelViewSet):
+    """Cadastro municipal manual, independente da existência de patriarca."""
+
+    queryset = MunicipioEdocs.objects.prefetch_related("vigencias_situacao")
+    serializer_class = SerializadorMunicipioEdocs
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ["nome", "codigo_ibge"]
+    ordering_fields = ["nome", "codigo_ibge", "ativo", "atualizado_em"]
+    ordering = ["nome", "codigo_ibge"]
+    mapa_permissoes = {
+        "list": "view_municipioedocs",
+        "retrieve": "view_municipioedocs",
+        "create": "add_municipioedocs",
+        "situacao": "alterar_situacao_municipio_edocs",
+        "cadastro": "change_municipioedocs",
+    }
+
+    def get_serializer_context(self):
+        contexto = super().get_serializer_context()
+        contexto["patriarcas_por_codigo"] = {
+            item.codigo_municipio: item
+            for item in PatriarcaEdocs.objects.filter(
+                codigo_municipio__isnull=False,
+                ativo=True,
+            ).select_related("implantacao_edocs_observada")
+        }
+        autorizacao = AuthorizationService(
+            self.request.user,
+            getattr(self.request, "application", None),
+        )
+        contexto["pode_alterar"] = autorizacao.can(
+            "alterar_situacao_municipio_edocs"
+        )
+        return contexto
+
+    @extend_schema(
+        request=SerializadorCriacaoMunicipioEdocs,
+        responses={201: SerializadorMunicipioEdocs},
+    )
+    def create(self, request):
+        entrada = SerializadorCriacaoMunicipioEdocs(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            municipio = cadastrar_municipio_edocs(
+                ator=_ator_do_usuario(request.user),
+                **entrada.validated_data,
+            )
+        except ErroMunicipioEdocs as exc:
+            raise ConflitoMunicipioEdocs(str(exc)) from exc
+        return Response(
+            self.get_serializer(municipio).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        request=SerializadorAlteracaoSituacaoMunicipioEdocs,
+        responses=SerializadorMunicipioEdocs,
+    )
+    @action(detail=True, methods=["patch"], url_path="situacao")
+    def situacao(self, request, pk=None):
+        municipio = self.get_object()
+        entrada = SerializadorAlteracaoSituacaoMunicipioEdocs(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            municipio = alterar_situacao_municipio_edocs(
+                municipio.pk,
+                ator=_ator_do_usuario(request.user),
+                **entrada.validated_data,
+            )
+        except ErroMunicipioEdocs as exc:
+            raise ConflitoMunicipioEdocs(str(exc)) from exc
+        return Response(self.get_serializer(municipio).data)
+
+    @extend_schema(
+        request=SerializadorCorrecaoMunicipioEdocs,
+        responses=SerializadorMunicipioEdocs,
+    )
+    @action(detail=True, methods=["patch"], url_path="cadastro")
+    def cadastro(self, request, pk=None):
+        municipio = self.get_object()
+        entrada = SerializadorCorrecaoMunicipioEdocs(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            municipio = corrigir_cadastro_municipio_edocs(
+                municipio.pk,
+                ator=_ator_do_usuario(request.user),
+                **entrada.validated_data,
+            )
+        except ErroMunicipioEdocs as exc:
+            raise ConflitoMunicipioEdocs(str(exc)) from exc
+        return Response(self.get_serializer(municipio).data)
+
+
+@extend_schema(tags=["7 - Publicações Institucionais"])
+class VisaoEventoAuditoriaMunicipioEdocs(
+    MixinPermissaoPorAcao,
+    viewsets.ReadOnlyModelViewSet,
+):
+    queryset = EventoAuditoriaMunicipioEdocs.objects.select_related("municipio")
+    serializer_class = SerializadorEventoAuditoriaMunicipioEdocs
+    filter_backends = [OrderingFilter]
+    ordering_fields = ["criado_em", "tipo_evento", "municipio_id"]
+    ordering = ["-criado_em", "-id"]
+    mapa_permissoes = {
+        "list": "view_eventoauditoriamunicipioedocs",
+        "retrieve": "view_eventoauditoriamunicipioedocs",
+    }
+
+    def get_queryset(self):
+        consulta = super().get_queryset()
+        municipio_id = _parametro_inteiro(self.request, "municipio_id")
+        if municipio_id is not None:
+            consulta = consulta.filter(municipio_id=municipio_id)
+        return consulta
 
 
 @extend_schema(tags=["7 - Publicações Institucionais"])

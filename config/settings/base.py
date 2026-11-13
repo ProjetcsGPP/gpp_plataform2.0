@@ -297,6 +297,29 @@ GPP_EDOCS_RETRY_BACKOFF_SECONDS = env.float(
     "GPP_EDOCS_RETRY_BACKOFF_SECONDS",
     default=0.5,
 )
+
+# ─── Localidades IBGE (recurso compartilhado) ───────────────────────────────
+IBGE_UF_PADRAO = env.int("IBGE_UF_PADRAO", default=32)
+IBGE_LOCALIDADES_BASE_URL = env(
+    "IBGE_LOCALIDADES_BASE_URL",
+    default="https://servicodados.ibge.gov.br/api/v1/localidades/",
+)
+IBGE_LOCALIDADES_CONNECT_TIMEOUT_SECONDS = env.float(
+    "IBGE_LOCALIDADES_CONNECT_TIMEOUT_SECONDS",
+    default=5,
+)
+IBGE_LOCALIDADES_READ_TIMEOUT_SECONDS = env.float(
+    "IBGE_LOCALIDADES_READ_TIMEOUT_SECONDS",
+    default=15,
+)
+IBGE_LOCALIDADES_MAX_RETRIES = env.int(
+    "IBGE_LOCALIDADES_MAX_RETRIES",
+    default=2,
+)
+IBGE_LOCALIDADES_CACHE_SECONDS = env.int(
+    "IBGE_LOCALIDADES_CACHE_SECONDS",
+    default=86400,
+)
 GPP_EFLOW_CSV_MAX_BYTES = env.int(
     "GPP_EFLOW_CSV_MAX_BYTES",
     default=10 * 1024 * 1024,
@@ -438,6 +461,10 @@ CSRF_TRUSTED_ORIGINS = env.list(
 
 # ─── DRF ──────────────────────────────────────────────────────────────────────────────
 LOGIN_THROTTLE_RATE = env("LOGIN_THROTTLE_RATE", default="5/min")
+PUBLICACOES_PUBLIC_THROTTLE_RATE = env(
+    "PUBLICACOES_PUBLIC_THROTTLE_RATE",
+    default="60/min",
+)
 DRF_NUM_PROXIES = env.int("DRF_NUM_PROXIES", default=0)
 
 REST_FRAMEWORK = {
@@ -455,6 +482,7 @@ REST_FRAMEWORK = {
         "anon": "20/min",
         "user": "200/min",
         "login": LOGIN_THROTTLE_RATE,
+        "publicacoes_publicas": PUBLICACOES_PUBLIC_THROTTLE_RATE,
     },
     # Só confia em X-Forwarded-For quando a quantidade exata de proxies
     # institucionais for configurada. O default usa REMOTE_ADDR e evita spoof.
@@ -641,10 +669,17 @@ AUTHORIZATION_EXEMPT_PATHS = [
     "/admin/",
     "/admin",
     "/api/health/",
+    "/api/public/v1/publicacoes-institucionais/",
     "/__debug__/",
     "/api/schema/",  # ← schema JSON
     "/api/docs/",  # ← Swagger UI
     "/api/redoc/",  # ← ReDoc UI
+]
+
+# Endpoints públicos que não devem resolver sessão, aplicação ou roles. A lista
+# é deliberadamente mais restrita que AUTHORIZATION_EXEMPT_PATHS.
+PUBLIC_ANONYMOUS_PATHS = [
+    "/api/public/v1/publicacoes-institucionais/",
 ]
 
 # ─── Rotas autenticadas sem exigência de role de aplicação ────────────────────────

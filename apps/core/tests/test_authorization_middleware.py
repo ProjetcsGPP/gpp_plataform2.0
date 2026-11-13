@@ -45,6 +45,19 @@ class AuthorizationMiddlewareTest(TestCase):
         response = self.middleware(request)
         self.assertEqual(response.status_code, 200)
 
+    def test_publicacoes_publicas_sao_isentas_sem_ampliar_prefixo_api_public(self):
+        request = self._make_request(
+            path="/api/public/v1/publicacoes-institucionais/vigente/"
+        )
+        response = self.middleware(request)
+        self.assertEqual(response.status_code, 200)
+
+        request_fora_da_allowlist = self._make_request(
+            path="/api/public/v1/outro-recurso/"
+        )
+        response_fora_da_allowlist = self.middleware(request_fora_da_allowlist)
+        self.assertEqual(response_fora_da_allowlist.status_code, 401)
+
     def test_portal_admin_always_passes(self):
         """Caso 2: PORTAL_ADMIN passa mesmo sem roles na app."""
         mock_user = MagicMock()

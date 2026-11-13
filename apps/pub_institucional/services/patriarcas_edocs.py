@@ -18,6 +18,7 @@ from apps.pub_institucional.models import (ColetaPatriarcasEdocs,
                                            DescricaoTipoAgenteEdocs,
                                            DivergenciaPatriarcaEdocs,
                                            EventoAuditoriaPatriarcaEdocs,
+                                           MunicipioEdocs,
                                            ObservacaoPatriarcaEdocs,
                                            PatriarcaEdocs,
                                            SituacaoColetaPatriarcas,
@@ -177,6 +178,12 @@ def _retrato(patriarca: PatriarcaEdocs | None) -> dict:
         ),
         "municipio_implantado_sem_uso_edocs": (
             patriarca.municipio_implantado_sem_uso_edocs
+        ),
+        "ano_inicio_implantacao_sem_uso_edocs": (
+            patriarca.ano_inicio_implantacao_sem_uso_edocs
+        ),
+        "mes_inicio_implantacao_sem_uso_edocs": (
+            patriarca.mes_inicio_implantacao_sem_uso_edocs
         ),
         "versao": patriarca.versao,
     }
@@ -618,6 +625,8 @@ def definir_indicador_municipio_sem_edocs(
     patriarca_id: int,
     *,
     municipio_implantado_sem_uso_edocs: bool,
+    ano_inicio: int | None = None,
+    mes_inicio: int | None = None,
     justificativa: str,
     ator: AtorAuditoriaEdocs,
 ) -> PatriarcaEdocs:
@@ -627,15 +636,33 @@ def definir_indicador_municipio_sem_edocs(
     justificativa = justificativa.strip()
     if not justificativa:
         raise ErroDecisaoPatriarcaEdocs("A alteração exige justificativa.")
+    if municipio_implantado_sem_uso_edocs and (
+        ano_inicio is None or mes_inicio is None
+    ):
+        raise ErroDecisaoPatriarcaEdocs(
+            "Informe a competência inicial do indicador sem uso do E-Docs."
+        )
+    if ano_inicio is not None and ano_inicio < 2024:
+        raise ErroDecisaoPatriarcaEdocs(
+            "O ano inicial deve ser igual ou posterior a 2024."
+        )
+    if mes_inicio is not None and mes_inicio not in range(1, 13):
+        raise ErroDecisaoPatriarcaEdocs("O mês inicial deve estar entre 1 e 12.")
+    ano_efetivo = ano_inicio if municipio_implantado_sem_uso_edocs else None
+    mes_efetivo = mes_inicio if municipio_implantado_sem_uso_edocs else None
     if (
         patriarca.municipio_implantado_sem_uso_edocs
         == municipio_implantado_sem_uso_edocs
+        and patriarca.ano_inicio_implantacao_sem_uso_edocs == ano_efetivo
+        and patriarca.mes_inicio_implantacao_sem_uso_edocs == mes_efetivo
     ):
         return patriarca
     anterior = _retrato(patriarca)
     patriarca.municipio_implantado_sem_uso_edocs = (
         municipio_implantado_sem_uso_edocs
     )
+    patriarca.ano_inicio_implantacao_sem_uso_edocs = ano_efetivo
+    patriarca.mes_inicio_implantacao_sem_uso_edocs = mes_efetivo
     patriarca.versao += 1
     for campo, valor in _valores_atualizacao_auditoria(ator).items():
         setattr(patriarca, campo, valor)
@@ -678,6 +705,8 @@ def definir_indicadores_municipais_patriarca(
         "municipio_em_implantacao",
         "municipio_manifestou_interesse",
         "municipio_implantado_sem_uso_edocs",
+        "ano_inicio_implantacao_sem_uso_edocs",
+        "mes_inicio_implantacao_sem_uso_edocs",
     }
     if set(alteracoes) - campos_permitidos:
         raise ErroDecisaoPatriarcaEdocs("Há indicador municipal não reconhecido.")
@@ -686,6 +715,33 @@ def definir_indicadores_municipais_patriarca(
         raise ErroDecisaoPatriarcaEdocs("A alteração exige justificativa.")
     if not alteracoes:
         raise ErroDecisaoPatriarcaEdocs("Informe ao menos um indicador municipal.")
+    if "municipio_implantado_sem_uso_edocs" in alteracoes:
+        sem_uso = alteracoes["municipio_implantado_sem_uso_edocs"]
+        if sem_uso and (
+            alteracoes.get("ano_inicio_implantacao_sem_uso_edocs") is None
+            or alteracoes.get("mes_inicio_implantacao_sem_uso_edocs") is None
+        ):
+            raise ErroDecisaoPatriarcaEdocs(
+                "Informe a competência inicial do indicador sem uso do E-Docs."
+            )
+        if not sem_uso:
+            alteracoes["ano_inicio_implantacao_sem_uso_edocs"] = None
+            alteracoes["mes_inicio_implantacao_sem_uso_edocs"] = None
+    elif {
+        "ano_inicio_implantacao_sem_uso_edocs",
+        "mes_inicio_implantacao_sem_uso_edocs",
+    } & set(alteracoes):
+        raise ErroDecisaoPatriarcaEdocs(
+            "Informe o indicador sem uso ao alterar sua competência inicial."
+        )
+    ano_inicio = alteracoes.get("ano_inicio_implantacao_sem_uso_edocs")
+    mes_inicio = alteracoes.get("mes_inicio_implantacao_sem_uso_edocs")
+    if ano_inicio is not None and ano_inicio < 2024:
+        raise ErroDecisaoPatriarcaEdocs(
+            "O ano inicial deve ser igual ou posterior a 2024."
+        )
+    if mes_inicio is not None and mes_inicio not in range(1, 13):
+        raise ErroDecisaoPatriarcaEdocs("O mês inicial deve estar entre 1 e 12.")
     codigo = alteracoes.get("codigo_municipio")
     if codigo is not None and (
         isinstance(codigo, bool)
@@ -720,6 +776,17 @@ def definir_indicadores_municipais_patriarca(
         raise ErroDecisaoPatriarcaEdocs(
             "O código municipal já está associado a outro patriarca."
         ) from exc
+    if (
+        patriarca.codigo_municipio is not None
+        and 3_200_000 <= patriarca.codigo_municipio <= 3_299_999
+    ):
+        MunicipioEdocs.objects.get_or_create(
+            codigo_ibge=patriarca.codigo_municipio,
+            defaults={
+                "nome": patriarca.nome,
+                **_valores_auditoria(ator),
+            },
+        )
     _criar_evento(
         ator=ator,
         patriarca=patriarca,

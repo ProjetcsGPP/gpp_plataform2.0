@@ -68,8 +68,9 @@ sintético.
 
 ### Backend
 
-- aprovar DTO público v1, allowlist campo a campo e estados sem publicação,
-  revogação, `429` e `5xx` (`PUB-017`, `PUB-024`);
+- manter e validar o DTO público v1 implementado, sua allowlist executável e os
+  estados sem publicação, revogação, `429` e `503`; integrar o Portal sem
+  reutilizar a API administrativa (`PUB-017`, `PUB-024`);
 - aprovar OpenAPI administrativo com recursos, UUIDs, paginação, filtros,
   `acoes_disponiveis`, transições, preview, erros e concorrência (`PUB-018`);
 - aprovar catálogo IAM com código da aplicação, role, permissões técnicas,

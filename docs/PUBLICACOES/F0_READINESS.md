@@ -23,7 +23,7 @@ de coordenação; os documentos especializados contêm o detalhe e a evidência.
 | Inventário técnico | Sandbox comprovada com lacunas | `INFRASTRUCTURE_INVENTORY.md`; `infra/publicacoes-dev` | Validar banco real, egress de rede e observabilidade. |
 | Plano de rollback | Processo documentado, não exercitado no alvo | `ROLLBACK_PLAN.md` | Aprovar flags, responsáveis e exercícios por ambiente. |
 | Piloto e classificação | Parcial, propostas preenchidas | `PUB-011`; PRE-001 a PRE-003; contrato e classificação E-Docs | Nomear responsáveis, validar o piloto e aprovar contrato, divulgação e retenção. |
-| Contratos executáveis | Parcial, marco F0.5 | `PUB-017` a `PUB-019` | Catálogo IAM do recorte E-Docs implementado; aprovar DTO público, OpenAPI administrativo e catálogo editorial futuro. |
+| Contratos executáveis | Backend implementado; integração parcial | `PUB-017` a `PUB-019`, `PUB-024` | Projeção pública, OpenAPI, séries, estados, contrato administrativo e IAM implementados; integrar frontend e concluir testes E2E. |
 | Cadeia de fornecimento | Evidência histórica bloqueada | `SECURITY_EVIDENCE_2026-10-26.md` | Corrigir/justificar achados e gerar evidência datada atual. |
 | PostgreSQL on-premises | Bloqueado | `PUB-020`; restore comprovado apenas na sandbox | Validar privilégios, migrations, backup e restore na instância real. |
 | Egress de rede | Bloqueado | Contrato aplicativo SSRF comprovado; restrição de rede não comprovada | Demonstrar allowlist e bloqueios no nível de rede. |
@@ -59,7 +59,8 @@ o PostgreSQL on-premises.
 F0.5 permite produzir somente documentação e fixtures contratuais não
 executáveis. Antes de F1 devem estar aprovados:
 
-1. DTO público v1 e estados sem publicação, revogação, `429` e `5xx`;
+1. DTO público v1 e estados sem publicação, revogação, `429` e `5xx`, definidos
+   em `PUBLIC_DISTRIBUTION_CONTRACT.md`;
 2. OpenAPI administrativo com recursos, UUIDs, paginação, filtros, ações,
    transições, preview, erros e concorrência;
 3. catálogo IAM editorial futuro com role, permissões, capabilities e menus; o
@@ -75,8 +76,9 @@ catálogo IAM foram autorizados e implementados separadamente.
 
 1. `PRE-001`, `PRE-002` e `PUB-011` com aceite parcial; `PRE-003` sem
    aprovação.
-2. `PUB-017` e `PUB-018` sem contratos executáveis aprovados em F0.5; a parte
-   editorial futura de `PUB-019` acompanha o contrato administrativo.
+2. integração frontend e testes E2E de `PUB-017`, `PUB-024` e `PUB-025`; os
+   contratos e implementações backend de `PUB-017` a `PUB-019` e `PUB-024` já
+   existem.
 3. `PUB-020` bloqueado por PostgreSQL real, cadeia de fornecimento, egress de
    rede e observabilidade.
 4. `PUB-022` sem responsáveis, categorias operacionais, métricas, traces,

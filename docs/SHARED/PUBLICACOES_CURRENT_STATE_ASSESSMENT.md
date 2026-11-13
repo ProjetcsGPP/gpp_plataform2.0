@@ -19,9 +19,10 @@ a implementação incremental da aplicação `PUBLICACOES`. Ele substitui a
 conclusão desatualizada de que o assessment frontend não existia.
 
 A auditoria original foi somente de leitura. Posteriormente, o responsável
-autorizou o recorte E-Docs, seu IAM, API administrativa e a fundação frontend.
-Essa autorização não antecipa o contrato editorial, o DTO público nem regras de
-outras aplicações, conforme `PUB-003`.
+autorizou o recorte E-Docs, seu IAM, API administrativa, agregado editorial,
+séries históricas e a fundação frontend. A fronteira e os endpoints do DTO
+público foram implementados; sua integração no Portal ainda está pendente. Nenhuma dessas
+autorizações antecipa regras de outras aplicações, conforme `PUB-003`.
 
 ## 2. Resultado da entrega anteriormente considerada incompleta
 
@@ -100,16 +101,18 @@ evidências e bloqueios específicos.
 - `PUB-011`: piloto operacional E-Docs identificado, contrato preenchido e
   classificação proposta; responsáveis, retenção e aprovações continuam
   pendentes;
-- `PUB-017`: schema público inicial e estados sem publicação, obrigatório no
-  gate contratual F0.5;
+- `PUB-017`: backend implementado com projeção separada, séries, ranking e
+  testes de não vazamento; integração frontend pendente;
 - `PUB-018`: contrato administrativo, workflow, concorrência, preview e erros,
   obrigatório no gate contratual F0.5 antes de models e endpoints;
 - `PUB-019`: identidade e catálogo IAM do recorte E-Docs implementados por seed
   idempotente; recursos editoriais futuros dependem do contrato administrativo;
 - `PUB-021`: provedor e contrato M2M;
 - `PUB-022`: responsáveis operacionais, métricas, traces, correlação e alerta;
-- `PUB-024`: estados de ausência, revogação, `429`, offline e `5xx`;
-- `PUB-025`: navegadores e meta de acessibilidade.
+- `PUB-024`: semântica e implementação backend de ausência, revogação, `429` e
+  `503` concluídas; apresentação dos estados no frontend pendente;
+- `PUB-025`: navegadores e meta de acessibilidade permanecem como decisão do
+  frontend e não bloqueiam a geração backend das séries.
 
 ### 5.3 Bloqueio para iniciar F1
 
@@ -226,14 +229,15 @@ contornar o gate que protege a capacidade correspondente.
   piloto E-Docs (`PRE-002`, `PRE-003` e `PUB-011`);
 - `PUB-020` bloqueado por banco real, egress, observabilidade e achados ainda
   sem resolução formal;
-- inexistência de schema público e do contrato administrativo editorial
-  completo (`PUB-017`, `PUB-018`); a API do recorte E-Docs está implementada;
+- integração do Portal, apresentação pública e validações E2E ainda pendentes
+  (`PUB-017`, `PUB-024`, `PUB-025`); projeção, allowlist e endpoints backend já
+  estão implementados;
 - catálogo IAM editorial futuro ainda depende do contrato administrativo
   (`PUB-018`, `PUB-019`); o catálogo E-Docs inicial já foi implementado.
 
-F0.5 continua sendo o gate documental e contratual para ampliar o domínio
-editorial e público. O recorte E-Docs e a fundação frontend foram autorizados
-separadamente e não aprovam essas camadas por antecipação.
+F0.5 continua sendo o gate documental e contratual para a distribuição
+pública. O contrato de fronteira foi aprovado, mas isso não equivale à
+implementação nem ao aceite dos endpoints públicos.
 
 ### Bloqueiam exposição pública ou go-live, não necessariamente todo F1
 

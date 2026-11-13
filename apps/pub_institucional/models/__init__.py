@@ -25,6 +25,9 @@ from apps.pub_institucional.models.eflow import (
 from apps.pub_institucional.models.implantacao_edocs import (
     CriterioImplantacaoEdocs, EventoAuditoriaImplantacaoEdocs,
     ImplantacaoPatriarcaEdocs)
+from apps.pub_institucional.models.municipios_edocs import (
+    EventoAuditoriaMunicipioEdocs, MunicipioEdocs, SituacaoMunicipioEdocs,
+    VigenciaSituacaoMunicipioEdocs)
 from apps.pub_institucional.models.publicacoes import (
     ConfiguracaoVisaoPublicacao, EscopoVisaoPublicacao,
     FonteVisaoPublicacao, HistoricoPublicacao, PatriarcaVisaoPublicacao,
@@ -45,6 +48,7 @@ __all__ = [
     "DefinicaoFluxoEflow",
     "EventoAuditoriaEflow",
     "EventoAuditoriaImplantacaoEdocs",
+    "EventoAuditoriaMunicipioEdocs",
     "EventoAuditoriaPreferenciaEflow",
     "EventoAuditoriaPatriarcaEdocs",
     "EventoAuditoriaColetaMensalEdocs",
@@ -52,6 +56,7 @@ __all__ = [
     "FonteVisaoPublicacao",
     "HistoricoPublicacao",
     "ImplantacaoPatriarcaEdocs",
+    "MunicipioEdocs",
     "ObservacaoPatriarcaEdocs",
     "PatriarcaEdocs",
     "PatriarcaVisaoPublicacao",
@@ -67,6 +72,7 @@ __all__ = [
     "SituacaoDivergenciaPatriarca",
     "SituacaoColetaEflow",
     "SituacaoColetaMensalEdocs",
+    "SituacaoMunicipioEdocs",
     "SituacaoPublicacao",
     "EscopoVisaoPublicacao",
     "TipoAgenteEdocs",
@@ -76,4 +82,5 @@ __all__ = [
     "TipoEventoAuditoriaPreferenciaEflow",
     "TipoEventoColetaMensalEdocs",
     "TipoEventoPublicacao",
+    "VigenciaSituacaoMunicipioEdocs",
 ]

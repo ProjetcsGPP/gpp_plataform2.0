@@ -5,18 +5,30 @@ from rest_framework.routers import DefaultRouter
 
 from apps.pub_institucional.visoes import (
     VisaoColetaEflow, VisaoColetaMensalEdocs, VisaoColetaPatriarcasEdocs,
-    VisaoConfiguracaoVisaoPublicacao,
-    VisaoDefinicaoFluxoEflow, VisaoDivergenciaPatriarcaEdocs,
+    VisaoConfiguracaoIbge, VisaoConfiguracaoVisaoPublicacao,
+    VisaoDefinicaoFluxoEflow, VisaoDivergenciaPatriarcaEdocs, VisaoEstadosIbge,
     VisaoEventoAuditoriaColetaMensalEdocs, VisaoEventoAuditoriaEflow,
-    VisaoEventoAuditoriaPatriarcaEdocs, VisaoEventoAuditoriaPreferenciaEflow,
-    VisaoFonteBrutaColetaMensalEdocs, VisaoPatriarcaEdocs,
-    VisaoHistoricoPublicacao, VisaoImplantacaoPatriarcaEdocs, VisaoPublicacao,
-    VisaoPreferenciaExibicaoEflow, VisaoResultadoCalculoEflow,
-    VisaoResultadoMensalOrganizacaoEdocs, VisaoResultadoMensalPatriarcaEdocs)
+    VisaoEventoAuditoriaMunicipioEdocs, VisaoEventoAuditoriaPatriarcaEdocs,
+    VisaoEventoAuditoriaPreferenciaEflow, VisaoFonteBrutaColetaMensalEdocs,
+    VisaoHistoricoPublicacao, VisaoImplantacaoPatriarcaEdocs,
+    VisaoMunicipioEdocs, VisaoMunicipiosIbge, VisaoMunicipiosUfPadraoIbge,
+    VisaoPatriarcaEdocs, VisaoPreferenciaExibicaoEflow, VisaoPublicacao,
+    VisaoResultadoCalculoEflow, VisaoResultadoMensalOrganizacaoEdocs,
+    VisaoResultadoMensalPatriarcaEdocs)
 
 app_name = "pub_institucional"
 
 roteador = DefaultRouter()
+roteador.register(
+    r"municipios-edocs",
+    VisaoMunicipioEdocs,
+    basename="municipio-edocs",
+)
+roteador.register(
+    r"auditoria-municipios-edocs",
+    VisaoEventoAuditoriaMunicipioEdocs,
+    basename="auditoria-municipio-edocs",
+)
 roteador.register(r"patriarcas", VisaoPatriarcaEdocs, basename="patriarca-edocs")
 roteador.register(r"coletas", VisaoColetaPatriarcasEdocs, basename="coleta-edocs")
 roteador.register(
@@ -105,4 +117,26 @@ roteador.register(
     basename="historico-publicacao",
 )
 
-urlpatterns = [path("", include(roteador.urls))]
+urlpatterns = [
+    path(
+        "ibge/configuracao/",
+        VisaoConfiguracaoIbge.as_view(),
+        name="ibge-configuracao",
+    ),
+    path(
+        "ibge/estados/",
+        VisaoEstadosIbge.as_view(),
+        name="ibge-estados",
+    ),
+    path(
+        "ibge/estados/<int:codigo_uf>/municipios/",
+        VisaoMunicipiosIbge.as_view(),
+        name="ibge-municipios-por-uf",
+    ),
+    path(
+        "ibge/municipios/",
+        VisaoMunicipiosUfPadraoIbge.as_view(),
+        name="ibge-municipios-uf-padrao",
+    ),
+    path("", include(roteador.urls)),
+]
