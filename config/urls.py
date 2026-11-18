@@ -21,6 +21,17 @@ urlpatterns = [
         "api/carga-org-lot/",
         include("apps.carga_org_lot.urls", namespace="carga_org_lot"),
     ),
+    path(
+        "api/pub-institucional/",
+        include("apps.pub_institucional.urls", namespace="pub_institucional"),
+    ),
+    path(
+        "api/public/v1/publicacoes-institucionais/",
+        include(
+            "apps.pub_institucional.publico.urls",
+            namespace="publicacoes_publicas",
+        ),
+    ),
     path("api/", include("apps.core.urls", namespace="core")),
     # ── Health check ─────────────────────────────────────────────────────
     path("api/health/", include("common.urls")),

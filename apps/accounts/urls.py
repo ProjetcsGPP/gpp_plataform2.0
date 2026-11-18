@@ -6,13 +6,13 @@ from .views import (
     AplicacaoViewSet,
     AuthzVersionView,
     CapabilityViewSet,
+    CsrfTokenView,
     LoginView,
     LogoutAppView,
     LogoutView,
     MePermissionView,
     MeView,
     MenuViewSet,
-    ResolveUserView,
     RoleViewSet,
     SwitchAppView,
     UserCreateView,
@@ -47,7 +47,7 @@ auth_router.register(
 
 urlpatterns = [
     path("auth/", include(auth_router.urls)),
-    path("auth/resolve-user/", ResolveUserView.as_view(), name="resolve-user"),
+    path("auth/csrf/", CsrfTokenView.as_view(), name="csrf-token"),
     path("", include(router.urls)),
     path("login/", LoginView.as_view(), name="login"),
     path("logout/", LogoutView.as_view(), name="logout"),

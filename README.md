@@ -99,6 +99,7 @@ O `AppContextMiddleware` resolve qual cookie `gpp_session_*` está presente na r
 - PostgreSQL 14+
 - Memcached 1.6+
 - Git
+- ShellCheck 0.9+ *(desenvolvimento; validação dos scripts shell)*
 
 > **Windows (desenvolvimento local):** recomenda-se WSL2 + Ubuntu para compatibilidade total com as dependências.
 
@@ -123,6 +124,9 @@ source .venv/bin/activate
 # 3. Instale as dependências
 pip install -r requirements.txt
 pip install -r requirements-dev.txt   # apenas em desenvolvimento
+
+# Ubuntu/WSL: ferramenta de análise estática dos scripts shell
+sudo apt-get install -y shellcheck
 
 # 4. Configure as variáveis de ambiente
 cp .env.example .env
@@ -165,23 +169,46 @@ CORS_ALLOWED_ORIGINS=http://localhost:3000
 # CSRF
 CSRF_TRUSTED_ORIGINS=http://localhost:3000
 
-# CargaRH / PRODEST (credenciais exclusivamente no backend)
+# CargaRH / PRODEST (credenciais ficam no OpenBao)
 CARGARH_ENVIRONMENT=HML
-CARGARH_TOKEN_URL=https://servidor-de-autenticacao/token
-CARGARH_API_BASE_URL=https://api.cargarh.es.gov.br
-CARGARH_CLIENT_ID=identificador-do-cliente
-CARGARH_CLIENT_SECRET=segredo-do-cliente
-CARGARH_CLIENT_SCOPE=escopos-separados-por-espaco
+CARGARH_CREDENTIALS_PROVIDER=openbao
+CARGARH_HML_TOKEN_URL=https://servidor-hml-de-autenticacao/token
+CARGARH_HML_API_BASE_URL=https://api.cargarh.hom.es.gov.br/
+CARGARH_HML_CLIENT_SCOPE="api-cargarh-base api-cargarh-cargainicial"
+CARGARH_HML_TARGET_ENVIRONMENT=
+CARGARH_PRD_TOKEN_URL=https://servidor-prd-de-autenticacao/token
+CARGARH_PRD_API_BASE_URL=https://api.cargarh.es.gov.br/
+CARGARH_PRD_CLIENT_SCOPE="api-cargarh-base api-cargarh-cargainicial"
+CARGARH_PRD_TARGET_ENVIRONMENT=
 CARGARH_CONNECT_TIMEOUT_SECONDS=10
 CARGARH_READ_TIMEOUT_SECONDS=60
 CARGARH_TOKEN_SAFETY_MARGIN_SECONDS=60
 CARGARH_GET_MAX_RETRIES=2
 CARGARH_RETRY_BACKOFF_SECONDS=0.5
+CARGA_ORG_LOT_REMOTE_STALE_WARNING_SECONDS=1800
+CARGA_ORG_LOT_REMOTE_INDETERMINATE_AFTER_SECONDS=7200
 ```
 
-> **Nunca commite o arquivo `.env`.** Ele já está no `.gitignore`.
+> **Nunca grave `CARGARH_CLIENT_ID` ou `CARGARH_CLIENT_SECRET` no `.env`.**
+> Consulte `docs/PUBLICACOES/CARGA_ORG_LOT_SECRETS.md` para provisionar as
+> AppRoles e as credenciais separadas de HML e PRD.
 > O access token do CargaRH é temporário e deve permanecer somente no cache;
 > nunca o grave no banco, envie ao frontend ou inclua em logs.
+> Em desenvolvimento, o alias `cargarh_tokens` usa o Memcached configurado em
+> `MEMCACHED_LOCATION`, compartilhando o token entre Django e os processos do
+> Celery. O tempo efetivo de cache usa o menor prazo entre o `expires_in`
+> retornado pelo Acesso Cidadão e o `exp` do JWT, descontando
+> `CARGARH_TOKEN_SAFETY_MARGIN_SECONDS` (60 segundos por padrão).
+> O script `./scripts/localhost_dev.sh` valida esse cache antes de iniciar os
+> processos da aplicação.
+> O monitor registra um aviso operacional, sem encerrar a carga, quando a
+> PRODEST permanece sem atualizar o processamento por mais de
+> `CARGA_ORG_LOT_REMOTE_STALE_WARNING_SECONDS`.
+> Após `CARGA_ORG_LOT_REMOTE_INDETERMINATE_AFTER_SECONDS` sem atualização
+> remota (duas horas por padrão), o sistema pode liberar o encerramento
+> auditado do acompanhamento local. A ação exige justificativa, confirmação
+> do risco e o registro do contato com o analista da PRODEST; ela não cancela
+> nem altera a carga remota.
 
 ---
 
@@ -195,6 +222,7 @@ O projeto utiliza **multi-schema PostgreSQL** com um `DATABASE_ROUTER` customiza
 -- Criação dos schemas necessários (executar uma vez)
 CREATE SCHEMA IF NOT EXISTS acoes_pngi;
 CREATE SCHEMA IF NOT EXISTS carga_org_lot;
+CREATE SCHEMA IF NOT EXISTS publicacoes;
 ```
 
 ### Search Path
@@ -202,7 +230,7 @@ CREATE SCHEMA IF NOT EXISTS carga_org_lot;
 O `search_path` padrão configurado em `DATABASES.OPTIONS` é:
 
 ```
-public, acoes_pngi, carga_org_lot
+public, acoes_pngi, carga_org_lot, publicacoes
 ```
 
 ### Migrações por App
@@ -214,6 +242,7 @@ python manage.py migrate
 # Migrar apenas uma app específica
 python manage.py migrate accounts
 python manage.py migrate acoes_pngi
+python manage.py migrate pub_institucional
 ```
 
 ---
@@ -237,7 +266,7 @@ POST /api/accounts/login/
 Content-Type: application/json
 
 {
-  "username": "usuario",
+  "identifier": "usuario-ou-email",
   "password": "senha",
   "app_context": "ACOES_PNGI"
 }
@@ -299,6 +328,7 @@ As seguintes fixtures estão disponíveis globalmente via `conftest.py`:
 | Método | Endpoint | Descrição | Auth |
 |---|---|---|---|
 | `POST` | `/api/accounts/login/` | Login por app_context | ❌ |
+| `GET` | `/api/accounts/auth/csrf/` | Bootstrap do cookie CSRF | ❌ |
 | `POST` | `/api/accounts/logout/<slug>/` | Logout seletivo por app | ❌ |
 | `GET` | `/api/accounts/me/` | Perfil do usuário logado | ✅ |
 | `GET` | `/api/accounts/users/` | Lista usuários (admin) | ✅ |
@@ -345,6 +375,20 @@ addopts = --reuse-db -v --cov=apps --cov=common --cov-report=term-missing
 ```
 
 > **Throttle desabilitado em testes:** a fixture `_disable_throttle_session` (session-scoped, autouse) zera os rate limits durante toda a suite de testes.
+
+### Validação dos scripts shell
+
+Todo script `.sh` versionado ou ainda não versionado, mas não ignorado pelo
+Git, deve passar pelo ShellCheck. Execute antes de concluir alterações em
+scripts de desenvolvimento ou infraestrutura:
+
+```bash
+./scripts/check_shell.sh
+```
+
+O comando falha de forma explícita quando o ShellCheck não está instalado e
+informa o procedimento de instalação para Ubuntu/Debian. Novos scripts `.sh`
+são descobertos automaticamente, sem necessidade de manter uma lista manual.
 
 ---
 
@@ -432,7 +476,8 @@ O projeto implementa as seguintes camadas de segurança:
 - **RBAC hierárquico:** permissões granulares por recurso, verificadas via `policies/`
 - **CSP (Content Security Policy):** configurado via `django-csp` ≥ 4.0
 - **CORS restrito:** apenas origens explicitamente listadas em `CORS_ALLOWED_ORIGINS`
-- **CSRF:** habilitado para todas as mutações via DRF `SessionAuthentication`
+- **CSRF:** imposto pelo `AppContextAuthentication` nas mutações autenticadas e
+  explicitamente no login após bootstrap em `/api/accounts/auth/csrf/`
 - **Rate limiting:** throttle por usuário (`200/min`) e anônimo (`20/min`), com rate específico para login (`5/min`)
 - **Security headers:** `X-Frame-Options: DENY`, `X-Content-Type-Options`, `XSS-Protection`
 - **Cookies `HttpOnly` e `SameSite=Lax`** em todos os ambientes; `Secure=True` em produção

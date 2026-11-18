@@ -168,7 +168,7 @@ Além do pipeline, o projeto implementa defesas em camadas diretamente no códig
 | Mecanismo | Implementação |
 |---|---|
 | Sessão Django (httpOnly cookie) | `SESSION_COOKIE_HTTPONLY = True` em `base.py` |
-| Proteção CSRF | `SESSION_COOKIE_SAMESITE = "Lax"` + middleware Django CSRF |
+| Proteção CSRF | `AppContextAuthentication` + bootstrap/header CSRF + `SameSite=Lax` |
 | Sem tokens Bearer/JWT | Removidos na FASE-0; autenticação é 100% via sessão |
 
 ### Autorização

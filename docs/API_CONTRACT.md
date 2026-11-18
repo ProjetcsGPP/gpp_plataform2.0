@@ -1,7 +1,7 @@
 # GPP Plataform 2.0 — Contrato de API: Módulo Accounts
 
 > **Branch:** `feat/me_permission`  
-> **Última atualização:** 2026-04-07  
+> **Última atualização:** 2026-10-23
 > **Referência de arquitetura:** [`docs/PERMISSIONS_ARCHITECTURE.md`](./PERMISSIONS_ARCHITECTURE.md)
 
 Este documento descreve o contrato de requisição/resposta dos endpoints do módulo `accounts`. Cobre autenticação, perfil do usuário, roles, permissões individuais e overrides.
@@ -14,7 +14,7 @@ Este documento descreve o contrato de requisição/resposta dos endpoints do mó
    - [POST /api/accounts/login/](#11-post-apiaccountslogin)
    - [POST /api/accounts/logout/](#12-post-apiaccountslogout)
    - [POST /api/accounts/logout/{app_slug}/](#13-post-apiaccountslogoutapp_slug)
-   - [POST /api/accounts/auth/resolve-user/](#14-post-apiaccountsauthresolve-user)
+   - [GET /api/accounts/auth/csrf/](#14-get-apiaccountsauthcsrf)
 2. [Aplicações](#2-aplicações)
    - [GET /api/accounts/auth/aplicacoes/](#21-get-apiaccountsauthapplicacoes)
    - [GET /api/accounts/aplicacoes/](#22-get-apiaccountsaplicacoes)
@@ -42,13 +42,16 @@ Este documento descreve o contrato de requisição/resposta dos endpoints do mó
 Realiza autenticação e cria uma sessão vinculada ao `app_context`. O cookie de sessão é específico por aplicação (`gpp_session_{APP_CONTEXT}`).
 
 **Autenticação:** Nenhuma (AllowAny)  
-**Rate limit:** Controlado globalmente via `DEFAULT_THROTTLE_CLASSES`.
+**CSRF:** Obrigatório; inicializar antes com `GET /api/accounts/auth/csrf/`.
+**Rate limit:** `LOGIN_THROTTLE_RATE`, por IP, inclusive se outro cookie estiver
+autenticado. `X-Forwarded-For` somente é usado quando `DRF_NUM_PROXIES` informa
+a quantidade exata de proxies confiáveis; o padrão seguro usa `REMOTE_ADDR`.
 
 #### Requisição
 
 ```json
 {
-  "username":    "luciano.umbelino",
+  "identifier":  "luciano.umbelino",
   "password":    "...",
   "app_context": "PORTAL"
 }
@@ -56,9 +59,12 @@ Realiza autenticação e cria uma sessão vinculada ao `app_context`. O cookie d
 
 | Campo         | Tipo   | Obrigatório | Descrição                                              |
 |---------------|--------|-------------|--------------------------------------------------------|
-| `username`    | string | ✅          | Username canônico Django                               |
+| `identifier`  | string | ✅          | Username ou e-mail; a resposta nunca revela qual existe |
 | `password`    | string | ✅          | Senha em texto plano (HTTPS obrigatório em produção)  |
 | `app_context` | string | ✅          | Código interno da aplicação (ex: `PORTAL`, `ACOES_PNGI`) |
+
+`username` é aceito temporariamente como alias de compatibilidade, mas novos
+clientes devem enviar `identifier`.
 
 #### Respostas
 
@@ -70,7 +76,7 @@ Realiza autenticação e cria uma sessão vinculada ao `app_context`. O cookie d
 
 **Set-Cookie header:**
 ```
-gpp_session_PORTAL=<session_key>; HttpOnly; SameSite=Lax; Max-Age=86400
+gpp_session_PORTAL=<session_key>; HttpOnly; SameSite=Lax; Max-Age=3600
 ```
 
 **400 Bad Request** — Campos ausentes.
@@ -89,6 +95,11 @@ gpp_session_PORTAL=<session_key>; HttpOnly; SameSite=Lax; Max-Age=86400
 { "detail": "Usuário sem acesso ao Portal.",         "code": "no_role" }
 { "detail": "Usuário sem acesso à aplicação informada.", "code": "no_role" }
 ```
+
+Uma requisição sem cookie/header CSRF válido também recebe `403` antes da
+validação das credenciais.
+
+**429 Too Many Requests** — limite de tentativas por IP excedido.
 
 ---
 
@@ -111,7 +122,8 @@ Encerra a sessão Django e revoga todos os registros `AccountsSession` ativos do
 
 Encerra a sessão de uma aplicação específica sem afetar outras sessões ativas do mesmo usuário.
 
-**Autenticação:** Nenhuma (lê cookie diretamente).
+**Autenticação:** Nenhuma (lê cookie diretamente). O cookie/header CSRF é
+obrigatório mesmo quando a sessão estiver inválida.
 
 | Parâmetro  | Tipo   | Descrição                           |
 |------------|--------|-------------------------------------|
@@ -127,37 +139,21 @@ O cookie `gpp_session_{APP}` é excluído da resposta.
 
 ---
 
-### 1.4 `POST /api/accounts/auth/resolve-user/`
+### 1.4 `GET /api/accounts/auth/csrf/`
 
-Recebe um identificador (username ou email) e retorna o `username` canônico Django. Usado pelo frontend para normalizar o input antes do login.
+Inicializa a proteção CSRF antes do login ou de outra mutação pública.
 
-**Autenticação:** Nenhuma (AllowAny).  
-**Segurança:** Retorna 404 genérico para usuário não encontrado — não confirma existência de emails (evita user enumeration).
+**Autenticação:** Nenhuma (AllowAny).
 
-#### Requisição
+#### Resposta
 
 ```json
-{ "identifier": "luciano.umbelino@example.com" }
+{ "detail": "CSRF cookie inicializado." }
 ```
 
-#### Respostas
-
-**200 OK**
-```json
-{ "username": "luciano.umbelino" }
-```
-
-**400 Bad Request**
-```json
-{ "detail": "Identificador não informado.", "code": "invalid_request" }
-```
-
-**404 Not Found**
-```json
-{ "detail": "Usuário não encontrado.", "code": "user_not_found" }
-```
-
----
+O header `Set-Cookie` contém `csrftoken`. O frontend deve ler esse cookie e
+enviar seu valor no header `X-CSRFToken`. O antigo endpoint
+`POST /api/accounts/auth/resolve-user/` foi descontinuado e retorna `404`.
 
 ## 2. Aplicações
 
@@ -589,11 +585,12 @@ Não é permitido coexistir um override `grant` e um `revoke` para o mesmo par `
 | 400         | `invalid_request`      | Campos obrigatórios ausentes ou formato inválido          |
 | 400         | `no_app_context`       | `request.app_context` não resolvido pelo middleware       |
 | 401         | —                      | Sessão ausente, inválida ou expirada                      |
+| 403         | —                      | CSRF ausente ou inválido                                  |
 | 403         | `invalid_app`          | Aplicação bloqueada ou inexistente no login               |
 | 403         | `no_role`              | Usuário sem role na aplicação no login                    |
 | 404         | `app_not_found`        | Aplicação não existe ou está bloqueada (pós-login)        |
 | 404         | `no_role`              | Usuário sem `UserRole` na aplicação (pós-login)           |
-| 404         | `user_not_found`       | Usuário não encontrado no resolve-user                    |
+| 429         | `throttled`            | Limite de tentativas de login excedido                    |
 
 ---
 
@@ -601,7 +598,7 @@ Não é permitido coexistir um override `grant` e um `revoke` para o mesmo par `
 
 ### Modelo de sessão multi-app
 
-Cada aplicação possui um cookie de sessão independente: `gpp_session_{APP_CONTEXT}`. O `AppContextMiddleware` resolve o cookie presente na request, busca o registro em `AccountsSession`, e grava `request.app_context`. A view `MePermissionView` lê **exclusivamente** `request.app_context` — nunca `request.session` — pois o middleware não usa o sistema de sessão Django padrão neste fluxo.
+Cada aplicação possui um cookie de sessão independente: `gpp_session_{APP_CONTEXT}`. O `AppContextMiddleware` exige correspondência entre cookie e contexto, sessão não revogada/não expirada e `user.is_active=True`, então grava `request.app_context`. A view `MePermissionView` lê **exclusivamente** `request.app_context` — nunca `request.session` — pois o middleware não usa o sistema de sessão Django padrão neste fluxo.
 
 ### Sincronização de permissões
 

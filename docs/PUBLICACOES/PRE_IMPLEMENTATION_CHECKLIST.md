@@ -1,0 +1,239 @@
+# Pré-implementação obrigatória de `PUBLICACOES`
+
+**Data inicial:** 2026-10-26
+**Última revisão:** 2026-11-03
+**Regra:** nenhum app, model, migration, endpoint, fixture ou teste sintético de
+`PUBLICACOES` será criado antes da aprovação e comprovação deste checklist.
+
+O dado do primeiro teste poderá ser sintético. A arquitetura, as fronteiras de
+segurança e os componentes usados pelo teste deverão ser reais no ambiente de
+desenvolvimento. HML e PRD serão definidos depois e poderão usar outros
+produtos, desde que cumpram os contratos e testes fixados em DEV.
+
+## 1. Decisões institucionais obrigatórias
+
+| ID | Definir antes de implementar | Evidência exigida |
+|---|---|---|
+| PRE-001 | Nome funcional, gestor do produto, responsável técnico, segurança, infraestrutura e contatos de incidente. | Nomes ou equipes, canais e substitutos registrados. |
+| PRE-002 | Primeiro caso de uso, dono da informação e conjunto piloto, mesmo que sua primeira representação seja sintética. | Contrato de fonte preenchido e aprovado, sem presumir regra da aplicação de origem. |
+| PRE-003 | Classificação campo a campo: público, gerencial, restrito, dado pessoal e dado sensível. | Inventário de dados, finalidade, base de acesso, retenção e campos proibidos na distribuição. |
+| PRE-004 | Topologia de `DEV`, fronteiras e caminhos browser/SSR/worker; requisitos portáveis para ambientes futuros. | Diagrama de DEV aprovado e contratos que HML/PRD deverão satisfazer. |
+| PRE-005 | PostgreSQL on-premises já usado em DEV, schema `publicacoes`, usuário técnico, privilégios e procedimento de backup/restore. | Evidência da instância real; a sandbox Docker não substitui sua validação. RPO/RTO ficam para o ambiente alvo. |
+| PRE-006 | Object storage e política de bucket/container privado, versionamento, criptografia, retenção e descarte. | Serviço escolhido, acessos provisionados e teste de leitura/escrita/negação. |
+| PRE-007 | Antivírus/sandbox, quarentena, estados de análise e comportamento em indisponibilidade. | Scanner escolhido e teste com arquivo limpo e arquivo de teste EICAR; falha fechada comprovada. |
+| PRE-008 | Secrets manager, identidade de workload e recuperação em DEV; rotação programada, revogação e acesso emergencial completos ficam para HML/PRD. | Serviço escolhido; aplicação obtém segredo sem persistir valor no repositório, banco ou log; guia operacional de DEV aprovado. |
+| PRE-009 | Reverse proxy de DEV e contrato futuro de gateway/CDN: TLS, limites, rate limit, headers confiáveis, logs e purge. | Proxy local e testes de cache público/privado e limites; CDN não é instalada em DEV. |
+| PRE-010 | Política de egress para cada tipo de conector: destinos, DNS, proxy, IPs proibidos, redirects, timeout e volume. | Regra de rede e teste que permite destino aprovado e bloqueia redes privadas/metadata. |
+| PRE-011 | Formato de logs, métricas, traces, correlação e redação de dados; destino futuro desacoplado. | Logs locais estruturados e testes de redação; plataforma central será escolhida por ambiente. |
+| PRE-012 | Categorias de SLA, RPO, RTO, retenção, resposta a incidentes e continuidade, sem fixar valores de PRD em DEV. | Procedimentos locais de restore/indisponibilidade, tempo medido como baseline e responsáveis pelas decisões futuras; metas formais ficam para cada ambiente alvo. |
+| PRE-013 | Autenticação de usuários, autorização de gestor/administrador e estratégia M2M futura. | Matriz humana aprovada; decisões PUB-005 a PUB-010; fronteira, responsável e gate de F6 registrados para M2M. O provedor final é obrigatório antes de F6, não de F1. |
+| PRE-014 | Contratos de API, cache, SSR/CSR, versionamento, erros, idempotência e concorrência. | ADRs e schemas iniciais aprovados, inclusive estado sem publicação vigente. |
+| PRE-015 | Cadeia de fornecimento de DEV/CI: imagens fixadas, SBOM, análise de dependências e rollback local. | Compose e pipeline local/CI reproduzíveis; registry e promoção serão definidos antes de HML. |
+| PRE-016 | Serviços de controle, contratos de decisão e workflow de ordem do gestor. | ADR-0006 aprovado; autoridade, justificativa, registro e execução especificados na suíte comum. |
+
+### 1.1 Decisão registrada para PRE-001
+
+**Estado:** definição institucional registrada; aceite operacional parcial.
+
+#### Identidade
+
+- código persistido em `Aplicacao.codigointerno`: `PUB_INSTITUCIONAL`;
+- nome exibido: `Publicações Institucionais`;
+- `pub_institucional` informado pelo responsável será normalizado para
+  maiúsculas pelo backend;
+- o bounded context é `PUBLICACOES` e o namespace Python implementado é
+  `apps.pub_institucional`; isso não altera o código IAM acima.
+
+#### Responsabilidade inicial
+
+Uma única pessoa, registrada operacionalmente como
+`DESENVOLVEDOR_RESPONSAVEL`, acumulará inicialmente:
+
+- gestão do produto e do conteúdo;
+- desenvolvimento e sustentação técnica;
+- segurança da aplicação;
+- configuração interna;
+- coordenação das demandas de infraestrutura;
+- triagem e condução de incidentes.
+
+Não existe substituto no momento. A ausência fica aceita como condição atual,
+mas permanece risco explícito de continuidade. A identificação nominal e o
+contato do responsável devem ficar em cadastro interno controlado, não em
+documentação pública do repositório. Futuras gerências técnicas, de segurança
+ou infraestrutura somente assumirão responsabilidade depois de nomeadas e de
+o handoff ser registrado.
+
+#### Canal de incidente e notificação
+
+Há disponibilidade de uma conta de e-mail em servidor Zimbra fornecido pela
+PRODEST. Ela é o canal planejado para a aplicação enviar notificações e para o
+responsável receber alertas. A ativação depende de contrato técnico aprovado:
+
+- dois perfis lógicos, `HML` e `PRD`, inicialmente com os mesmos valores, para
+  preservar o padrão existente e permitir divergência futura sem migração;
+- endpoint SOAP `https://seger.correio.es.gov.br:443/service/soap`, sempre com
+  validação de certificado TLS; HTTP sem criptografia não será aceito;
+- remetente `acoesgpp@seger.es.gov.br`, exibido como `Ações GPP`;
+- integração direta do backend com o serviço, sem depender de Google Apps
+  Script em runtime;
+- credencial duplicada explicitamente nos caminhos compartilhados e
+  independentes `gpp-shared/dev/zimbra/hml` e
+  `gpp-shared/dev/zimbra/prd`, nunca no banco funcional, Git, log,
+  documentação ou payload de API;
+- AppRoles e policies de leitura independentes para `HML` e `PRD`, seguindo o
+  isolamento já adotado pelo CargaRH;
+- remetente, destinatários e demais valores não secretos configurados nos dois
+  perfis, ainda que inicialmente iguais;
+- assunto e corpo por allowlist, sem segredo, dado restrito ou justificativa
+  integral;
+- correlação por `incident_id`, `event_id` ou `job_id` e registro do
+  identificador de entrega do provedor;
+- retry limitado, deduplicação, rate limit e falha de entrega observável;
+- teste de envio e de indisponibilidade antes do aceite.
+
+A exposição da credencial durante a definição de PRE-001 foi registrada. Por
+decisão do responsável, ela será mantida nesta etapa e a rotação não é
+pré-condição para o provisionamento. Esse aceite de risco não autoriza gravar o
+valor em Git, documentação, log, banco funcional ou comando visível: a senha
+deverá ser digitada sem eco pelo responsável e armazenada apenas no secret
+store. O backend referenciará o segredo por caminho; não haverá valor padrão de
+senha em arquivo de configuração ou variável versionada. A rotação permanece
+ação corretiva recomendada e poderá ser exigida por incidente, mudança de
+responsável ou gate institucional posterior.
+
+A duplicação inicial será uma operação explícita de provisionamento. Depois
+disso, alterações em um perfil não serão propagadas silenciosamente ao outro;
+uma rotação conjunta deverá selecionar e validar os dois destinos.
+
+O Zimbra pertence à infraestrutura compartilhada do backend GPP, não ao
+bounded context `PUBLICACOES`. O adaptador e a resolução de credenciais deverão
+ficar em `common`; `pub_institucional` será o primeiro consumidor. Outros
+aplicativos poderão reutilizar o serviço depois, sem instalação ou integração
+antecipada nesta etapa.
+
+Logs, eventos persistidos e trilhas de auditoria são a evidência canônica. O
+e-mail apenas notifica e nunca substitui o estado persistido, o responsável ou
+o procedimento de resposta.
+
+#### Insumo encaminhado para outros contratos
+
+Foi aprovada a composição histórica que usa primeiro o resultado publicado da
+competência e, na ausência dele, a última coleta E-Docs bem-sucedida ou o
+snapshot E-Flow vigente. Cada ponto identifica sua proveniência e ausência de
+fonte produz valor nulo, não zero. O resultado é congelado na publicação; a API
+pública não consulta a fonte operacional para completar conteúdo publicado.
+Ainda cabe ao frontend definir como sinalizar visualmente lacunas e estados de
+indisponibilidade, conforme `PUB-024` e `PUB-025`.
+
+## 2. Componentes a provisionar
+
+Não se instala um produto antes de `PRE-004` a `PRE-012` identificarem o
+serviço de desenvolvimento. Após a escolha, devem existir em `DEV`:
+
+1. PostgreSQL on-premises existente, isolado por credenciais e schema, com
+   backup e restore validados na instância real; sandbox local é opcional;
+2. Redis para fila/coordenação e Memcached conforme a arquitetura compartilhada;
+3. workers Celery separados do processo web;
+4. object storage privado com área de quarentena e área aprovada;
+5. scanner antimalware acessível somente pelo worker de análise;
+6. secrets manager acessado por identidade da carga de trabalho;
+7. reverse proxy com TLS local e implementação do contrato HTTP obrigatório;
+8. controle de egress no nível de rede, não apenas validação na aplicação;
+9. logs estruturados, métricas e traces em formato exportável;
+10. pipeline local/CI para produzir artefato e SBOM reproduzíveis.
+
+CDN não será instalada nem escolhida para o teste sintético. A política de
+cache e a interface de purge precisam estar decididas porque afetam o contrato
+HTTP; o provedor será escolhido no gate do ambiente que usar CDN.
+
+## 3. Dependências que poderão ser instaladas após a escolha
+
+O repositório já possui clientes para PostgreSQL, Redis, Memcached e Celery.
+Ainda não possui cliente de object storage nem integração de antivírus,
+secrets manager ou observabilidade distribuída.
+
+As dependências exatas serão adicionadas somente depois dos ADRs de produto:
+
+- cliente S3/Blob compatível com o storage selecionado;
+- cliente do secrets manager selecionado, preferencialmente por identidade de
+  workload e sem segredo de bootstrap permanente;
+- integração com o daemon/API antimalware selecionado;
+- SDK de telemetria baseado em padrão exportável e desacoplado do coletor;
+- integração de purge do gateway/CDN selecionado.
+
+O produto local não precisa ser o produto de produção. Ele deverá implementar
+a mesma interface portável, e suas diferenças e limitações serão documentadas.
+Cada ambiente futuro repetirá os testes contra o produto nele escolhido.
+
+## 4. Ordem obrigatória de execução
+
+1. Nomear responsáveis e aprovar o caso piloto e a classificação dos dados.
+2. Levantar com infraestrutura os serviços já disponíveis e seus responsáveis.
+3. Aprovar a topologia e os ADRs de banco, storage, AV, secrets, gateway,
+   egress, observabilidade, backup, deploy e serviços de controle.
+4. Definir as categorias e responsáveis por SLA, RPO, RTO, retenção e resposta
+   a incidentes; medir uma baseline em DEV, sem apresentá-la como meta de PRD.
+5. Provisionar `DEV`, sem credenciais ou dados de produção.
+6. Instalar nos repositórios apenas os clientes dos produtos aprovados e fixar
+   suas versões.
+7. Configurar CI/CD, análise de dependências, migração e rollback.
+8. Executar o preflight técnico abaixo e anexar as evidências à matriz.
+9. Só então ampliar `apps/pub_institucional` e o schema `publicacoes` para os
+   contratos editoriais, públicos e IAM; o recorte E-Docs já autorizado não
+   aprova essas camadas por antecipação.
+
+HML e PRD possuem gates próprios e não são pressupostos pelo gate de DEV.
+
+## 5. Preflight técnico obrigatório
+
+O gate somente passa quando todos os resultados forem reproduzíveis:
+
+- conexão autorizada e negação de acesso indevido ao schema PostgreSQL real;
+- backup, perda simulada e restore medido em DEV; cada ambiente posterior deve
+  aprovar metas de RPO/RTO e repetir o teste contra elas;
+- upload privado, quarentena, scan limpo, rejeição EICAR e indisponibilidade do
+  scanner com falha fechada;
+- suspeita antimalware permanece em quarentena; ordem justificada do gestor
+  preserva o achado original e vale somente para o mesmo hash;
+- obtenção e substituição explícita de segredo sem exposição em banco, log ou
+  resposta; rotação periódica será testada no gate de HML/PRD;
+- egress permitido somente para host aprovado e bloqueado para loopback,
+  redes privadas, link-local e serviço de metadata;
+- TLS, rate limit, limite de corpo e headers de cache aplicados pelo gateway;
+- purge e separação entre cache público, autenticado e preview;
+- logs redigidos, correlação de request/job e alerta recebido;
+- deploy e rollback em DEV ou ambiente descartável para o artefato anterior;
+- testes existentes de autenticação, cookie, CSRF e autorização ainda passando.
+- adapters do ambiente aprovados pela mesma suíte de contratos de segurança;
+- workflow de ordem rejeita replay e mudança de hash, exige justificativa,
+  registra o resultado e executa sem segunda aprovação.
+
+## 6. Resultado do gate
+
+O checklist não é aprovado por intenção ou por documentação isolada. Cada item
+deverá ter responsável, decisão, evidência e data na matriz compartilhada.
+Enquanto um item permanecer pendente, `PUBLICACOES` permanece em planejamento:
+inclusive seu teste sintético não será criado.
+
+## 7. Evidência atual de DEV
+
+Em 2026-10-26 foram comprovados o preflight funcional, o backup/restore
+criptografado e a regressão backend completa. A suíte teve 1.138 aprovações,
+1 teste ignorado e cobertura de 87,55%. SBOMs e relatórios Trivy também foram
+gerados sem supressão automática.
+
+O primeiro uso real do contrato de segredos também foi aplicado ao
+`carga_org_lot`: a credencial CargaRH PRD saiu do `.env`, passou a ser lida por
+AppRole exclusiva e ficou separada do perfil HML. Isso comprova o adapter e a
+negação entre ambientes, mas não encerra `PRE-008` para os demais segredos do
+backend. DEV não possui rotação periódica; esse contrato será definido no gate
+de HML/PRD.
+
+O gate permanece aberto pelos itens descritos em
+[`SECURITY_EVIDENCE_2026-10-26.md`](./SECURITY_EVIDENCE_2026-10-26.md): achados
+altos/críticos, validação da instância PostgreSQL on-premises, egress de rede,
+observabilidade e decisões institucionais `PRE-001` a `PRE-003`.
+
+Os resultados acima são evidência histórica de 2026-10-26. Antes do aceite de
+F0, scans, SBOM, preflight e regressões aplicáveis devem ser repetidos e
+registrados em novo documento datado. A evidência antiga não será sobrescrita.

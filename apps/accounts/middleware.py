@@ -10,6 +10,7 @@ FIX(Issue #22): _authenticate_any_cookie ordena por -created_at e filtra
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Q
 from django.http import JsonResponse
+from django.utils import timezone
 
 from .models import AccountsSession
 
@@ -39,6 +40,7 @@ class AppContextMiddleware:
     APP_COOKIE_MAP = {
         "acoes-pngi": "ACOES_PNGI",
         "carga-org-lot": "CARGA_ORG_LOT",
+        "pub-institucional": "PUB_INSTITUCIONAL",
         "portal": "PORTAL",
     }
 
@@ -88,7 +90,10 @@ class AppContextMiddleware:
                 AccountsSession.objects.filter(
                     session_key=session_key,
                     session_cookie_name=cookie_name,
+                    app_context=app_context,
                     revoked=False,
+                    expires_at__gt=timezone.now(),
+                    user__is_active=True,
                 )
                 .select_related("user")
                 .first()
@@ -126,6 +131,9 @@ class AppContextMiddleware:
                 cookie_pairs |= Q(
                     session_key=candidate_session_key,
                     session_cookie_name=candidate_cookie_name,
+                    app_context=candidate_cookie_name.removeprefix(
+                        "gpp_session_"
+                    ),
                 )
 
             session = (
@@ -133,6 +141,8 @@ class AppContextMiddleware:
                     cookie_pairs,
                     revoked=False,
                     app_context__isnull=False,
+                    expires_at__gt=timezone.now(),
+                    user__is_active=True,
                 )
                 .select_related("user")
                 .order_by("-created_at")
@@ -199,6 +209,7 @@ class AppContextMiddleware:
             cookie_pairs |= Q(
                 session_key=session_key,
                 session_cookie_name=cookie_name,
+                app_context=cookie_name.removeprefix("gpp_session_"),
             )
 
         session = (
@@ -206,6 +217,8 @@ class AppContextMiddleware:
                 cookie_pairs,
                 revoked=False,
                 app_context__isnull=False,
+                expires_at__gt=timezone.now(),
+                user__is_active=True,
             )
             .select_related("user")
             .order_by("-created_at")

@@ -17,12 +17,23 @@ ALLOWED_HOSTS = ["*"]
 # Em dev, aceita todas as origens CORS
 CORS_ALLOW_ALL_ORIGINS = True
 
-# Cache em memória local (sem precisar de Memcached rodando)
+# O cache geral continua local. Tokens CargaRH usam Memcached para que Django,
+# Celery worker e Celery beat compartilhem a mesma credencial temporária.
+CARGARH_TOKEN_CACHE_ALIAS = "cargarh_tokens"
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "gpp-dev-cache",
-    }
+    },
+    CARGARH_TOKEN_CACHE_ALIAS: {
+        "BACKEND": "django.core.cache.backends.memcached.PyMemcacheCache",
+        "LOCATION": env("MEMCACHED_LOCATION", default="127.0.0.1:11211"),
+        "TIMEOUT": 3600,
+        "BINARY": True,
+        "OPTIONS": {
+            "no_delay": True,
+        },
+    },
 }
 
 # ─── Cookie / CSRF — HTTP local ──────────────────────────────────────────────────
@@ -34,6 +45,8 @@ CSRF_COOKIE_SECURE = False  # False obrigatório em HTTP
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 ]

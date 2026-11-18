@@ -82,3 +82,39 @@ class AuditableModel(models.Model):
 
     class Meta:
         abstract = True
+
+
+class ModeloAuditavel(models.Model):
+    """Base auditável em português para novos domínios da plataforma."""
+
+    criado_por_id = models.IntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="ID lógico do usuário que criou o registro.",
+    )
+    criado_por_nome = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        editable=False,
+        help_text="Nome do usuário preservado no momento da criação.",
+    )
+    atualizado_por_id = models.IntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="ID lógico do usuário que alterou o registro.",
+    )
+    atualizado_por_nome = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        editable=False,
+        help_text="Nome do usuário preservado na última alteração.",
+    )
+    criado_em = models.DateTimeField(auto_now_add=True, editable=False)
+    atualizado_em = models.DateTimeField(auto_now=True, editable=False)
+
+    class Meta:
+        abstract = True

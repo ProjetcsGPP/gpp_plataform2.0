@@ -19,6 +19,7 @@ from ..services.organograma import (
     UNIT_ACRONYM_MAX_LENGTH,
     UNIT_NAME_MAX_LENGTH,
 )
+from ..services.submission_workflow import build_submission_workflow
 
 
 class ItemOrganogramaSerializer(AuditableModelSerializer):
@@ -267,6 +268,54 @@ class ConsultarCargasIniciaisProdestSerializer(serializers.Serializer):
     limit = serializers.IntegerField(default=10, min_value=1, max_value=10)
 
 
+class EncerrarMonitoramentoProdestSerializer(serializers.Serializer):
+    justificativa = serializers.CharField(
+        min_length=10,
+        max_length=2000,
+        trim_whitespace=True,
+    )
+    confirmar_risco_processamento_remoto = serializers.BooleanField()
+    analista_prodest_avisado = serializers.BooleanField()
+    analista_prodest_respondeu = serializers.BooleanField()
+    retorno_analista_prodest = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=4000,
+        trim_whitespace=True,
+    )
+
+    def validate_confirmar_risco_processamento_remoto(self, value):
+        if not value:
+            raise serializers.ValidationError(
+                "Confirme que a carga ainda pode ser processada pela PRODEST."
+            )
+        return value
+
+    def validate(self, attrs):
+        if attrs["analista_prodest_respondeu"] and not attrs[
+            "analista_prodest_avisado"
+        ]:
+            raise serializers.ValidationError(
+                {
+                    "analista_prodest_respondeu": (
+                        "O analista só pode ter respondido se tiver sido avisado."
+                    )
+                }
+            )
+        if attrs["analista_prodest_respondeu"] and not attrs[
+            "retorno_analista_prodest"
+        ].strip():
+            raise serializers.ValidationError(
+                {
+                    "retorno_analista_prodest": (
+                        "Registre a orientação fornecida pelo analista da PRODEST."
+                    )
+                }
+            )
+        return attrs
+
+
 class EnvioOrganogramaProdestSerializer(AuditableModelSerializer):
     idimportacaoplanilha_id = serializers.IntegerField(read_only=True)
     idprocessocargainicial_id = serializers.IntegerField(read_only=True)
@@ -305,6 +354,8 @@ class EnvioOrganogramaProdestSerializer(AuditableModelSerializer):
     )
     acoes_disponiveis = serializers.SerializerMethodField()
     ultimo_evento_id = serializers.SerializerMethodField()
+    fluxo_operacional = serializers.SerializerMethodField()
+    encerramento_monitoramento = serializers.SerializerMethodField()
 
     class Meta(AuditableModelSerializer.Meta):
         model = EnvioOrganogramaProdest
@@ -312,6 +363,7 @@ class EnvioOrganogramaProdestSerializer(AuditableModelSerializer):
             "idenvioorganograma",
             "idimportacaoplanilha_id",
             "idprocessocargainicial_id",
+            "idtentativaanterior_id",
             "idpatriarca_id",
             "patriarca_nome",
             "importacao_referencia",
@@ -337,8 +389,18 @@ class EnvioOrganogramaProdestSerializer(AuditableModelSerializer):
             "mensagem_atual",
             "datultimaatividade",
             "datproximaconsulta",
+            "datfimmonitoramento",
+            "datencerramentomanual",
+            "strjustificativaencerramento",
+            "flganalistaprodestavisado",
+            "flganalistaprodestrespondeu",
+            "strretornoanalistaprodest",
+            "encerrado_by_id",
+            "encerrado_by_name",
+            "encerramento_monitoramento",
             "acoes_disponiveis",
             "ultimo_evento_id",
+            "fluxo_operacional",
             "datsolicitacao",
             "datultimaconsulta",
             "datfinalizacao",
@@ -360,6 +422,9 @@ class EnvioOrganogramaProdestSerializer(AuditableModelSerializer):
                 instance.idexternocarga and instance.jsonstatusprodest.get("finalizada")
             ),
             "tentar_novamente": instance.strstatus == StatusEnvioOrganograma.ERRO,
+            "encerrar_monitoramento": self.get_encerramento_monitoramento(
+                instance
+            )["permitido"],
         }
 
     def get_ultimo_evento_id(self, instance) -> int | None:
@@ -367,6 +432,16 @@ class EnvioOrganogramaProdestSerializer(AuditableModelSerializer):
             strvisibilidade="OPERACIONAL"
         ).first()
         return event.pk if event else None
+
+    def get_fluxo_operacional(self, instance) -> dict:
+        return build_submission_workflow(instance)
+
+    def get_encerramento_monitoramento(self, instance) -> dict:
+        from ..services.organogram_submission import (
+            monitoring_closure_availability,
+        )
+
+        return monitoring_closure_availability(instance)
 
     def get_finalizada_prodest(self, instance) -> bool:
         return bool(instance.jsonstatusprodest.get("finalizada"))

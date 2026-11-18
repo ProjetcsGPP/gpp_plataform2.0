@@ -33,6 +33,7 @@ security_logger = logging.getLogger("gpp.security")
 URL_PREFIX_MAP = {
     "acoes-pngi": "ACOES_PNGI",
     "carga-org-lot": "CARGA_ORG_LOT",
+    "pub-institucional": "PUB_INSTITUCIONAL",
     "portal": "PORTAL",
 }
 
@@ -42,6 +43,11 @@ class ApplicationContextMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        public_paths = getattr(settings, "PUBLIC_ANONYMOUS_PATHS", [])
+        if any(request.path.startswith(path) for path in public_paths):
+            request.application = None
+            return self.get_response(request)
+
         # Bypass APENAS para requests de logout explícito
         # (is_logout_request é setado pelo LogoutMiddleware antes desta camada)
         if getattr(request, "is_logout_request", False):

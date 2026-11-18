@@ -74,3 +74,9 @@ celerybeat-schedule*
 logs/
 *.log
 *.log.*
+
+# Ambiente local de PUBLICACOES: credenciais, certificados e estado gerado
+infra/publicacoes-dev/runtime/
+
+# Artefatos locais das coletas mensais E-Docs
+var/edocs/

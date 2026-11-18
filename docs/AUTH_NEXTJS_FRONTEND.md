@@ -1,130 +1,74 @@
-# Integração Next.js com o backend GPP
+# Integração Next.js com a autenticação GPP
 
-## Resumo
+**Última revisão:** 2026-10-23
+**Obrigação arquitetural:** reutilizar Axios, interceptors, SWR, `appContext` e
+stores existentes; não criar cliente ou armazenamento de sessão paralelo.
 
-O frontend Next.js deve consumir o backend por sessão, sem JWT e sem armazenar token em localStorage.
-O browser recebe o cookie `gpp_session` e o envia automaticamente em requisições com `credentials: 'include'`.
+## Fluxo obrigatório
 
-## Variáveis de ambiente
+1. Consultar `GET /api/accounts/auth/csrf/` com `withCredentials: true`.
+2. Ler `csrftoken` do cookie.
+3. Enviar `POST /api/accounts/login/` com `identifier`, `password` e
+   `app_context`, incluindo `X-CSRFToken`.
+4. Em sucesso, chamar `/api/accounts/me/` e hidratar estado, permissões,
+   capabilities e menus pelos mecanismos compartilhados.
+5. Relê-lo antes de cada mutação, pois o login pode rotacionar o token CSRF.
 
-Use uma variável pública para a URL base do backend.
-
-```env
-NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
-```
-
-## Regras obrigatórias no fetch
-
-Sempre use:
-
-```ts
-credentials: 'include'
-```
-
-Isso é necessário para enviar o cookie de sessão do Django em chamadas de login, logout, `me`, switch de aplicação e APIs protegidas.
-
-## Fluxo de autenticação
-
-### Login
-
-1. Buscar aplicações públicas do backend.
-2. O usuário escolhe a aplicação e informa credenciais.
-3. Fazer `POST /api/accounts/login/` com `username`, `password` e `app_context`.
-4. Se o backend aceitar, o cookie `gpp_session` será salvo pelo browser.
-
-### Depois do login
-
-- Chamar `GET /api/accounts/me/` para obter usuário, perfil, roles e apps acessíveis.
-- Redirecionar conforme o `app_context` atual.
-- Recarregar navegação e permissões com base no contexto atual.
-
-### Troca de aplicação
-
-Se o usuário tiver acesso a mais de uma app:
-
-1. Entrar primeiro no Portal ou diretamente na app desejada.
-2. Listar as apps permitidas pelo endpoint autenticado.
-3. Ao clicar em outra app, chamar `POST /api/accounts/switch-app/` com o novo `app_context`.
-4. Recarregar o estado da sessão e da interface.
-
-## O que o frontend não deve fazer
-
-- Não ler `gpp_session` via JavaScript.
-- Não salvar credenciais ou sessão em localStorage.
-- Não assumir que o cookie é `sessionid`.
-- Não tratar acesso ao Portal como equivalente a acesso às outras apps.
-
-## Casos suportados
-
-| Cenário | Resultado esperado |
-|---|---|
-| Login direto em uma app com role | Sessão criada e contexto definido |
-| Login no Portal por PORTAL_ADMIN | Sessão criada com contexto Portal |
-| Entrar no Portal e mudar para outra app | Switch de contexto sem trocar o cookie |
-| Entrar direto numa app específica | Sessão já nasce no contexto correto |
-| Fazer logout | Sessão revogada e cookie removido |
-
-## Casos não suportados
-
-| Cenário | Resultado |
-|---|---|
-| Tentar login no Portal sem ser admin | Rejeitado pelo backend |
-| Tentar trocar para app sem role | Rejeitado pelo backend |
-| Fazer request protegida sem credentials | Cookie não é enviado |
-| Tentar usar JWT | Não existe suporte |
-
-## Estrutura sugerida no Next.js
-
-- `lib/api.ts`: wrapper de fetch com `credentials: 'include'`.
-- `lib/auth.ts`: funções de login, logout, `me`, `switchApp`.
-- `app/login/page.tsx`: formulário de login.
-- `app/(protected)/layout.tsx`: proteção por sessão no server side.
-- `components/app-switcher.tsx`: seletor de aplicação para Portal Admin.
-
-## Exemplo de wrapper
+Exemplo conceitual usando o cliente compartilhado:
 
 ```ts
-const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL!
+await api.get('/accounts/auth/csrf/')
 
-export async function apiFetch(path: string, init: RequestInit = {}) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init.headers || {}),
-    },
-  })
-
-  return res
-}
-```
-
-## Exemplo de login
-
-```ts
-await apiFetch('/api/accounts/login/', {
-  method: 'POST',
-  body: JSON.stringify({
-    username,
-    password,
-    app_context,
-  }),
+await api.post('/accounts/login/', {
+  identifier,
+  password,
+  app_context: appContext,
 })
 ```
 
-## Exemplo de troca de app
+O interceptor existente deve obter `csrftoken` e enviar `X-CSRFToken`. Não
+persista sessão, credencial ou token em `localStorage`, Zustand, SWR ou logs.
 
-```ts
-await apiFetch('/api/accounts/switch-app/', {
-  method: 'POST',
-  body: JSON.stringify({
-    app_context: 'ACOES_PNGI',
-  }),
-})
-```
+## Regras de compatibilidade
 
-## Observação importante
+- remover qualquer chamada a `/accounts/auth/resolve-user/`;
+- não converter e-mail em username no browser;
+- apresentar a mesma mensagem para credencial inválida, independentemente do
+  identificador;
+- manter `username` apenas como alias transitório no backend, sem adotá-lo em
+  código novo;
+- não interpretar um `401` de endpoint público como sessão expirada;
+- não enviar conteúdo de segredo para telemetria ou tratamento genérico de erro.
 
-O cookie continua sendo o mesmo durante o switch de contexto.
-O que muda é o contexto interno da sessão e, por consequência, as permissões carregadas pelo backend.
+## Cookies e aplicações
+
+Cada contexto usa `gpp_session_<APP>`, por exemplo:
+
+| Contexto | Cookie |
+|---|---|
+| `PORTAL` | `gpp_session_PORTAL` |
+| `ACOES_PNGI` | `gpp_session_ACOES_PNGI` |
+| `CARGA_ORG_LOT` | `gpp_session_CARGA_ORG_LOT` |
+
+O cookie é `HttpOnly` e não deve ser lido no JavaScript. O frontend usa o
+`appContext` para selecionar o fluxo existente, mas a autorização final e a
+lista de aplicações disponíveis continuam sob autoridade do backend.
+
+## Testes mínimos do frontend
+
+- bootstrap CSRF antes do login;
+- login por username e e-mail usando `identifier`;
+- ausência de chamada ao endpoint descontinuado;
+- erro genérico de credencial;
+- token relido após login;
+- `403` por CSRF ausente/inválido;
+- `429` de login sem loop automático;
+- cookies e logout independentes por aplicação;
+- `401` autenticado tratado separadamente de falha pública;
+- nenhum segredo persistido em caches ou stores.
+
+## Referências
+
+- [Contrato do backend](./AUTH_NEXTJS_BACKEND.md)
+- [Contrato completo da API](./API_CONTRACT.md)
+- [Matriz compartilhada](./SHARED/PUBLICACOES_INTEGRATION_MATRIX.md)

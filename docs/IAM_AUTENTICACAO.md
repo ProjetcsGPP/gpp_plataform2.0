@@ -2,7 +2,7 @@
 
 **App**: `apps/accounts`
 **Schema PostgreSQL**: `public`
-**Última revisão**: 2026-04-10 — Fase 13 (Issue #26)
+**Última revisão**: 2026-10-23 — hardening `PUB-008`/`PUB-015`
 
 > Para a arquitetura completa do sistema de permissões, ver [`PERMISSIONS_ARCHITECTURE.md`](./PERMISSIONS_ARCHITECTURE.md).
 > Para visão geral do projeto, ver [`ARCH_SNAPSHOT.md`](./ARCH_SNAPSHOT.md).
@@ -15,21 +15,24 @@ A autenticação é **exclusivamente por sessão Django**. Não existe JWT, Bear
 ou qualquer outro mecanismo. O ciclo completo:
 
 ```
-1. POST /api/accounts/auth/login/
-     body: { username, password, app_context }
+1. GET /api/accounts/auth/csrf/
+   → Emite csrftoken legível pelo frontend
 
-2. Django autentica via auth.authenticate()
+2. POST /api/accounts/login/
+     body: { identifier, password, app_context }
+     header: X-CSRFToken: <valor do cookie csrftoken>
+
+3. Django autentica via auth.authenticate()
    → Valida credenciais contra auth_user
+   → identifier aceita username ou e-mail sem endpoint de resolução
 
-3. Cria AccountsSession (jti único, expires_at, ip_address, user_agent)
+4. Cria AccountsSession (session_key, expires_at, ip_address, user_agent)
    → Grava sessão no banco (accounts_session)
 
-4. Resposta: Set-Cookie: gpp_session=<valor>; HttpOnly; SameSite=Lax
-   ⚠️ O nome do cookie é gpp_session (SESSION_COOKIE_NAME personalizado),
-      NÃO o padrão Django sessionid. O frontend e scripts de teste
-      devem usar explicitamente este nome.
+5. Resposta: Set-Cookie: gpp_session_<APP>=<valor>; HttpOnly; SameSite=Lax
+   → Cada aplicação mantém cookie independente
 
-5. Requisições subsequentes: cookie gpp_session no header
+6. Requisições subsequentes: cookie gpp_session_<APP> no header
    → Pipeline de middlewares injeta no request (ver seção Middlewares abaixo):
         request.user             → auth.User autenticado
         request.application      → objeto Aplicacao resolvido por URL/header/domínio
@@ -37,9 +40,10 @@ ou qualquer outro mecanismo. O ciclo completo:
         request.is_portal_admin  → bool
         request.app_context      → codigointerno str (Fase-0, via AppContextMiddleware)
 
-6. POST /api/accounts/auth/logout/
+7. POST /api/accounts/logout/<app_slug>/
+   → Requer X-CSRFToken quando a autenticação DRF é usada
    → Marca AccountsSession.revoked = True
-   → Limpa cookie gpp_session
+   → Limpa o cookie da aplicação
 ```
 
 > `app_context` no login é o `codigointerno` da `Aplicacao` (ex: `"ACOES_PNGI"`).
@@ -62,7 +66,8 @@ Os middlewares de autenticação e autorização executam nesta ordem em `MIDDLE
 
 ### `AppContextMiddleware` (`apps/accounts/middleware.py`)
 
-- Valida o cookie `gpp_session` contra `AccountsSession` (não revogada, não expirada)
+- Valida `gpp_session_<APP>` contra `AccountsSession` (contexto correspondente,
+  não revogada, não expirada e usuário ativo)
 - Injeta `request.app_context` (codigointerno string da aplicação do login)
 - Em sessão inválida/revogada: `request.user` é mantido como `AnonymousUser`
 
@@ -123,7 +128,7 @@ Na prática as duas tabelas são criadas/expiradas juntas pelo fluxo de login/lo
 | Setting | Valor (`base.py`) | Dev | Prod |
 |---|---|---|---|
 | `SESSION_ENGINE` | `django.contrib.sessions.backends.db` | — | — |
-| `SESSION_COOKIE_NAME` | **`gpp_session`** | — | — |
+| Cookie de sessão | **`gpp_session_<APP>`** | — | — |
 | `SESSION_COOKIE_HTTPONLY` | `True` | — | — |
 | `SESSION_COOKIE_SAMESITE` | `"Lax"` | — | — |
 | `SESSION_COOKIE_AGE` | `3600` (1 hora) | — | — |
@@ -134,6 +139,8 @@ Na prática as duas tabelas são criadas/expiradas juntas pelo fluxo de login/lo
 | `CSRF_COOKIE_SECURE` | — | `False` | `True` |
 | `CSRF_TRUSTED_ORIGINS` | default `["http://localhost:3000"]` | expandido | **obrigatório via .env** |
 | `CORS_ALLOW_CREDENTIALS` | `True` | — | — |
+| `LOGIN_THROTTLE_RATE` | `5/min` por IP | — | configurável por ambiente |
+| `DRF_NUM_PROXIES` | `0` (ignora `X-Forwarded-For`) | — | quantidade exata de proxies confiáveis |
 
 > **`CSRF_TRUSTED_ORIGINS` em produção**: se não definido no `.env`, o servidor levanta
 > `ImproperlyConfigured` na inicialização. Não existe fallback — o default de dev

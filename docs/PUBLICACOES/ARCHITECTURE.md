@@ -1,0 +1,368 @@
+# Arquitetura da Aplicação `PUBLICACOES`
+
+**Status:** arquitetura parcialmente decidida; contratos executáveis pendentes
+**Escopo:** backend, frontend, integrações e infraestrutura
+
+## 0. Leitura normativa
+
+Este documento combina decisões aprovadas e modelos conceituais. Para evitar
+que exemplos se tornem contratos por acidente:
+
+- são decisões: limites do bounded context, publicação imutável, integração
+  interna por notificação/snapshot/reconciliação, IAM compartilhado, Portal e
+  fronteiras de cache;
+- são propostas até F0.5: nomes e campos das entidades, estados exatos do
+  workflow, paths e payloads de API, paginação, erros e catálogo IAM;
+- cada fonte continua exigindo contrato próprio aprovado;
+- em divergência, a matriz define o estado de coordenação e o contrato
+  especializado aprovado define o comportamento executável.
+
+## 1. Limites de responsabilidade
+
+### Aplicação de origem
+
+Cada aplicação de origem permanece responsável por:
+
+- suas regras e estados de negócio;
+- identificar versões canônicas dos próprios dados;
+- expor um snapshot versionado por contrato;
+- classificar os campos que podem sair do domínio;
+- informar alteração relevante por mecanismo acordado;
+- manter evidências que permitam reproduzir o snapshot.
+
+Este documento não determina quais ações ou estados de uma aplicação são
+relevantes. Isso será decidido por fonte.
+
+### Aplicação `PUBLICACOES`
+
+Será responsável por:
+
+- registrar fontes e contratos;
+- receber notificações ou executar coletas agendadas;
+- armazenar artefatos e snapshots com rastreabilidade;
+- validar e normalizar conteúdo recebido;
+- executar cálculos próprios da publicação e cruzamentos entre fontes;
+- preparar, revisar, publicar, substituir e revogar publicações;
+- oferecer API pública e API autenticada de distribuição;
+- controlar consumidores, escopos, quotas e credenciais;
+- fornecer o conteúdo do dashboard público do Portal.
+
+### Portal
+
+O Portal será responsável por:
+
+- apresentar a publicação vigente;
+- renderizar indicadores, gráficos, textos e metadados do contrato público;
+- abrir o login em modal;
+- após autenticação, apresentar as aplicações permitidas ao usuário;
+- não recalcular regras de negócio ou indicadores canônicos.
+
+### Fronteiras de código do backend
+
+- `apps/pub_institucional` é dona de entidades, regras, integrações e fluxos
+  específicos de PUBLICAÇÕES, inclusive o cliente e o catálogo E-Docs;
+- `common` recebe apenas classes e funções comprovadamente reutilizáveis por
+  aplicações distintas, como o adaptador genérico de cofre de segredos;
+- `core` fica restrito a mecanismos profundos da plataforma, como a resolução
+  de sessão e contexto de aplicação para WebSocket;
+- a direção esperada é aplicação para `common` e, somente quando necessário,
+  `common` para `core`; regras de PUBLICAÇÕES não podem retornar ao `core` ou
+  ao `common`.
+
+## 2. Arquitetura lógica
+
+```text
+Fontes internas        APIs externas        Planilhas
+      │                      │                  │
+      └──────────────┬───────┴──────────────────┘
+                     ▼
+          Integração, coleta e quarentena
+                     │
+                     ▼
+          Snapshot bruto e rastreabilidade
+                     │
+                     ▼
+       Validação, normalização e cálculos
+                     │
+                     ▼
+             Publicação candidata
+                     │
+             revisão e aprovação
+                     │
+                     ▼
+            Publicação imutável
+              │              │
+              ▼              ▼
+       Dashboard público   API de distribuição
+```
+
+Os controles transversais não serão chamadas diretas a produtos. Arquivos,
+APIs externas, segredos, classificação, divulgação e auditoria passarão pelos
+serviços e workflows definidos em
+[`SECURITY_CONTROL_CONTRACTS.md`](./SECURITY_CONTROL_CONTRACTS.md). Cada
+implementação deverá satisfazer o contrato comum de decisão.
+
+## 3. Integração com aplicações internas
+
+O padrão inicial será híbrido:
+
+1. A aplicação de origem conclui sua própria transação.
+2. Na mesma transação, grava um evento em outbox.
+3. Um worker entrega a notificação após o commit.
+4. `PUBLICACOES` processa o evento de forma idempotente.
+5. `PUBLICACOES` solicita ao provedor da origem o snapshot da versão indicada.
+6. Uma reconciliação periódica compara cursores, versões e hashes.
+
+O evento transporta referência e metadados mínimos, não o conjunto completo de
+dados. Exemplo não normativo:
+
+```json
+{
+  "event_id": "uuid",
+  "event_type": "dominio.recurso.alterado",
+  "source": "CODIGO_DA_APLICACAO",
+  "aggregate_type": "tipo_do_recurso",
+  "aggregate_id": "identificador",
+  "source_version": "versao",
+  "schema_version": 1,
+  "occurred_at": "2026-10-23T14:30:00-03:00"
+}
+```
+
+Enquanto origem e consumidor estiverem no mesmo Django, a obtenção do snapshot
+será feita por interface Python e DTO, não por chamada HTTP e nunca por consulta
+direta às tabelas alheias.
+
+Interface conceitual:
+
+```python
+class PublicationSourceProvider(Protocol):
+    source_code: str
+
+    def get_snapshot(
+        self,
+        resource_type: str,
+        resource_id: str,
+        source_version: str,
+    ) -> PublicationSourceSnapshot: ...
+
+    def list_changes(
+        self,
+        cursor: str | None,
+    ) -> SourceChangesPage: ...
+```
+
+Cada contrato de fonte deverá documentar separadamente:
+
+- responsável funcional e técnico;
+- eventos disponíveis;
+- significado de cada evento;
+- campos do snapshot;
+- classificação de segurança;
+- versionamento e compatibilidade;
+- cursor de reconciliação;
+- volume e frequência esperados;
+- tratamento de correção, substituição e indisponibilidade.
+
+## 4. Integrações externas
+
+Ordem de preferência:
+
+1. notificação assinada seguida de consulta autenticada;
+2. consulta incremental agendada por cursor;
+3. importação manual de arquivo em quarentena.
+
+URLs externas não serão livremente informadas a cada execução. O cadastro de uma
+fonte selecionará conectores e destinos aprovados. Credenciais ficarão fora do
+banco de negócio e nunca serão devolvidas ao frontend.
+
+## 5. Modelo conceitual, não executável antes de F0.5
+
+| Entidade | Responsabilidade |
+|---|---|
+| `FonteDados` | Identidade, proprietário, classificação e situação da fonte |
+| `ContratoFonte` | Schema, versão, compatibilidade e método de integração |
+| `ExecucaoColeta` | Tentativa, duração, correlação, resultado e métricas |
+| `ArtefatoOrigem` | Evidência bruta imutável, hash, tamanho e estado de varredura |
+| `SnapshotFonte` | Versão normalizada e rastreável recebida de uma fonte |
+| `DefinicaoIndicador` | Metadados e responsabilidade de um indicador |
+| `ResultadoIndicador` | Valor, dimensões, período, algoritmo e proveniência |
+| `Publicacao` | Agregado versionado sujeito ao workflow editorial |
+| `ItemPublicacao` | Conteúdo congelado de uma publicação |
+| `HistoricoPublicacao` | Transições, autor, data e justificativa |
+| `ConsumidorAPI` | Identidade de sistema, contatos, ambiente e situação |
+| `CredencialConsumidor` | Hash, prefixo, validade, escopos e revogação |
+| `AssinaturaDistribuicao` | Recursos e versões acessíveis ao consumidor |
+| `EventoOutbox` | Entrega confiável e idempotente de notificações |
+
+## 6. Workflow editorial administrativo
+
+```text
+RASCUNHO
+  → EM_VALIDACAO
+  → AGUARDANDO_PUBLICACAO
+  → PUBLICADA
+  → SUBSTITUIDA
+
+Saídas excepcionais: REJEITADA, CANCELADA, REVOGADA
+```
+
+O recorte implementado usa `RASCUNHO`, `EM_VALIDACAO`,
+`AGUARDANDO_PUBLICACAO`, `PUBLICADA`, `SUBSTITUIDA` e `REVOGADA`. Rejeição e
+cancelamento permanecem reservados para ampliação posterior do contrato.
+
+Após `PUBLICADA`, conteúdo e metadados distribuídos tornam-se imutáveis. Uma
+correção cria nova versão e referencia a anterior. Revogação não apaga a
+evidência histórica.
+
+## 7. Perfis, capabilities e permissões
+
+### Perfil funcional inicial
+
+`GESTOR_PUBLICACOES` será o único perfil funcional de negócio na primeira
+versão. Isso reduz complexidade operacional sem transformar a role em fonte de
+autorização dentro do frontend.
+
+O catálogo inicial é reconciliado pelo comando
+`python manage.py semear_publicacoes`. A navegação possui o agrupador raiz
+`PATRIARCAS`, sem capability própria, e mantém capabilities granulares nos
+itens filhos:
+
+| Menu pai | Capability | Menu filho | Rota |
+|---|---|---|---|
+| `PATRIARCAS` | `CATALOGO_EDOCS` | `PATRIARCAS_EDOCS` | `/publicacoes/patriarcas` |
+| `PATRIARCAS` | `COLETAS_EDOCS` | `COLETAS_EDOCS` | `/publicacoes/coletas` |
+| `PATRIARCAS` | `DIVERGENCIAS_EDOCS` | `DIVERGENCIAS_EDOCS` | `/publicacoes/divergencias` |
+| `PATRIARCAS` | `AUDITORIA_EDOCS` | `AUDITORIA_EDOCS` | `/publicacoes/auditoria` |
+| `COLETA_DADOS` | `COLETA_DADOS` | `COLETA_EFLOW` | `/publicacoes/coleta-dados/eflow` |
+| `PUBLICACOES` | `PUBLICACOES` | `GESTAO_PUBLICACOES` | `/publicacoes/gestao` |
+| `PUBLICACOES` | `PUBLICACOES` | `VISOES_PUBLICACAO` | `/publicacoes/visoes` |
+| `PUBLICACOES` | `PUBLICACOES` | `HISTORICO_PUBLICACOES` | `/publicacoes/historico` |
+
+`COLETA_DADOS` é também um agrupador raiz. Seu primeiro filho implementado é
+`E-Flow`; as futuras entradas E-Docs por API, planilha e digitação manual só
+serão acrescentadas quando seus respectivos contratos administrativos forem
+implementados, evitando menus sem operação backend correspondente.
+
+O seed também associa ao grupo do perfil as permissões técnicas dos models
+E-Docs, inclusive consulta, revisão, seleção, solicitação e visualização de
+coletas. A execução é idempotente e não altera `base_url`, bloqueio nem o estado
+de prontidão para produção já definidos administrativamente.
+
+O perfil receberá permissões técnicas granulares, entre elas, conforme os models
+efetivamente criados:
+
+- consultar, cadastrar e alterar fontes;
+- consultar execuções e solicitar nova coleta;
+- consultar artefatos e relatórios de validação;
+- criar e alterar rascunhos;
+- validar, publicar, substituir e revogar;
+- gerir consumidores, escopos e rotação de credenciais.
+
+Nomes definitivos seguirão as permissões Django `view_*`, `add_*`, `change_*` e
+`delete_*`, complementadas por permissões de ação como `publish_publicacao` e
+`rotate_credencial`. Componentes frontend consultarão permissões, nunca nomes de
+roles.
+
+### Separação de funções
+
+Na primeira versão não haverá segregação obrigatória entre pessoas. O mesmo
+usuário com `GESTOR_PUBLICACOES` poderá preparar e publicar, desde que possua as
+permissões técnicas necessárias. O histórico registrará separadamente o ator e
+o instante de cada transição, mesmo quando o usuário for o mesmo. Concorrência,
+justificativa, validação e imutabilidade continuam obrigatórias.
+
+### Atores que não são perfis funcionais
+
+- visitante público: acesso somente ao contrato público;
+- consumidor de API: identidade de máquina, sem `UserRole`;
+- administrador da plataforma: mantém o acesso administrativo global que
+  `PORTAL_ADMIN` e `superuser` já possuem nas demais aplicações. As camadas
+  compartilhadas de IAM dispensam vínculo e permissão específica da aplicação,
+  mas o administrador não pode ignorar workflow, imutabilidade, validações,
+  justificativas ou auditoria do domínio.
+
+## 8. Contratos de distribuição
+
+A fronteira e os recursos iniciais foram aprovados em
+[`PUBLIC_DISTRIBUTION_CONTRACT.md`](./PUBLIC_DISTRIBUTION_CONTRACT.md). A API
+pública está implementada em namespace próprio e não reutiliza router, sessão
+ou serializers administrativos. O OpenAPI executável descreve os quatro
+recursos públicos; a integração com o Portal continua pertencendo à F3.
+
+```text
+GET /api/public/v1/publicacoes-institucionais/vigente/
+GET /api/public/v1/publicacoes-institucionais/
+GET /api/public/v1/publicacoes-institucionais/{uuid}/
+GET /api/public/v1/publicacoes-institucionais/{uuid}/series/
+```
+
+Toda resposta pública informará `publication_id`, versão, competência,
+`schema_version`, instante de publicação e proveniência permitida. Publicações
+específicas serão imutáveis; o endpoint `dashboard` poderá apontar para a última
+publicação vigente. Serão usados `ETag`, `Last-Modified`, paginação e limites de
+resposta.
+
+## 9. Regras de dependência
+
+- `PUBLICACOES` não importa models de origem para calcular regras do domínio.
+- Provedores devolvem DTOs versionados e publicamente classificáveis.
+- Eventos WebSocket ou filas são notificações; o estado persistido é canônico.
+- Frontend não duplica cálculos do backend.
+- Sessão humana e credencial máquina-a-máquina não são intercambiáveis.
+- Capability controla distribuição funcional; permissão técnica autoriza ação.
+
+## 10. Portal público, renderização e cache
+
+### Rotas
+
+| Rota | Contexto | Regra |
+|---|---|---|
+| `/` | Público | Redireciona para `/portal`. |
+| `/portal` | Público | Dashboard canônico e ponto de abertura do login modal. |
+| `/portal/login` | Público/compatibilidade | Redireciona para `/portal?login=1`, preservando somente redirect aprovado. |
+| `/portal/dashboard` | Autenticado | Conteúdo reorganizado e aplicações autorizadas. |
+| `/portal/aplicacoes` | Autenticado | Gestão/listagem conforme permissões. |
+| `/portal/usuarios` | Autenticado | Administração conforme permissões. |
+
+O proxy tratará `/portal` por igualdade exata como rota pública. Prefixos
+autenticados continuam protegidos por cookie e pela validação real do backend.
+Ter um cookie não será considerado prova suficiente de sessão válida.
+
+O parâmetro de retorno pós-login aceitará apenas caminho relativo pertencente a
+uma lista central de rotas autenticadas. URLs absolutas, `//`, barras inversas,
+caracteres de controle, caminhos codificados ambíguos e destinos de login serão
+rejeitados. O fallback será `/portal/dashboard`.
+
+### Renderização
+
+O Portal será híbrido:
+
+- a publicação pública terá renderização no servidor para entrega inicial,
+  metadados e indexação, seguida de hidratação controlada;
+- a área autenticada continuará em CSR com `AppShell`, Zustand, Axios e SWR
+  compartilhados existentes;
+- o SSR público usará um adaptador server-only sem importar o Axios singleton,
+  Zustand ou cookies do usuário;
+- a origem interna do backend será configuração server-only e nunca variável
+  `NEXT_PUBLIC_*`;
+- cookies e cabeçalhos de autorização da requisição do visitante não serão
+  encaminhados à API pública.
+
+### Fronteiras de cache
+
+- o endpoint público vigente será independente de sessão e usará `ETag`,
+  `Last-Modified` e revalidação compartilhada curta;
+- publicação, substituição e revogação invalidarão o ponteiro vigente após o
+  commit;
+- respostas administrativas, preview e erros com dados internos usarão
+  `Cache-Control: private, no-store`;
+- cache público não variará por `Cookie` ou `Authorization`;
+- SWR público e autenticado usarão providers distintos e chaves prefixadas por
+  contexto e versão de schema;
+- `stale-if-error` será proibido para o ponteiro vigente; só poderá ser usado
+  para representação imutável cuja política pública continue válida após erro;
+- conteúdo revogado nunca poderá reaparecer como publicação vigente por
+  fallback do browser, SWR, Next.js, gateway ou CDN.
+
+Os detalhes normativos estão nos ADR-0003, ADR-0004 e ADR-0005.

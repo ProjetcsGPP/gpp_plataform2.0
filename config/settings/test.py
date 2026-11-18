@@ -28,7 +28,15 @@ Diferencas em relacao a development.py:
      loggers de seguranca (AUTHZ_APP_VIEW_DENY, etc.).
 """
 
+# O settings de teste especializa deliberadamente todo o namespace de development.
+# pylint: disable=wildcard-import,unused-wildcard-import
 from .development import *  # noqa: F401, F403
+
+# pylint: enable=wildcard-import,unused-wildcard-import
+
+# O flush transacional precisa alcançar as FKs entre public e os schemas
+# explícitos das aplicações. Esta especialização existe apenas nos testes.
+DATABASES["default"]["ENGINE"] = "config.db_backends.postgresql_test"  # noqa: F405
 
 # ---------------------------------------------------------------------------
 # 1. Cache — LocMemCache (in-process, zerado a cada run)
@@ -39,6 +47,7 @@ CACHES = {
         "LOCATION": "gpp-test-cache",
     }
 }
+CARGARH_TOKEN_CACHE_ALIAS = "default"
 
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True
@@ -49,12 +58,16 @@ CHANNEL_LAYERS = {
 # ---------------------------------------------------------------------------
 # 2. Throttle — limites absurdamente altos para nunca bloquear testes
 # ---------------------------------------------------------------------------
+LOGIN_THROTTLE_RATE = "999999/min"
+PUBLICACOES_PUBLIC_THROTTLE_RATE = "999999/min"
+
 REST_FRAMEWORK = {
     **REST_FRAMEWORK,  # noqa: F405
     "DEFAULT_THROTTLE_RATES": {
         "anon": "999999/min",
         "user": "999999/min",
         "login": "999999/min",
+        "publicacoes_publicas": "999999/min",
     },
 }
 
@@ -69,6 +82,9 @@ PASSWORD_HASHERS = [
 # 4. Email backend dummy
 # ---------------------------------------------------------------------------
 EMAIL_BACKEND = "django.core.mail.backends.dummy.EmailBackend"
+
+# Testes usam somente credenciais sintéticas definidas por override_settings.
+CARGARH_CREDENTIALS_PROVIDER = "environment"
 
 # ---------------------------------------------------------------------------
 # 5. Logging — sem escrita em arquivo, propagate=True para caplog

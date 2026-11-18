@@ -13,8 +13,8 @@ from apps.carga_org_lot.models import (
     HistoricoProcessoCargaInicial,
     ImportacaoPlanilha,
     ProcessoCargaInicial,
-    StatusLotacaoProcesso,
     StatusImportacaoLocal,
+    StatusLotacaoProcesso,
     StatusOrganogramaProcesso,
 )
 
@@ -318,6 +318,49 @@ def register_organogram_result(
             "carga_id": str(envio.idexternocarga or ""),
             "dry_run": envio.flgdryrun,
             "origem_alterada": source_changed,
+        },
+    )
+    return process
+
+
+@transaction.atomic
+def register_organogram_monitoring_closed(
+    envio: EnvioOrganogramaProdest,
+    *,
+    justification: str,
+    analyst_notified: bool,
+    analyst_replied: bool,
+    analyst_response: str,
+    actor: AuditActor,
+) -> ProcessoCargaInicial:
+    """Libera novo envio sem afirmar que a carga remota foi cancelada."""
+    process = ProcessoCargaInicial.objects.select_for_update().get(
+        pk=envio.idprocessocargainicial_id
+    )
+    previous = _snapshot(process)
+    process.strfaseatual = FaseProcessoCargaInicial.PRONTO_PARA_ENVIO
+    process.strstatusorganograma = StatusOrganogramaProcesso.PRONTO
+    process.updated_by_id = actor.user_id
+    process.updated_by_name = actor.user_name
+    process.save()
+    _record_history(
+        process,
+        actor,
+        action="ORGANOGRAMA_MONITORAMENTO_ENCERRADO",
+        previous=previous,
+        message=(
+            "O acompanhamento local foi encerrado com situação remota "
+            "indeterminada. Um novo envio foi liberado."
+        ),
+        details={
+            "idenvioorganograma": envio.pk,
+            "idimportacaoplanilha": envio.idimportacaoplanilha_id,
+            "carga_id": str(envio.idexternocarga or ""),
+            "justificativa": justification,
+            "analista_prodest_avisado": analyst_notified,
+            "analista_prodest_respondeu": analyst_replied,
+            "retorno_analista_prodest": analyst_response,
+            "cancelamento_remoto_confirmado": False,
         },
     )
     return process

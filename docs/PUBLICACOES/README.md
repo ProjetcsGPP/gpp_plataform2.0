@@ -1,0 +1,143 @@
+# Gestão e Distribuição de Informações Públicas
+
+**Status:** arquitetura parcialmente decidida; F0 e F0.5 bloqueiam F1
+**Branch inicial:** `feat/publicacoes-informacoes`
+**Última revisão:** 2026-11-03
+
+Este diretório reúne a documentação de planejamento da futura aplicação
+`PUBLICACOES`. A documentação precede a implementação: itens descritos como
+pendentes ou exemplos não autorizam alteração de regra de negócio em aplicações
+de origem.
+
+Antes de iniciar ou atualizar qualquer trabalho deste escopo, é obrigatória a
+leitura da
+[matriz integrada compartilhada](../SHARED/PUBLICACOES_INTEGRATION_MATRIX.md).
+Decisões transversais devem ser atualizadas nela conforme o
+[protocolo comum](../SHARED/README.md).
+
+## Objetivo
+
+Criar uma aplicação capaz de:
+
+- receber ou coletar informações de fontes internas e externas;
+- preservar origem, versão, evidências e histórico;
+- validar, transformar, agregar e calcular informações;
+- formar publicações imutáveis, revisáveis e rastreáveis;
+- distribuir conteúdo público por API;
+- alimentar o dashboard público do Portal;
+- administrar aplicações consumidoras e suas credenciais;
+- manter autenticação de pessoas separada da autenticação de sistemas.
+
+## Documentos
+
+| Documento | Finalidade |
+|---|---|
+| [Matriz integrada compartilhada](../SHARED/PUBLICACOES_INTEGRATION_MATRIX.md) | Fonte de coordenação transversal entre backend, frontend, Portal, IAM, infraestrutura e aplicações de origem |
+| [Avaliação consolidada atual](../SHARED/PUBLICACOES_CURRENT_STATE_ASSESSMENT.md) | Reconfirmação dos dois repositórios, impactos, fases, riscos, testes, rollout e parecer de prontidão |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Escopo, limites, fluxo de dados, integração e decisões arquiteturais |
+| [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) | Fases, entregáveis, dependências, critérios de saída e validações |
+| [SECURITY_PLAN.md](./SECURITY_PLAN.md) | Threat model, controles obrigatórios e gates de segurança |
+| [THREAT_MODEL.md](./THREAT_MODEL.md) | Ativos, fronteiras de confiança, ameaças e controles rastreáveis |
+| [INFRASTRUCTURE_INVENTORY.md](./INFRASTRUCTURE_INVENTORY.md) | Inventário comprovado e lacunas de infraestrutura da Fase 0 |
+| [ROLLBACK_PLAN.md](./ROLLBACK_PLAN.md) | Estratégia de rollback por fase sem perda de histórico |
+| [F0_READINESS.md](./F0_READINESS.md) | Situação objetiva dos gates que antecedem a fundação da aplicação |
+| [PRE_IMPLEMENTATION_CHECKLIST.md](./PRE_IMPLEMENTATION_CHECKLIST.md) | Decisões, provisionamento, instalações e provas obrigatórias antes até mesmo do teste sintético |
+| [DEVELOPMENT_ENVIRONMENT.md](./DEVELOPMENT_ENVIRONMENT.md) | Sandbox local implementada, contratos portáveis, custos, limitações e gates ainda abertos |
+| [SECURITY_CONTROL_CONTRACTS.md](./SECURITY_CONTROL_CONTRACTS.md) | Serviços substituíveis, veredictos, workflows de arquivo/API e exceções governadas |
+| [SECURITY_EVIDENCE_2026-10-26.md](./SECURITY_EVIDENCE_2026-10-26.md) | Preflight, restore, testes, cobertura, SBOMs, vulnerabilidades e bloqueios efetivamente observados em DEV |
+| [CARGA_ORG_LOT_SECRETS.md](./CARGA_ORG_LOT_SECRETS.md) | Separação HML/PRD, AppRoles, variáveis não secretas e operação das credenciais CargaRH |
+| [OPENBAO_DEV_GUIDE.md](./OPENBAO_DEV_GUIDE.md) | Uso diário, conceitos, diagnóstico e recuperação do OpenBao local sem rotação periódica |
+| [EDOCS_MONTHLY_COLLECTION.md](./EDOCS_MONTHLY_COLLECTION.md) | Coleta mensal de PUBLICAÇÕES, seleção de patriarcas, JSONs brutos e planilha operacional E-Docs |
+| [EDOCS_ADMIN_API.md](./EDOCS_ADMIN_API.md) | Contrato HTTP administrativo de patriarcas, coletas, divergências e auditoria E-Docs |
+| [EDOCS_SOURCE_CONTRACT.md](./EDOCS_SOURCE_CONTRACT.md) | Contrato técnico proposto para EDOC-01 a EDOC-05, com lacunas e critérios de aceite explícitos |
+| [EDOCS_DATA_CLASSIFICATION.md](./EDOCS_DATA_CLASSIFICATION.md) | Inventário e classificação campo a campo da coleta E-Docs |
+| [EFLOW_CSV_ANALYSIS.md](./EFLOW_CSV_ANALYSIS.md) | Análise estrutural da exportação manual de definições disponíveis do E-Flow e lacunas para o contrato de fonte |
+| [EFLOW_ADMIN_API.md](./EFLOW_ADMIN_API.md) | Contrato HTTP e operacional da importação auditável de snapshots CSV do E-Flow |
+| [PUBLICACOES_ADMIN_API.md](./PUBLICACOES_ADMIN_API.md) | Competência, visões, seções, workflow e API administrativa de publicações |
+| [PUBLIC_DISTRIBUTION_CONTRACT.md](./PUBLIC_DISTRIBUTION_CONTRACT.md) | Fronteira, schema neutro, séries e estados da futura API pública, separada da administração |
+| [OPERATIONS_GUIDE.md](./OPERATIONS_GUIDE.md) | Como gestores, administradores e consumidores operarão a solução |
+| [SOURCE_CONTRACT_TEMPLATE.md](./SOURCE_CONTRACT_TEMPLATE.md) | Formulário obrigatório para integrar uma fonte sem presumir suas regras |
+| [CONSUMER_REGISTRATION_TEMPLATE.md](./CONSUMER_REGISTRATION_TEMPLATE.md) | Formulário para cadastrar aplicação consumidora e autorizar escopos |
+| [ADR-0001](./ADRS/0001-mesmo-gestor-prepara-e-publica.md) | Decisão sobre preparação e publicação pelo mesmo gestor |
+| [ADR-0002](./ADRS/0002-portal-admin-segue-padrao-da-plataforma.md) | Alcance de `PORTAL_ADMIN` em `PUBLICACOES` |
+| [ADR-0003](./ADRS/0003-rotas-publicas-autenticadas-e-redirects.md) | Rotas públicas, autenticadas, login modal e redirects permitidos |
+| [ADR-0004](./ADRS/0004-renderizacao-hibrida-do-portal.md) | Separação entre SSR público e CSR autenticado |
+| [ADR-0005](./ADRS/0005-fronteiras-de-cache-publico-e-autenticado.md) | Cache HTTP e SWR para conteúdo público, autenticado e preview |
+| [ADR-0006](./ADRS/0006-servicos-de-controle-e-excecoes.md) | Serviços de segurança contratuais e exceções sem bypass genérico |
+
+## Vocabulário normativo
+
+- **Decisão:** orientação aceita para a implementação inicial.
+- **Proposta:** orientação que ainda requer confirmação antes de ser implementada.
+- **Pendente:** assunto sem decisão suficiente.
+- **Exemplo não normativo:** ilustração que não define comportamento de uma
+  aplicação de origem.
+- **Gate:** condição obrigatória para encerrar uma fase.
+- **F0.5:** marco documental para aprovar contratos executáveis antes de
+  ampliar models, endpoints ou seeds. O primeiro recorte E-Docs foi autorizado
+  e implementado separadamente, sem aprovar por antecipação o contrato público.
+
+## Identidade da aplicação
+
+- bounded context/documentação: `PUBLICACOES`;
+- namespace Python: `apps.pub_institucional`;
+- código IAM persistido em `Aplicacao.codigointerno`: `PUB_INSTITUCIONAL`;
+- nome exibido: `Publicações Institucionais`.
+
+O backend normaliza códigos de aplicação para maiúsculas. O código IAM não deve
+ser confundido com o nome do módulo, a URL ou o nome apresentado ao usuário.
+
+## Decisões aceitas até aqui
+
+1. A aplicação será um bounded context próprio, inicialmente dentro do monólito
+   Django, com código IAM `PUB_INSTITUCIONAL` e nome exibido
+   `Publicações Institucionais`.
+2. O conteúdo público será servido a partir de publicações aprovadas e
+   imutáveis, nunca diretamente de tabelas operacionais.
+3. Aplicações de origem continuarão responsáveis por suas regras canônicas.
+4. Integrações internas usarão notificação transacional seguida da obtenção de
+   snapshot versionado, com reconciliação periódica.
+5. Enquanto as aplicações estiverem no mesmo backend, a integração não usará
+   HTTP interno desnecessário.
+6. Gatilhos e conteúdos fornecidos por cada aplicação serão definidos com seus
+   responsáveis; os exemplos deste planejamento não constituem essa definição.
+7. A primeira versão terá um único perfil funcional de negócio,
+   `GESTOR_PUBLICACOES`, sustentado por permissões técnicas granulares.
+8. Consumidores de API são identidades de máquina e não perfis de usuário.
+9. Na primeira versão, o mesmo `GESTOR_PUBLICACOES` poderá preparar e publicar.
+10. `PORTAL_ADMIN` manterá o acesso administrativo global vigente nas demais
+    aplicações, sem poder ignorar workflow, imutabilidade, validação ou
+    auditoria.
+11. `/portal` será público, `/portal/dashboard` continuará autenticado e
+    `/portal/login` será preservado como entrada compatível para o login modal.
+12. O Portal usará SSR público e CSR autenticado, sem estado client-side
+    compartilhado no servidor.
+13. Conteúdo público, conteúdo autenticado e preview não compartilharão cache
+    HTTP nem provider SWR.
+14. Cada camada de segurança terá contrato e implementação substituível;
+    exceções isoladas usarão workflow próprio e nunca um bypass genérico.
+
+## Decisões ainda necessárias
+
+- Aprovação do piloto E-Docs, de seus responsáveis e do contrato técnico já
+  preenchido.
+- Aprovação da classificação proposta, dos campos públicos candidatos e da
+  retenção dos artefatos E-Docs.
+- Aceitação dos achados de imagem, egress no nível de rede e observabilidade
+  completa de DEV. Rotação periódica de credenciais fica para HML/PRD.
+- Provedor institucional para autenticação máquina-a-máquina.
+- DTO público v1, OpenAPI administrativo e catálogo IAM do marco F0.5.
+- Retenção de artefatos, eventos, logs e publicações revogadas.
+- SLA, RPO, RTO e responsáveis por incidentes.
+
+## Regra para exemplos de integração
+
+Qualquer referência a eventos como “ativação”, “homologação” ou “conclusão” é
+somente um exemplo técnico. Um evento só se torna contrato depois de:
+
+1. validação pelo responsável da aplicação de origem;
+2. definição do significado e momento exatos;
+3. classificação dos dados fornecidos;
+4. definição de versão e compatibilidade do schema;
+5. testes de contrato;
+6. registro no catálogo de fontes da aplicação `PUBLICACOES`.

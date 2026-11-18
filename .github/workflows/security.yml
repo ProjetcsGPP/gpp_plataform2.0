@@ -106,16 +106,22 @@ jobs:
           pip install -r requirements-dev.txt
           pip install pylint flake8 radon
 
-      - name: Wait for Postgres
+      - name: Install system quality tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y postgresql-client
+          sudo apt-get install -y postgresql-client shellcheck
+
+      - name: Wait for Postgres
+        run: |
           until pg_isready -h localhost -U postgres; do
             echo "Waiting for postgres..."
             sleep 2
           done
 
       # 🔍 CODE QUALITY (ANTES DOS TESTES)
+      - name: Code Quality - ShellCheck
+        run: ./scripts/check_shell.sh
+
       - name: Code Quality - Flake8
         run: |
           echo "🔍 Running Flake8..."

@@ -22,15 +22,17 @@ Fixtures exportadas:
   client_portal_admin     — APIClient autenticado como PORTAL_ADMIN
                             (bypass completo de roles — is_portal_admin=True)
 """
+from uuid import uuid4
+
 import pytest
+from django.utils import timezone
 from rest_framework.test import APIClient
 
-from apps.accounts.tests.conftest import (
-    _assign_role,
-    _bootstrap_all,
-    _make_authenticated_client,
-    _make_user,
-)
+from apps.accounts.tests.conftest import (_assign_role, _bootstrap_all,
+                                          _make_authenticated_client,
+                                          _make_user)
+from apps.carga_org_lot.models import (Patriarca, StatusCarga, StatusProgresso,
+                                       TipoCarga, TokenEnvioCarga)
 
 
 @pytest.fixture(autouse=True)
@@ -46,6 +48,67 @@ def _ensure_base_data_carga(db):
     _bootstrap_all()
 
 
+@pytest.fixture
+def status_novo(db):
+    return StatusProgresso.objects.create(
+        idstatusprogresso=1,
+        strdescricao="Novo",
+    )
+
+
+@pytest.fixture
+def status_processando(db):
+    return StatusProgresso.objects.create(
+        idstatusprogresso=2,
+        strdescricao="Em progresso",
+    )
+
+
+@pytest.fixture
+def tipo_organograma(db):
+    return TipoCarga.objects.create(
+        idtipocarga=3,
+        strdescricao="Organograma",
+    )
+
+
+@pytest.fixture
+def tipo_lotacao(db):
+    return TipoCarga.objects.create(
+        idtipocarga=4,
+        strdescricao="Lotações",
+    )
+
+
+@pytest.fixture
+def status_carga_recebida(db):
+    return StatusCarga.objects.create(
+        idstatuscarga=1,
+        strdescricao="Recebida",
+        flgsucesso=0,
+    )
+
+
+@pytest.fixture
+def patriarca(status_novo):
+    return Patriarca.objects.create(
+        idexternopatriarca=uuid4(),
+        strsiglapatriarca="PMVV",
+        strnome="Prefeitura Municipal de Vila Velha",
+        datcriacao=timezone.now(),
+        idstatusprogresso=status_novo,
+    )
+
+
+@pytest.fixture
+def carga(status_processando, tipo_organograma):
+    return TokenEnvioCarga.objects.create(
+        strtoken="credencial-que-nao-pode-ser-exposta",
+        idtipocarga=tipo_organograma,
+        idstatusprogresso=status_processando,
+    )
+
+
 @pytest.fixture(autouse=True)
 def _clean_carga_org_lot_tables(_ensure_base_data_carga):
     """
@@ -56,33 +119,26 @@ def _clean_carga_org_lot_tables(_ensure_base_data_carga):
     explicitamente. A limpeza manual evita vazamento de registros no banco de
     teste reutilizado por ``--reuse-db``.
     """
-    from apps.carga_org_lot.models import (
-        AlternativaResolucaoValidacao,
-        CargoReferenciaGlobal,
-        CasoValidacaoImportacao,
-        ConjuntoLotacao,
-        DetalheStatusCarga,
-        EnvioOrganogramaProdest,
-        EventoIntegracaoProdest,
-        HistoricoProcessoCargaInicial,
-        HistoricoConjuntoLotacao,
-        ImportacaoPlanilha,
-        ItemLotacao,
-        ItemLotacaoImportado,
-        ItemOrganograma,
-        MapeamentoCargoPatriarca,
-        OcorrenciaCargoImportacao,
-        OcorrenciaValidacaoImportacao,
-        Patriarca,
-        ProcessoCargaInicial,
-        RelatorioValidacaoImportacao,
-        ResolucaoValidacao,
-        StatusCarga,
-        StatusProgresso,
-        TipoCarga,
-        TokenEnvioCarga,
-        VariacaoCargoGlobal,
-    )
+    from apps.carga_org_lot.models import (AlternativaResolucaoValidacao,
+                                           CargoReferenciaGlobal,
+                                           CasoValidacaoImportacao,
+                                           ConjuntoLotacao, DetalheStatusCarga,
+                                           EnvioOrganogramaProdest,
+                                           EventoIntegracaoProdest,
+                                           HistoricoConjuntoLotacao,
+                                           HistoricoProcessoCargaInicial,
+                                           ImportacaoPlanilha, ItemLotacao,
+                                           ItemLotacaoImportado,
+                                           ItemOrganograma,
+                                           MapeamentoCargoPatriarca,
+                                           OcorrenciaCargoImportacao,
+                                           OcorrenciaValidacaoImportacao,
+                                           Patriarca, ProcessoCargaInicial,
+                                           RelatorioValidacaoImportacao,
+                                           ResolucaoValidacao, StatusCarga,
+                                           StatusProgresso, TipoCarga,
+                                           TokenEnvioCarga,
+                                           VariacaoCargoGlobal)
 
     def clean():
         DetalheStatusCarga.objects.all().delete()

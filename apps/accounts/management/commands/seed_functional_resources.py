@@ -27,4 +27,3 @@ class Command(BaseCommand):
                 f"{result['menus']} menus."
             )
         )
-

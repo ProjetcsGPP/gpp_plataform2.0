@@ -25,6 +25,7 @@ FIX: user.is_superuser=True seta is_portal_admin=True sem exigir UserRole
 
 import logging
 
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 
@@ -41,6 +42,12 @@ class RoleContextMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+
+        public_paths = getattr(settings, "PUBLIC_ANONYMOUS_PATHS", [])
+        if any(request.path.startswith(path) for path in public_paths):
+            request.user_roles = []
+            request.is_portal_admin = False
+            return self.get_response(request)
 
         # 🔥 BYPASS TOTAL PARA LOGOUT
         if getattr(request, "is_logout_request", False):

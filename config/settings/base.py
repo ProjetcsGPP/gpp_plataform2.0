@@ -3,7 +3,7 @@ GPP Plataform 2.0 — Base Settings
 Compartilhado entre development e production.
 Nunca usar diretamente — sempre usar development.py ou production.py.
 
-FASE-0: JWT/simplejwt removidos; SessionAuthentication como padrão DRF;
+FASE-0: JWT/simplejwt removidos; AppContextAuthentication como padrão DRF;
         configurações de sessão, CSRF, CSP e AppContextMiddleware adicionados.
         CSP no formato django-csp >= 4.0 (CONTENT_SECURITY_POLICY dict).
 FIX: AUTHORIZATION_EXEMPT_PATHS expandido para incluir /api/accounts/auth/
@@ -64,6 +64,7 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     "apps.core",
+    "apps.pub_institucional.apps.PublicacoesInstitucionaisConfig",
     "apps.accounts",
     "apps.portal",
     "apps.acoes_pngi",
@@ -126,7 +127,9 @@ DATABASES = {
         "HOST": env("DB_HOST", default="localhost"),
         "PORT": env("DB_PORT", default="5432"),
         "OPTIONS": {
-            "options": "-c search_path=public,acoes_pngi,carga_org_lot",
+            "options": (
+                "-c search_path=public,acoes_pngi,carga_org_lot,publicacoes"
+            ),
         },
     }
 }
@@ -142,15 +145,189 @@ CARGA_ORG_LOT_MAX_UPLOAD_BYTES = env.int(
 # Integração servidor-servidor com o CargaRH/PRODEST. As credenciais nunca
 # devem ser persistidas nos modelos nem devolvidas ao frontend.
 CARGARH_ENVIRONMENT = env("CARGARH_ENVIRONMENT", default="HML").upper()
-CARGARH_TOKEN_URL = env("CARGARH_TOKEN_URL", default="").strip()
-CARGARH_API_BASE_URL = env("CARGARH_API_BASE_URL", default="").strip().rstrip("/")
-CARGARH_CLIENT_ID = env("CARGARH_CLIENT_ID", default="").strip()
-CARGARH_CLIENT_SECRET = env("CARGARH_CLIENT_SECRET", default="").strip()
-CARGARH_CLIENT_SCOPE = env("CARGARH_CLIENT_SCOPE", default="").strip()
-CARGARH_TARGET_ENVIRONMENT = env(
+_CARGARH_LEGACY_TOKEN_URL = env("CARGARH_TOKEN_URL", default="").strip()
+_CARGARH_LEGACY_API_BASE_URL = env("CARGARH_API_BASE_URL", default="").strip()
+_CARGARH_LEGACY_CLIENT_SCOPE = env("CARGARH_CLIENT_SCOPE", default="").strip()
+_CARGARH_LEGACY_TARGET_ENVIRONMENT = env(
     "CARGARH_TARGET_ENVIRONMENT",
     default="",
 ).strip()
+
+for _cargarh_environment in ("HML", "PRD"):
+    globals()[f"CARGARH_{_cargarh_environment}_TOKEN_URL"] = env(
+        f"CARGARH_{_cargarh_environment}_TOKEN_URL",
+        default=_CARGARH_LEGACY_TOKEN_URL,
+    ).strip()
+    globals()[f"CARGARH_{_cargarh_environment}_API_BASE_URL"] = env(
+        f"CARGARH_{_cargarh_environment}_API_BASE_URL",
+        default=_CARGARH_LEGACY_API_BASE_URL,
+    ).strip().rstrip("/")
+    globals()[f"CARGARH_{_cargarh_environment}_CLIENT_SCOPE"] = env(
+        f"CARGARH_{_cargarh_environment}_CLIENT_SCOPE",
+        default=_CARGARH_LEGACY_CLIENT_SCOPE,
+    ).strip()
+    globals()[f"CARGARH_{_cargarh_environment}_TARGET_ENVIRONMENT"] = env(
+        f"CARGARH_{_cargarh_environment}_TARGET_ENVIRONMENT",
+        default=_CARGARH_LEGACY_TARGET_ENVIRONMENT,
+    ).strip()
+
+CARGARH_TOKEN_URL = globals().get(
+    f"CARGARH_{CARGARH_ENVIRONMENT}_TOKEN_URL",
+    "",
+)
+CARGARH_API_BASE_URL = globals().get(
+    f"CARGARH_{CARGARH_ENVIRONMENT}_API_BASE_URL",
+    "",
+)
+CARGARH_CLIENT_SCOPE = globals().get(
+    f"CARGARH_{CARGARH_ENVIRONMENT}_CLIENT_SCOPE",
+    "",
+)
+CARGARH_TARGET_ENVIRONMENT = globals().get(
+    f"CARGARH_{CARGARH_ENVIRONMENT}_TARGET_ENVIRONMENT",
+    "",
+)
+CARGARH_CLIENT_ID = env("CARGARH_CLIENT_ID", default="").strip()
+CARGARH_CLIENT_SECRET = env("CARGARH_CLIENT_SECRET", default="").strip()
+CARGARH_CREDENTIALS_PROVIDER = env(
+    "CARGARH_CREDENTIALS_PROVIDER",
+    default="environment",
+).strip().lower()
+CARGARH_OPENBAO_MOUNT_POINT = env(
+    "CARGARH_OPENBAO_MOUNT_POINT",
+    default="carga-org-lot",
+).strip()
+for _cargarh_environment in ("HML", "PRD"):
+    _cargarh_prefix = f"CARGARH_{_cargarh_environment}_OPENBAO"
+    _cargarh_runtime_prefix = _cargarh_environment.lower()
+    globals()[f"{_cargarh_prefix}_ROLE_ID_FILE"] = env(
+        f"{_cargarh_prefix}_ROLE_ID_FILE",
+        default=str(
+            BASE_DIR
+            / "infra/publicacoes-dev/runtime/openbao"
+            / f"carga_org_lot_{_cargarh_runtime_prefix}_role_id"
+        ),
+    )
+    globals()[f"{_cargarh_prefix}_SECRET_ID_FILE"] = env(
+        f"{_cargarh_prefix}_SECRET_ID_FILE",
+        default=str(
+            BASE_DIR
+            / "infra/publicacoes-dev/runtime/openbao"
+            / f"carga_org_lot_{_cargarh_runtime_prefix}_secret_id"
+        ),
+    )
+    globals()[f"{_cargarh_prefix}_SECRET_PATH"] = env(
+        f"{_cargarh_prefix}_SECRET_PATH",
+        default=f"dev/cargarh/{_cargarh_runtime_prefix}",
+    ).strip()
+OPENBAO_ADDR = env("OPENBAO_ADDR", default="http://127.0.0.1:58200").strip()
+OPENBAO_TIMEOUT_SECONDS = env.float("OPENBAO_TIMEOUT_SECONDS", default=5)
+
+# Integração compartilhada com relatórios do E-Docs/PRODEST. As credenciais
+# ficam fora do código e dos arquivos de seleção de patriarcas.
+GPP_EDOCS_ENVIRONMENT = env("GPP_EDOCS_ENVIRONMENT", default="HML").upper()
+GPP_EDOCS_CREDENTIALS_PROVIDER = env(
+    "GPP_EDOCS_CREDENTIALS_PROVIDER",
+    default="environment",
+).strip().lower()
+GPP_EDOCS_CLIENT_ID = env("GPP_EDOCS_CLIENT_ID", default="").strip()
+GPP_EDOCS_CLIENT_SECRET = env("GPP_EDOCS_CLIENT_SECRET", default="").strip()
+GPP_EDOCS_OPENBAO_MOUNT_POINT = env(
+    "GPP_EDOCS_OPENBAO_MOUNT_POINT",
+    default="gpp-shared",
+).strip()
+_GPP_EDOCS_DEFAULTS = {
+    "HML": {
+        "api_base_url": "https://api.treinamento.e-docs.es.gov.br",
+        "token_url": "https://acessocidadao.es.gov.br/is/connect/token",
+        "scope": "api-sigades-consultar",
+    },
+    "PRD": {
+        "api_base_url": "https://api.e-docs.es.gov.br",
+        "token_url": "https://acessocidadao.es.gov.br/is/connect/token",
+        "scope": "api-sigades-consultar",
+    },
+}
+for _edocs_environment, _edocs_defaults in _GPP_EDOCS_DEFAULTS.items():
+    _edocs_prefix = f"GPP_EDOCS_{_edocs_environment}"
+    _edocs_runtime_prefix = _edocs_environment.lower()
+    globals()[f"{_edocs_prefix}_API_BASE_URL"] = env(
+        f"{_edocs_prefix}_API_BASE_URL",
+        default=_edocs_defaults["api_base_url"],
+    ).strip().rstrip("/")
+    globals()[f"{_edocs_prefix}_TOKEN_URL"] = env(
+        f"{_edocs_prefix}_TOKEN_URL",
+        default=_edocs_defaults["token_url"],
+    ).strip()
+    globals()[f"{_edocs_prefix}_SCOPE"] = env(
+        f"{_edocs_prefix}_SCOPE",
+        default=_edocs_defaults["scope"],
+    ).strip()
+    globals()[f"{_edocs_prefix}_OPENBAO_ROLE_ID_FILE"] = env(
+        f"{_edocs_prefix}_OPENBAO_ROLE_ID_FILE",
+        default=str(
+            BASE_DIR
+            / "infra/publicacoes-dev/runtime/openbao"
+            / f"gpp_shared_edocs_{_edocs_runtime_prefix}_role_id"
+        ),
+    )
+    globals()[f"{_edocs_prefix}_OPENBAO_SECRET_ID_FILE"] = env(
+        f"{_edocs_prefix}_OPENBAO_SECRET_ID_FILE",
+        default=str(
+            BASE_DIR
+            / "infra/publicacoes-dev/runtime/openbao"
+            / f"gpp_shared_edocs_{_edocs_runtime_prefix}_secret_id"
+        ),
+    )
+    globals()[f"{_edocs_prefix}_OPENBAO_SECRET_PATH"] = env(
+        f"{_edocs_prefix}_OPENBAO_SECRET_PATH",
+        default=f"dev/edocs/{_edocs_runtime_prefix}",
+    ).strip()
+
+GPP_EDOCS_CONNECT_TIMEOUT_SECONDS = env.float(
+    "GPP_EDOCS_CONNECT_TIMEOUT_SECONDS",
+    default=10,
+)
+GPP_EDOCS_READ_TIMEOUT_SECONDS = env.float(
+    "GPP_EDOCS_READ_TIMEOUT_SECONDS",
+    default=60,
+)
+GPP_EDOCS_GET_MAX_RETRIES = env.int("GPP_EDOCS_GET_MAX_RETRIES", default=2)
+GPP_EDOCS_RETRY_BACKOFF_SECONDS = env.float(
+    "GPP_EDOCS_RETRY_BACKOFF_SECONDS",
+    default=0.5,
+)
+
+# ─── Localidades IBGE (recurso compartilhado) ───────────────────────────────
+IBGE_UF_PADRAO = env.int("IBGE_UF_PADRAO", default=32)
+IBGE_LOCALIDADES_BASE_URL = env(
+    "IBGE_LOCALIDADES_BASE_URL",
+    default="https://servicodados.ibge.gov.br/api/v1/localidades/",
+)
+IBGE_LOCALIDADES_CONNECT_TIMEOUT_SECONDS = env.float(
+    "IBGE_LOCALIDADES_CONNECT_TIMEOUT_SECONDS",
+    default=5,
+)
+IBGE_LOCALIDADES_READ_TIMEOUT_SECONDS = env.float(
+    "IBGE_LOCALIDADES_READ_TIMEOUT_SECONDS",
+    default=15,
+)
+IBGE_LOCALIDADES_MAX_RETRIES = env.int(
+    "IBGE_LOCALIDADES_MAX_RETRIES",
+    default=2,
+)
+IBGE_LOCALIDADES_CACHE_SECONDS = env.int(
+    "IBGE_LOCALIDADES_CACHE_SECONDS",
+    default=86400,
+)
+GPP_EFLOW_CSV_MAX_BYTES = env.int(
+    "GPP_EFLOW_CSV_MAX_BYTES",
+    default=10 * 1024 * 1024,
+)
+GPP_EFLOW_CSV_MAX_ROWS = env.int(
+    "GPP_EFLOW_CSV_MAX_ROWS",
+    default=100_000,
+)
 CARGARH_CONNECT_TIMEOUT_SECONDS = env.float(
     "CARGARH_CONNECT_TIMEOUT_SECONDS",
     default=10,
@@ -163,6 +340,10 @@ CARGARH_TOKEN_SAFETY_MARGIN_SECONDS = env.int(
     "CARGARH_TOKEN_SAFETY_MARGIN_SECONDS",
     default=60,
 )
+CARGARH_TOKEN_CACHE_ALIAS = env(
+    "CARGARH_TOKEN_CACHE_ALIAS",
+    default="default",
+).strip() or "default"
 CARGARH_GET_MAX_RETRIES = env.int("CARGARH_GET_MAX_RETRIES", default=2)
 CARGARH_RETRY_BACKOFF_SECONDS = env.float(
     "CARGARH_RETRY_BACKOFF_SECONDS",
@@ -182,11 +363,31 @@ CARGA_ORG_LOT_MONITOR_INTERVAL_SECONDS = env.int(
     "CARGA_ORG_LOT_MONITOR_INTERVAL_SECONDS",
     default=60,
 )
+CARGA_ORG_LOT_REMOTE_STALE_WARNING_SECONDS = env.int(
+    "CARGA_ORG_LOT_REMOTE_STALE_WARNING_SECONDS",
+    default=1800,
+)
+CARGA_ORG_LOT_REMOTE_INDETERMINATE_AFTER_SECONDS = env.int(
+    "CARGA_ORG_LOT_REMOTE_INDETERMINATE_AFTER_SECONDS",
+    default=7200,
+)
+GPP_EDOCS_RECOVERY_INTERVAL_SECONDS = env.int(
+    "GPP_EDOCS_RECOVERY_INTERVAL_SECONDS",
+    default=60,
+)
+GPP_EDOCS_REQUEST_STALE_SECONDS = env.int(
+    "GPP_EDOCS_REQUEST_STALE_SECONDS",
+    default=120,
+)
 CELERY_BEAT_SCHEDULE = {
     "monitorar-envios-organograma-prodest": {
         "task": "carga_org_lot.monitorar_envios_organograma",
         "schedule": CARGA_ORG_LOT_MONITOR_INTERVAL_SECONDS,
-    }
+    },
+    "recuperar-coletas-mensais-edocs": {
+        "task": "pub_institucional.recuperar_coletas_mensais_edocs",
+        "schedule": GPP_EDOCS_RECOVERY_INTERVAL_SECONDS,
+    },
 }
 
 CHANNEL_REDIS_URL = env(
@@ -208,8 +409,7 @@ CACHES = {
         "TIMEOUT": 300,
         "BINARY": True,
         "OPTIONS": {
-            "tcp_nodelay": True,
-            "ketama": True,
+            "no_delay": True,
         },
     }
 }
@@ -260,6 +460,13 @@ CSRF_TRUSTED_ORIGINS = env.list(
 # CSRF_COOKIE_SECURE — definido por ambiente (False em dev, True em prod)
 
 # ─── DRF ──────────────────────────────────────────────────────────────────────────────
+LOGIN_THROTTLE_RATE = env("LOGIN_THROTTLE_RATE", default="5/min")
+PUBLICACOES_PUBLIC_THROTTLE_RATE = env(
+    "PUBLICACOES_PUBLIC_THROTTLE_RATE",
+    default="60/min",
+)
+DRF_NUM_PROXIES = env.int("DRF_NUM_PROXIES", default=0)
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "apps.accounts.authentication.AppContextAuthentication",
@@ -274,8 +481,12 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": "20/min",
         "user": "200/min",
-        "login": "5/min",
+        "login": LOGIN_THROTTLE_RATE,
+        "publicacoes_publicas": PUBLICACOES_PUBLIC_THROTTLE_RATE,
     },
+    # Só confia em X-Forwarded-For quando a quantidade exata de proxies
+    # institucionais for configurada. O default usa REMOTE_ADDR e evita spoof.
+    "NUM_PROXIES": DRF_NUM_PROXIES,
     "DEFAULT_PAGINATION_CLASS": "common.pagination.StandardResultsSetPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_RENDERER_CLASSES": [
@@ -320,7 +531,7 @@ SPECTACULAR_SETTINGS = {
         "4. Preencha o body com suas credenciais:\n\n"
         "```json\n"
         "{\n"
-        '  "username": "seu.usuario",\n'
+        '  "identifier": "seu.usuario",\n'
         '  "password": "sua_senha",\n'
         '  "app_context": "PORTAL"\n'
         "}\n"
@@ -332,9 +543,10 @@ SPECTACULAR_SETTINGS = {
         "Sessões criadas externamente (Postman, scripts) não são compartilhadas com o browser.\n\n"
         "---\n\n"
         "## 🍪 Mecanismo de autenticação\n\n"
-        "A API utiliza **SessionAuthentication** com cookies HttpOnly por aplicação. "
+        "A API utiliza **AppContextAuthentication** com cookies HttpOnly por aplicação. "
         "O nome do cookie varia conforme o `app_context` usado no login: "
-        "`gpp_session_PORTAL`, `gpp_session_CARGA_ORG_LOT`, `gpp_session_ACOES_PNGI`, etc. "
+        "`gpp_session_PORTAL`, `gpp_session_CARGA_ORG_LOT`, "
+        "`gpp_session_ACOES_PNGI` e `gpp_session_PUB_INSTITUCIONAL`. "
         "O browser envia o cookie correto automaticamente em todas as requisições desta aba.\n\n"
         "---\n\n"
         "## 📋 Estrutura dos módulos\n\n"
@@ -346,6 +558,8 @@ SPECTACULAR_SETTINGS = {
         "| **3 - Ações PNGI** | Ações, prazos, anotações e destaques |\n"
         "| **4 - Carga Org/Lot** | Carga de organogramas e loteamentos |\n"
         "| **5 - Utilitários** | Health check e logs de frontend |\n"
+        "| **6 - Recursos Funcionais** | Capabilities e menus dinâmicos |\n"
+        "| **7 - Publicações Institucionais** | Catálogo e coletas E-Docs |\n"
     ),
     "VERSION": "2.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
@@ -354,6 +568,7 @@ SPECTACULAR_SETTINGS = {
         {"portalAuth": []},
         {"cargaOrgLotAuth": []},
         {"acoesPngiAuth": []},
+        {"publicacoesAuth": []},
     ],
     "COMPONENTS": {
         "securitySchemes": {
@@ -374,6 +589,14 @@ SPECTACULAR_SETTINGS = {
                 "in": "cookie",
                 "name": "gpp_session_ACOES_PNGI",
                 "description": "Sessão criada com app_context=ACOES_PNGI",
+            },
+            "publicacoesAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "gpp_session_PUB_INSTITUCIONAL",
+                "description": (
+                    "Sessão criada com app_context=PUB_INSTITUCIONAL"
+                ),
             },
         },
     },
@@ -401,6 +624,10 @@ SPECTACULAR_SETTINGS = {
         {
             "name": "6 - Recursos Funcionais",
             "description": "Capabilities e navegação funcional por aplicação",
+        },
+        {
+            "name": "7 - Publicações Institucionais",
+            "description": "Catálogo, coletas, divergências e auditoria E-Docs",
         },
     ],
     # Filtra paths que não devem aparecer na documentação
@@ -442,10 +669,17 @@ AUTHORIZATION_EXEMPT_PATHS = [
     "/admin/",
     "/admin",
     "/api/health/",
+    "/api/public/v1/publicacoes-institucionais/",
     "/__debug__/",
     "/api/schema/",  # ← schema JSON
     "/api/docs/",  # ← Swagger UI
     "/api/redoc/",  # ← ReDoc UI
+]
+
+# Endpoints públicos que não devem resolver sessão, aplicação ou roles. A lista
+# é deliberadamente mais restrita que AUTHORIZATION_EXEMPT_PATHS.
+PUBLIC_ANONYMOUS_PATHS = [
+    "/api/public/v1/publicacoes-institucionais/",
 ]
 
 # ─── Rotas autenticadas sem exigência de role de aplicação ────────────────────────
