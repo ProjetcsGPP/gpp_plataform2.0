@@ -272,6 +272,42 @@ def test_rotas_mensais_expoem_coleta_resultados_fontes_e_auditoria():
     )
 
 
+def test_api_ordena_coletas_por_competencia_composta_e_revisao(
+    gestor_publicacoes_mensal,
+):
+    criadas = {}
+    for ano, mes, revisao in (
+        (2024, 9, 1),
+        (2024, 10, 1),
+        (2024, 9, 2),
+        (2025, 1, 1),
+    ):
+        competencia, _ = CompetenciaEdocs.objects.get_or_create(ano=ano, mes=mes)
+        coleta = ColetaMensalEdocs.objects.create(
+            competencia=competencia,
+            revisao=revisao,
+            ambiente="PRD",
+            situacao=SituacaoColetaMensalEdocs.SUCESSO,
+        )
+        criadas[(ano, mes, revisao)] = str(coleta.pk)
+
+    requisicao = APIRequestFactory().get(
+        "/api/pub-institucional/coletas-mensais-edocs/",
+        {"ordering": "-competencia,-revisao"},
+        HTTP_X_APP_CODE="PUB_INSTITUCIONAL",
+    )
+    force_authenticate(requisicao, user=gestor_publicacoes_mensal)
+    resposta = VisaoColetaMensalEdocs.as_view({"get": "list"})(requisicao)
+
+    assert resposta.status_code == 200
+    assert [item["id"] for item in resposta.data["results"]] == [
+        criadas[(2025, 1, 1)],
+        criadas[(2024, 10, 1)],
+        criadas[(2024, 9, 2)],
+        criadas[(2024, 9, 1)],
+    ]
+
+
 def test_api_solicita_coleta_assincrona(
     patriarca_selecionado,
     gestor_publicacoes_mensal,

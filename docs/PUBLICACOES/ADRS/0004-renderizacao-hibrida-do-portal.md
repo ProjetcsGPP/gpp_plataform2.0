@@ -1,7 +1,7 @@
 # ADR-0004 — Renderização híbrida do Portal
 
-**Status:** aceito  
-**Data:** 2026-10-26  
+**Status:** aceito
+**Data:** 2026-10-26
 **Matriz:** `PUB-013`
 
 ## Contexto

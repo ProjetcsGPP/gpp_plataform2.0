@@ -81,4 +81,3 @@ identificador/prefixo após a emissão.
 | Responsável do consumidor | | | | |
 | Gestão de publicações | | | | |
 | Segurança, quando aplicável | | | | |
-

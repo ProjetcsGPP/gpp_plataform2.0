@@ -149,4 +149,3 @@ def _normalize_legacy_menu_code(application: Aplicacao) -> None:
         return
 
     legacy.delete()
-

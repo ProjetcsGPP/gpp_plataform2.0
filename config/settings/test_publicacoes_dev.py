@@ -16,7 +16,7 @@ from .test import *  # noqa: F401,F403
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "config.db_backends.postgresql_test",
         "NAME": "gpp_plataform_dev",
         "USER": "gpp_test_runner",
         "HOST": "127.0.0.1",

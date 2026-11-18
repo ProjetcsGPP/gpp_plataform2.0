@@ -163,6 +163,7 @@ class TestPermissoesDeclaradas:
             "testar_conexao": "change_importacaoplanilha",
             "consultar_status": "change_importacaoplanilha",
             "consultar_relatorio": "change_importacaoplanilha",
+            "encerrar_monitoramento": "change_importacaoplanilha",
             "acompanhamento": "view_importacaoplanilha",
             "eventos": "view_importacaoplanilha",
         }

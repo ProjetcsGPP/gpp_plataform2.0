@@ -1,6 +1,6 @@
 # Plano de Segurança da Aplicação `PUBLICACOES`
 
-**Status:** baseline para threat model e gates  
+**Status:** baseline para threat model e gates
 **Princípio:** nenhum endpoint público ou integração real entra em produção sem
 validação dos controles correspondentes
 

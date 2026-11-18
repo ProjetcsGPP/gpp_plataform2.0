@@ -1,7 +1,7 @@
 # Plano de correção da fase e dos logs de autenticação CargaRH
 
-**Preparado em:** 2026-10-27  
-**Atualizado em:** 2026-10-28  
+**Preparado em:** 2026-10-27
+**Atualizado em:** 2026-10-28
 **Estado:** implementado e validado em testes; aguarda novo envio autorizado
 
 ## 1. Evidência que motivou a correção

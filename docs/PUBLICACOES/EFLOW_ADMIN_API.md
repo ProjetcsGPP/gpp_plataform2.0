@@ -1,7 +1,7 @@
 # API administrativa da coleta E-Flow
 
-**Base:** `/api/pub-institucional/`  
-**Autenticação:** sessão da aplicação `PUB_INSTITUCIONAL`  
+**Base:** `/api/pub-institucional/`
+**Autenticação:** sessão da aplicação `PUB_INSTITUCIONAL`
 **Fonte:** exportação CSV manual do E-Flow Admin
 
 ## 1. Decisão de persistência

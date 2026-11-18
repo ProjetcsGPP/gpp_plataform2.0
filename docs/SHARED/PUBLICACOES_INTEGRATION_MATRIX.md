@@ -1,11 +1,11 @@
 # Matriz integrada — PUBLICACOES, Portal e aplicações relacionadas
 
-**Status:** baseline compartilhada para planejamento e validação  
+**Status:** baseline compartilhada para planejamento e validação
 **Data de consolidação:** 2026-10-23
 
 **Última reconfirmação:** 2026-11-03
 
-**Repositório mantenedor:** backend  
+**Repositório mantenedor:** backend
 **Branch de origem:** `feat/publicacoes-informacoes`
 
 ## 1. Finalidade e uso obrigatório

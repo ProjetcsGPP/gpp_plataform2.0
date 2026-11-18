@@ -1,7 +1,7 @@
 # Threat Model — `PUBLICACOES` e Portal
 
-**Versão inicial:** 2026-10-26  
-**Escopo:** aplicação administrativa, Portal público, integrações e artefatos  
+**Versão inicial:** 2026-10-26
+**Escopo:** aplicação administrativa, Portal público, integrações e artefatos
 **Referências:** `PUB-002`, `PUB-007`, `PUB-010`, `PUB-012` a `PUB-014`,
 `PUB-020` e `PUB-021`
 

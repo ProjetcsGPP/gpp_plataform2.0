@@ -1,7 +1,7 @@
 # ADR-0005 — Fronteiras de cache público e autenticado
 
-**Status:** aceito  
-**Data:** 2026-10-26  
+**Status:** aceito
+**Data:** 2026-10-26
 **Matriz:** `PUB-014`
 
 ## Contexto

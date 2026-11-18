@@ -1,6 +1,6 @@
 # ADR-0006 — Serviços de controle e exceções governadas
 
-**Status:** aceito  
+**Status:** aceito
 **Data:** 2026-10-26
 
 ## Contexto

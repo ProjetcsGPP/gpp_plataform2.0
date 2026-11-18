@@ -1,7 +1,7 @@
 # ADR-0003 — Rotas públicas, autenticadas e redirects
 
-**Status:** aceito  
-**Data:** 2026-10-26  
+**Status:** aceito
+**Data:** 2026-10-26
 **Matriz:** `PUB-012`
 
 ## Contexto

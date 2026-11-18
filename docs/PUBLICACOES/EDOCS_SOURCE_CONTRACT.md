@@ -1,9 +1,9 @@
 # Contrato da fonte E-Docs — quantitativos mensais
 
-**Código:** `EDOCS_QUANTITATIVOS_MENSAIS_V1`  
-**Versão documental:** `1.0-proposta`  
-**Estado:** preenchido tecnicamente; pendente de responsáveis e aprovação  
-**Escopo:** EDOC-01 a EDOC-05 e normalização operacional existente  
+**Código:** `EDOCS_QUANTITATIVOS_MENSAIS_V1`
+**Versão documental:** `1.0-proposta`
+**Estado:** preenchido tecnicamente; pendente de responsáveis e aprovação
+**Escopo:** EDOC-01 a EDOC-05 e normalização operacional existente
 **Não autoriza:** publicação pública ou agendamento periódico automático. A
 ingestão administrativa versionada foi implementada, mas continua sem
 autorizar divulgação.

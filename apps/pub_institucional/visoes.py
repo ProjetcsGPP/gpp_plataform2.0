@@ -687,14 +687,39 @@ class VisaoEventoAuditoriaPatriarcaEdocs(
         return consulta
 
 
+class OrdenacaoColetaMensalEdocs(OrderingFilter):
+    """Expande a competência lógica para ano e mês no banco de dados."""
+
+    def filter_queryset(self, request, queryset, view):
+        ordenacao = self.get_ordering(request, queryset, view)
+        if not ordenacao:
+            return queryset
+        campos = []
+        for campo in ordenacao:
+            if campo.lstrip("-") == "competencia":
+                prefixo = "-" if campo.startswith("-") else ""
+                campos.extend(
+                    (f"{prefixo}competencia__ano", f"{prefixo}competencia__mes")
+                )
+            else:
+                campos.append(campo)
+        return queryset.order_by(*campos)
+
+
 @extend_schema(tags=["7 - Publicações Institucionais"])
 class VisaoColetaMensalEdocs(MixinPermissaoPorAcao, viewsets.ReadOnlyModelViewSet):
     """Solicita e acompanha revisões mensais dos relatórios E-Docs."""
 
     queryset = ColetaMensalEdocs.objects.select_related("competencia")
     serializer_class = SerializadorColetaMensalEdocs
-    filter_backends = [OrderingFilter]
-    ordering_fields = ["criado_em", "iniciada_em", "concluida_em", "revisao"]
+    filter_backends = [OrdenacaoColetaMensalEdocs]
+    ordering_fields = [
+        "competencia",
+        "criado_em",
+        "iniciada_em",
+        "concluida_em",
+        "revisao",
+    ]
     ordering = ["-criado_em"]
     mapa_permissoes = {
         "list": "view_coletamensaledocs",

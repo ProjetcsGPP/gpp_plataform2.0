@@ -1,7 +1,7 @@
 # ADR-0002 — `PORTAL_ADMIN` segue o padrão da plataforma
 
-**Status:** aceito  
-**Data:** 2026-10-23  
+**Status:** aceito
+**Data:** 2026-10-23
 **Matriz:** `PUB-010`
 
 ## Contexto

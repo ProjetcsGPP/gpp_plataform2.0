@@ -247,7 +247,7 @@ event = json.load(sys.stdin)
 required = {"time", "request_id", "method", "uri", "status", "duration"}
 if not required.issubset(event):
     raise SystemExit(1)
-' 
+'
 
     rate_results="$(mktemp "${infra_dir}/runtime/rate-limit.XXXXXX")"
     for _request in $(seq 1 80); do

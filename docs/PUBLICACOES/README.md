@@ -1,7 +1,7 @@
 # Gestão e Distribuição de Informações Públicas
 
 **Status:** arquitetura parcialmente decidida; F0 e F0.5 bloqueiam F1
-**Branch inicial:** `feat/publicacoes-informacoes`  
+**Branch inicial:** `feat/publicacoes-informacoes`
 **Última revisão:** 2026-11-03
 
 Este diretório reúne a documentação de planejamento da futura aplicação

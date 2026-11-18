@@ -2,7 +2,7 @@
 
 **Data da verificação inicial:** 2026-10-26
 **Última reconfirmação documental:** 2026-11-03
-**Escopo:** evidências presentes nos repositórios backend e frontend  
+**Escopo:** evidências presentes nos repositórios backend e frontend
 **Matriz:** `PUB-020` e `PUB-022`
 
 Este inventário registra somente o que pôde ser comprovado no código e na

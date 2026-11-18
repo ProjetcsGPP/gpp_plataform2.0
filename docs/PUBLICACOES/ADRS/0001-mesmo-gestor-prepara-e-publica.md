@@ -1,7 +1,7 @@
 # ADR-0001 — Mesmo gestor prepara e publica
 
-**Status:** aceito  
-**Data:** 2026-10-23  
+**Status:** aceito
+**Data:** 2026-10-23
 **Matriz:** `PUB-009`
 
 ## Contexto

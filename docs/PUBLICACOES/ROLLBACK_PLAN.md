@@ -1,7 +1,7 @@
 # Plano de Rollback — `PUBLICACOES` e novo Portal
 
-**Versão inicial:** 2026-10-26  
-**Escopo:** Fases 1 a 3; integrações reais exigirão extensão própria  
+**Versão inicial:** 2026-10-26
+**Escopo:** Fases 1 a 3; integrações reais exigirão extensão própria
 **Princípio:** rollback não exclui publicação, snapshot, artefato ou auditoria
 
 ## Controles prévios obrigatórios

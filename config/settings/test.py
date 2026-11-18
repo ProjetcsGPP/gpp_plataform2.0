@@ -34,6 +34,10 @@ from .development import *  # noqa: F401, F403
 
 # pylint: enable=wildcard-import,unused-wildcard-import
 
+# O flush transacional precisa alcançar as FKs entre public e os schemas
+# explícitos das aplicações. Esta especialização existe apenas nos testes.
+DATABASES["default"]["ENGINE"] = "config.db_backends.postgresql_test"  # noqa: F405
+
 # ---------------------------------------------------------------------------
 # 1. Cache — LocMemCache (in-process, zerado a cada run)
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # Guia operacional do OpenBao em DEV
 
-**Escopo:** estação de desenvolvimento deste projeto  
+**Escopo:** estação de desenvolvimento deste projeto
 **Não define:** operação, rotação ou arquitetura de HML/PRD
 
 ## 1. Para que ele existe aqui

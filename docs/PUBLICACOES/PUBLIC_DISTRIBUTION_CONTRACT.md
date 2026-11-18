@@ -1,7 +1,7 @@
 # Contrato de distribuição pública de Publicações Institucionais
 
-**Versão do contrato:** 1.0  
-**Situação:** backend implementado; integração e apresentação frontend pendentes  
+**Versão do contrato:** 1.0
+**Situação:** backend implementado; integração e apresentação frontend pendentes
 **Decisões relacionadas:** `PUB-002`, `PUB-014`, `PUB-017`, `PUB-023`,
 `PUB-024` e `PUB-025`
 

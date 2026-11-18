@@ -108,4 +108,3 @@ Confirmar explicitamente:
 | Responsável técnico da origem | | | | |
 | Gestão de publicações | | | | |
 | Segurança/privacidade, quando aplicável | | | | |
-

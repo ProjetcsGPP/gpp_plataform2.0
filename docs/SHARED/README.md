@@ -1,9 +1,9 @@
 # Documentos compartilhados entre aplicações
 
 **Escopo:** decisões e contratos que afetam mais de uma aplicação ou
-repositório  
+repositório
 **Autoridade:** coordenação transversal; não substitui ADR, OpenAPI, contrato
-de fonte ou documentação operacional detalhada  
+de fonte ou documentação operacional detalhada
 **Última revisão:** 2026-11-03
 
 Esta pasta é a referência comum mantida no repositório backend. Chats e equipes

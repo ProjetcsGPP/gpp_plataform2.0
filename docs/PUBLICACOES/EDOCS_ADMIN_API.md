@@ -1,7 +1,7 @@
 # API Administrativa do Catálogo E-Docs
 
-**Status:** contrato inicial implementado  
-**Aplicação IAM:** `PUB_INSTITUCIONAL`  
+**Status:** contrato inicial implementado
+**Aplicação IAM:** `PUB_INSTITUCIONAL`
 **Prefixo HTTP:** `/api/pub-institucional/`
 
 ## 1. Autenticação e autorização
@@ -66,6 +66,12 @@ da plataforma. Nenhum endpoint verifica o nome de uma role.
 | `GET /ibge/municipios/` | Lista, por nome, apenas municípios da UF padrão ainda não cadastrados. |
 
 Todos os caminhos da tabela são relativos a `/api/pub-institucional/`.
+
+Na lista `GET /coletas-mensais-edocs/`, o parâmetro lógico `competencia`
+ordena por `competencia__ano` e depois `competencia__mes`. Para exibir a
+competência mais recente e, dentro dela, a revisão mais alta, usar
+`?ordering=-competencia,-revisao`. A resposta continua expondo `ano`, `mes`
+e `revisao` como campos separados; não existe coluna adicional no banco.
 Listagens usam o envelope paginado padrão do projeto, com `count`, `next`,
 `previous` e `results`.
 

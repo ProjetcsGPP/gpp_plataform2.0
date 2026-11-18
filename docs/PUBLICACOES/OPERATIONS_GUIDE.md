@@ -1,6 +1,6 @@
 # Guia Operacional Futuro
 
-**Status:** desenho da operação; telas e nomes podem mudar  
+**Status:** desenho da operação; telas e nomes podem mudar
 **Perfil funcional inicial:** `GESTOR_PUBLICACOES`
 
 ## 1. Atores

@@ -1,7 +1,7 @@
 # Serviços e contratos de controles de segurança
 
-**Status:** decisão arquitetural inicial  
-**Data:** 2026-10-26  
+**Status:** decisão arquitetural inicial
+**Data:** 2026-10-26
 **Escopo:** DEV e contrato obrigatório para ambientes futuros
 
 ## 1. Princípio

@@ -1,9 +1,9 @@
 # Análise inicial do CSV de definições disponíveis do E-Flow
 
-**Arquivo observado:** `E-Flow_Definições_de_Fluxo_disponíveis_(20261110_103545).csv`  
-**Data indicada no nome:** 2026-11-10 10:35:45  
+**Arquivo observado:** `E-Flow_Definições_de_Fluxo_disponíveis_(20261110_103545).csv`
+**Data indicada no nome:** 2026-11-10 10:35:45
 **Estado:** fonte, indicadores e importação administrativa implementados;
-contrato de publicação ainda pendente  
+contrato de publicação ainda pendente
 **SHA-256:** `74a668fdc333ff7ceec3a1f1ecb3b5c42752e3b8eab6401e6a6ee1a4173ba809`
 
 ## 1. Origem e limite da evidência

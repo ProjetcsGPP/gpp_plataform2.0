@@ -1,7 +1,7 @@
 # API administrativa de Publicações Institucionais
 
-**Base:** `/api/pub-institucional/`  
-**Autenticação:** sessão da aplicação `PUB_INSTITUCIONAL`  
+**Base:** `/api/pub-institucional/`
+**Autenticação:** sessão da aplicação `PUB_INSTITUCIONAL`
 **Início da série histórica:** janeiro de 2024
 
 ## 1. Separação entre coleta e publicação

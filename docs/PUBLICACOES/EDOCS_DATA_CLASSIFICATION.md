@@ -1,7 +1,7 @@
 # Classificação dos dados da coleta E-Docs
 
-**Versão:** `1.0-proposta`  
-**Estado:** inventário preenchido; aprovação funcional e retenção pendentes  
+**Versão:** `1.0-proposta`
+**Estado:** inventário preenchido; aprovação funcional e retenção pendentes
 **Escopo:** EDOC-01 a EDOC-05, seleção local, evidências e planilha mensal
 
 Esta classificação atende documentalmente a `PRE-003`, mas não encerra o gate
