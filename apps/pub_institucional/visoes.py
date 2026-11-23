@@ -1189,7 +1189,7 @@ class VisaoEventoAuditoriaPreferenciaEflow(
 
     def get_queryset(self):
         return EventoAuditoriaPreferenciaEflow.objects.filter(
-            preferencia__usuario=self.request.user
+            preferencia__usuario_id=self.request.user.pk
         ).select_related("preferencia")
 
 

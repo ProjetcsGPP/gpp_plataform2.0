@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError, connection, transaction
 from django.urls import resolve
 from rest_framework.test import APIRequestFactory, force_authenticate
 
@@ -289,7 +290,7 @@ def test_usuario_inicializa_e_altera_preferencia_sem_justificativa(
         "alterar_preferencia_exibicao"
     ]
     preferencia = PreferenciaExibicaoEflow.objects.get(
-        usuario=gestor_publicacoes_eflow
+        usuario_id=gestor_publicacoes_eflow.pk
     )
     assert preferencia.eventos_auditoria.get().tipo_evento == (
         "PREFERENCIA_INICIALIZADA"
@@ -323,3 +324,27 @@ def test_usuario_inicializa_e_altera_preferencia_sem_justificativa(
     force_authenticate(requisicao, user=gestor_publicacoes_eflow)
     alterar(requisicao)
     assert preferencia.eventos_auditoria.count() == 2
+
+
+def test_preferencia_preserva_usuario_logico_sem_fk_com_iam():
+    usuario_id = 987654321
+    preferencia = PreferenciaExibicaoEflow.objects.create(usuario_id=usuario_id)
+
+    assert preferencia.usuario_id == usuario_id
+    assert not User.objects.filter(pk=usuario_id).exists()
+    with transaction.atomic(), pytest.raises(IntegrityError):
+        PreferenciaExibicaoEflow.objects.create(usuario_id=usuario_id)
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT count(*)
+            FROM pg_constraint AS restricao
+            JOIN pg_class AS tabela ON tabela.oid = restricao.conrelid
+            JOIN pg_namespace AS esquema ON esquema.oid = tabela.relnamespace
+            WHERE restricao.contype = 'f'
+              AND esquema.nspname = 'publicacoes'
+              AND tabela.relname = 'preferencia_exibicao_eflow'
+            """
+        )
+        assert cursor.fetchone()[0] == 0

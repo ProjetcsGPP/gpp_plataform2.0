@@ -15,18 +15,57 @@ Configurações globais de pytest que se aplicam a todas as apps.
 # Também carregado automaticamente pelo pytest, garantindo que o sys.path
 # parta sempre da raiz do projeto em ambos os runners.
 
+import fcntl
+import hashlib
+import os
 import re
+import tempfile
 
 import pytest
 
 
-def pytest_configure(config):
-    """
-    Hook chamado antes de qualquer coleta de testes.
-    Garante que o Django está configurado via DJANGO_SETTINGS_MODULE.
-    pytest-django cuida da configuração automática.
-    """
-    pass
+def pytest_sessionstart(session):
+    """Impede duas sessões pytest de usarem o mesmo PostgreSQL reutilizado."""
+    config = session.config
+    if not config.getoption("reuse_db", default=False):
+        return
+
+    from django.conf import settings as dj_settings
+
+    database = dj_settings.DATABASES["default"]
+    if "postgresql" not in database["ENGINE"]:
+        return
+    # Não incluir senha nem nome do usuário na chave ou na mensagem.
+    identidade = "|".join(str(database.get(campo, "")) for campo in (
+        "HOST", "PORT", "NAME",
+    ))
+    sufixo = hashlib.sha256(identidade.encode()).hexdigest()[:16]
+    caminho = os.path.join(
+        tempfile.gettempdir(),
+        f"gpp-pytest-db-{os.getuid()}-{sufixo}.lock",
+    )
+    descritor = os.open(
+        caminho,
+        os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,
+        0o600,
+    )
+    try:
+        fcntl.flock(descritor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        os.close(descritor)
+        raise pytest.UsageError(
+            "Outra sessão pytest já usa este PostgreSQL de testes com "
+            "--reuse-db. Aguarde o término antes de iniciar nova suíte."
+        ) from exc
+    config._gpp_test_db_lock_fd = descritor  # pylint: disable=protected-access
+
+
+def pytest_sessionfinish(session, exitstatus):  # pylint: disable=unused-argument
+    """Libera a trava mesmo quando a suíte falha ou é interrompida."""
+    descritor = getattr(session.config, "_gpp_test_db_lock_fd", None)
+    if descritor is not None:
+        fcntl.flock(descritor, fcntl.LOCK_UN)
+        os.close(descritor)
 
 
 @pytest.fixture(scope="session", autouse=True)

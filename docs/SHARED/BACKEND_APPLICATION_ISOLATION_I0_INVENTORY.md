@@ -15,6 +15,47 @@ existente passou a ignorar sessão e cadastro de aplicações e a enviar
 **somente vivacidade**, não prontidão. Este documento complementa o
 [plano de isolamento](./BACKEND_APPLICATION_ISOLATION_PLAN.md).
 
+**Atualização em 2026-11-23:** a FK ativa entre
+`publicacoes.preferencia_exibicao_eflow` e `public.auth_user` foi confirmada
+por consulta ao catálogo do PostgreSQL. O modelo foi convertido para
+`usuario_id` lógico, preservando coluna e unicidade, e a migração `0015`
+remove somente a restrição física. Passou no banco de testes e foi aplicada
+de forma direcionada ao `gpp_plataform`, após confirmar que era a única
+migração pendente. A consulta posterior mostrou zero FKs entre schemas de
+domínio e `public`, uma preferência preservada e unicidade mantida. A API
+mantém `usuario_id` no DTO e a
+auditoria individual continua vinculada à preferência. O piloto de revogação
+de tarefas de Carga também já existe atrás de flag desligada, substituindo as
+referências abaixo que o descrevem como pendente. Foram preparados perfis
+locais opt-in e proxy alternativo, detalhados em
+[BACKEND_CARGA_ISOLAMENTO_PILOTO.md](./BACKEND_CARGA_ISOLAMENTO_PILOTO.md),
+sem alteração do launcher ou do proxy padrão.
+
+**Topologia local confirmada em 2026-11-23:** o Nginx em execução monta o
+`nginx.conf` padrão, encaminha todo `/api/` a `host.docker.internal:8000` e
+`/` a `host.docker.internal:3000`, sem rota `/ws/` própria. Há backend em
+`127.0.0.1:8000`, mas não em `8001`; a porta 3000 está ocupada por um
+contêiner `open-webui`, não pelo frontend GPP. Há processos Celery, sem
+confirmação de Beat/filas por inspeção somente de nomes. O proxy alternativo
+e os perfis separados não foram ativados. Detalhes e limites constam no
+[contrato do piloto](./BACKEND_CARGA_ISOLAMENTO_PILOTO.md).
+Na rechecagem posterior, o backend em 8000 e os processos Celery já não
+apareciam; o estado operacional pode mudar e deve ser reconfirmado antes do
+cutover.
+
+**Ensaio direto posterior:** os dois ASGI piloto responderam `200` em portas
+temporárias, e a plataforma permaneceu acessível depois de parar somente
+Carga. O Debug Toolbar de DEV causou inicialmente `500` na vivacidade de
+Carga e foi removido desse perfil. A ausência de uma URL não pode ser
+inferida de `401` anônimo, porque o middleware autentica antes do resolvedor;
+os testes de exclusão usam o resolvedor. Nesse primeiro ensaio não houve
+tráfego pelo proxy alternativo, teste de WebSocket ou cutover de filas.
+Um ensaio WebSocket direto posterior encontrou `500` em caminhos cruzados;
+um fallback limitado aos ASGI piloto passou a recusá-los sem erro interno.
+Handshakes anônimos para rotas próprias e cruzadas retornaram `403` e o
+processo de Publicações permaneceu acessível após parar Carga. Ainda falta
+validar sessão autorizada e revogação pelo proxy.
+
 Em 2026-11-19, após aprovação do responsável, começou a implementação do
 [contrato IAM interno v1](./BACKEND_IAM_DECISION_CONTRACT_V1.md) pelo lado do
 IAM. A rota está **desativada por padrão**. O cliente M2M em
@@ -73,11 +114,11 @@ de execução, não um defeito a corrigir no código do projeto.
 | WebSocket | `config/asgi.py` monta Carga e Publicações; `apps/core/middleware/websocket.py` consulta `AccountsSession` e `UserRole` diretamente no modo padrão, mas ignora essa consulta para rotas de Carga quando o piloto IAM remoto está ligado. | A fronteira WebSocket de Carga pode usar a decisão remota sem leitura de sessão/roles locais; o modo padrão e Publicações continuam intactos. Isso não separa o processo; o HTTP tem piloto próprio. |
 | Autenticação HTTP | No modo padrão, `apps/accounts/middleware.py` resolve `AccountsSession` e os middlewares de `core` consultam cadastro/roles. No piloto `GPP_CARGA_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA`, somente o prefixo de Carga ignora essas consultas e usa a decisão IAM para identidade e permissão. | A fronteira HTTP foi implementada e testada localmente, mas falta ensaio com proxy/processo próprio e domínio em banco separado. Não ativar a flag como cutover. |
 | Permissões DRF e WebSocket | `apps/carga_org_lot/views/{base,dashboard}.py` usam `CanPermissionCarga`; no modo padrão delegam à decisão local. Há pilotos separados para guard HTTP com identidade local, HTTP com identidade remota e WebSocket remoto com revalidação. | O modo HTTP integral exige nome auditável e CSRF, bloqueia view sem guard e falha fechado. WebSocket e HTTP têm flags próprias; tarefas e autorização por objeto ainda requerem validação operacional. Flags desligadas não alteram comportamento. |
-| Dados | `config/settings/base.py` define um `DATABASES['default']`; `config/routers.py` envia todas as apps ao mesmo banco. Modelos de Carga usam schema próprio e auditoria com IDs lógicos de usuário (`common/models.py`). | O domínio atual de Carga não aparenta ter FK ativa para `auth_user`, facilitando a extração; migrações históricas e consultas reais ainda precisam de validação antes de separar bancos. Publicações mantém ao menos a FK de `PreferenciaExibicaoEflow.usuario` para `AUTH_USER_MODEL`. |
-| Tarefas | `config/celery.py` autodetecta tarefas; `CELERY_BEAT_SCHEDULE` agenda Carga e E-Docs no mesmo Beat; `apps/carga_org_lot/tasks.py` e `apps/pub_institucional/tasks.py` registram tarefas distintas. | É possível rotear por fila, mas ainda faltam fila exclusiva, worker exclusivo, agendador responsável e política para mensagens pendentes no deploy. |
+| Dados | `config/settings/base.py` define um `DATABASES['default']`; `config/routers.py` envia todas as apps ao mesmo banco. Modelos de Carga usam schema próprio e auditoria com IDs lógicos de usuário (`common/models.py`). | A única FK ativa entre schemas de domínio e `public` foi removida pela migração `0015`, já aplicada ao banco principal. O perfil piloto de Carga bloqueia `migrate` antes de executá-lo; no ensaio, o perfil de plataforma é o migrador designado em janela controlada. O perfil padrão mantém seu comportamento anterior. Migrações históricas ainda criam relações intermediárias, posteriormente removidas; isso precisa ser tratado antes de migrar cada domínio isoladamente. |
+| Tarefas | `config/celery.py` autodetecta tarefas; `CELERY_BEAT_SCHEDULE` agenda Carga e E-Docs no mesmo Beat; `apps/carga_org_lot/tasks.py` e `apps/pub_institucional/tasks.py` registram tarefas distintas. O piloto de revogação de Carga existe sob `GPP_CARGA_IAM_ATIVIDADES_REMOTAS_ATIVAS`, desligada por padrão. | Os perfis locais opt-in roteiam Carga para fila exclusiva, registram somente as tarefas da respectiva app e mantêm um único Beat. A revalidação/cancelamento local auditável já foi implementada; faltam ensaio operacional, autorização por objeto, decisão sobre revogação de sessão e política para mensagens pendentes no deploy. |
 | Cache/canais | `config/settings/base.py` usa Memcached e Channels/Redis compartilhados por configuração. | Compartilhar servidor é possível; namespaces, credenciais, limites e canais devem impedir consumo ou invalidação cruzada. |
 | Saúde | `common/urls.py` expõe `/api/health/` com `ok` fixo, agora sem consulta ao cadastro de aplicações ou à sessão. | O retorno é apenas vivacidade do processo; não comprova banco, broker, IAM, cofre nem prontidão para executar operações. O endpoint de prontidão segue pendente. |
-| Inicialização local | `scripts/localhost_dev.sh` inicia um worker, um Beat e o Django e encerra os três quando um termina. | O script de desenvolvimento não atende o ensaio de parar somente Carga; a topologia de implantação real ainda não foi inspecionada. |
+| Inicialização local | `scripts/localhost_dev.sh` inicia um worker, um Beat e o Django e encerra os três quando um termina. O Nginx local em execução usa a configuração padrão; não há listener em 8001. | O script de desenvolvimento não atende o ensaio de parar somente Carga. A topologia da sandbox foi inspecionada; a institucional continua desconhecida. |
 
 Não foram encontrados imports de produção diretos entre os domínios Carga,
 Publicações e Ações PNGI. O acoplamento principal passa por IAM/`core`,
@@ -118,12 +159,13 @@ antes do cutover.
 2. **WebSocket:** validar na conexão e definir revalidação/encerramento após
    expiração ou revogação; uma autorização única no `connect` não basta para
    conexões longas sem política de validade.
-3. **Celery:** registrar no enfileiramento ator, aplicação, ação, correlação e
-   decisão que originou a tarefa. No processamento, distinguir ação nova de
-   continuação de fluxo já aceito; a regra de revalidação após revogação
-   precisa de decisão funcional para não executar ação não autorizada nem
-   interromper silenciosamente um envio externo em curso. Falhas temporárias
-   exigem retry limitado e idempotência, não `ping` em loop.
+3. **Celery:** o piloto de Carga já registra o ator e eventos do envio,
+   revalida a atividade antes de novas operações externas e encerra localmente
+   após revogação, preservando a resposta da PRODEST mesmo se chegar durante
+   a revogação. Não afirma cancelamento remoto nem retoma o acompanhamento
+   depois do encerramento. A flag permanece desligada; autorização por objeto,
+   revogação de sessão, correlação ponta a ponta e ensaio entre processos
+   seguem pendentes. Falha de IAM não é tratada como revogação ou permissão.
 4. **Comandos administrativos:** identidade de serviço/operador e escopo
    explícitos; não usar a ausência de request HTTP como dispensa de auditoria.
 5. **`common` e `core`:** funções locais compartilhadas não exigem rede nem
@@ -215,8 +257,9 @@ serviço ou uma ação protegida estão disponíveis.
 
 ## 4. Pendências para concluir o gate I0
 
-- Confirmar a topologia efetiva do processo/proxy fora do launcher local, portas,
-  certificados, origem dos cookies, CSRF e roteamento WebSocket.
+- Confirmar a topologia institucional do processo/proxy, portas,
+  certificados, origem dos cookies, CSRF e roteamento WebSocket. A sandbox
+  local já foi inspecionada e não está pronta para ativar o proxy alternativo.
 - Construir matriz de propriedade por schema/tabela: leitor, escritor,
   responsável por migração e backup; verificar consultas, transações e
   migrações históricas que atravessam `accounts`/`auth`. Planejar único escritor

@@ -2,7 +2,6 @@
 
 import uuid
 
-from django.conf import settings
 from django.db import models
 
 from common.models import ModeloAuditavel
@@ -168,10 +167,9 @@ class ResultadoCalculoEflow(ModeloAuditavel):
 class PreferenciaExibicaoEflow(ModeloAuditavel):
     """Perfil E-Flow que deve ser aberto inicialmente para um usuário."""
 
-    usuario = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name="preferencia_exibicao_eflow",
+    usuario_id = models.IntegerField(
+        unique=True,
+        help_text="ID lógico do usuário no IAM, sem FK entre schemas.",
     )
     perfil_preferido = models.CharField(
         max_length=30,

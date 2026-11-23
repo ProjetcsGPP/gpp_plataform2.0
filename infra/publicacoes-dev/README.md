@@ -4,6 +4,14 @@ Este diretório provisiona somente o ambiente de desenvolvimento aprovado. As
 ferramentas podem mudar em HML/PRD, mas os contratos de segurança e preflights
 deverão ser repetidos.
 
+O Nginx padrão continua apontando `/api/` para um único backend local.
+Para o ensaio **opt-in** de dois processos, há uma configuração alternativa
+em `config/nginx/nginx-isolamento.conf`; consulte primeiro o
+[contrato do piloto de Carga](../../docs/SHARED/BACKEND_CARGA_ISOLAMENTO_PILOTO.md).
+Uma entrada TLS compartilhada pode encaminhar processos separados: não é
+necessário criar um proxy por aplicação. O proxy alternativo não é ativado
+automaticamente e exige teste de conectividade host-contêiner.
+
 O PostgreSQL deste Compose é uma sandbox auxiliar de testes e não substitui a
 instância on-premises configurada nos settings normais. Sua permanência está em
 reavaliação. O OpenBao pode ficar parado quando o trabalho não chama integrações

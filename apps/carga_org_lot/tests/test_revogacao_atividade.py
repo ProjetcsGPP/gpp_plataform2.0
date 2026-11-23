@@ -1,10 +1,15 @@
 """Contrato de revogação de uma atividade Celery de Carga."""
 
 import json
-from unittest.mock import Mock
+import multiprocessing
+from contextlib import contextmanager
+from datetime import timedelta
+from unittest.mock import Mock, patch
 
 import pytest
+from django.db import connections
 from django.test import RequestFactory, override_settings
+from django.utils import timezone
 
 from apps.accounts.views_internas import DecisaoAtividadeIAMInternaView
 from apps.accounts.models import UserRole
@@ -151,6 +156,84 @@ def _criar_envio(client, patriarca, tipo_organograma):
     return resposta.data["idenvioorganograma"]
 
 
+def _worker_envio_bloqueado(canal, liberacao, envio_id, ponto, resultado):
+    """Executa a tarefa em outro processo, com PRODEST simulada e DB próprio."""
+    from apps.carga_org_lot import tasks
+
+    connections.close_all()
+
+    class ClienteProdest:
+        def __init__(self, **_kwargs):
+            pass
+
+        def submit_organogram(self, *_args, **_kwargs):
+            if ponto == "prodest":
+                canal.send(("CHAMADA_PRODEST", None))
+                if not liberacao.wait(timeout=10):
+                    raise TimeoutError("Ensaio não liberou a resposta da PRODEST")
+            if resultado == "erro":
+                raise CargaRHRequestError("Resposta rejeitada", status_code=422)
+            return "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+
+    def decidir(**_kwargs):
+        if ponto == "iam":
+            canal.send(("IAM_EM_VOO", None))
+            if not liberacao.wait(timeout=10):
+                raise TimeoutError("Ensaio não liberou a decisão IAM")
+        return {}
+
+    try:
+        with (
+            override_settings(CARGA_IAM_ATIVIDADES_REMOTAS_ATIVAS=True),
+            patch.object(tasks, "decidir_atividade_remota", side_effect=decidir),
+            patch(
+                "apps.carga_org_lot.services.organogram_submission.CargaRHClient",
+                ClienteProdest,
+            ),
+        ):
+            canal.send(("RESULTADO", tasks.processar_envio_organograma(envio_id)))
+    except Exception as exc:  # reportar falhas do filho sem perder o diagnóstico
+        canal.send(("ERRO", f"{type(exc).__name__}: {exc}"))
+    finally:
+        connections.close_all()
+        canal.close()
+
+
+@contextmanager
+def _envio_em_outro_processo(envio_id, *, ponto="prodest", resultado="aceite"):
+    """Isola a conexão do worker e não deixa filho bloqueado após o teste."""
+    connections.close_all()
+    contexto = multiprocessing.get_context("fork")
+    pai, filho = contexto.Pipe()
+    liberacao = contexto.Event()
+    processo = contexto.Process(
+        target=_worker_envio_bloqueado,
+        args=(filho, liberacao, envio_id, ponto, resultado),
+    )
+    processo.start()
+    filho.close()
+    try:
+        assert pai.poll(5), "Worker não alcançou o ponto de sincronização"
+        esperado = "IAM_EM_VOO" if ponto == "iam" else "CHAMADA_PRODEST"
+        assert pai.recv() == (esperado, None)
+        yield pai, liberacao
+    finally:
+        liberacao.set()
+        processo.join(timeout=5)
+        if processo.is_alive():
+            processo.terminate()
+            processo.join(timeout=5)
+        pai.close()
+        assert processo.exitcode == 0
+
+
+def _resultado_worker(canal):
+    assert canal.poll(5), "Worker não devolveu o resultado"
+    tipo, valor = canal.recv()
+    assert tipo == "RESULTADO", valor
+    return valor
+
+
 @pytest.mark.django_db(transaction=True)
 @override_settings(CARGA_IAM_ATIVIDADES_REMOTAS_ATIVAS=True)
 def test_revogacao_antes_do_envio_encerra_com_evento(
@@ -182,6 +265,277 @@ def test_revogacao_antes_do_envio_encerra_com_evento(
     assert resposta_api.status_code == 200
     assert "revogada" in resposta_api.data["strmensagematual"]
     enviar.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(CARGA_IAM_ATIVIDADES_REMOTAS_ATIVAS=True)
+def test_encerramento_enquanto_iam_responde_nao_inicia_envio(
+    client_gestor_carga_lot, patriarca, tipo_organograma, monkeypatch
+):
+    from apps.carga_org_lot import tasks
+    from apps.carga_org_lot.services.organogram_submission import (
+        encerrar_atividade_por_revogacao,
+    )
+
+    monkeypatch.setattr(tasks.processar_envio_organograma, "delay", Mock())
+    envio_id = _criar_envio(client_gestor_carga_lot, patriarca, tipo_organograma)
+
+    def decisao_em_voo(**_kwargs):
+        assert encerrar_atividade_por_revogacao(envio_id) is True
+        return {"resultado": "AUTORIZADO"}
+
+    monkeypatch.setattr(tasks, "decidir_atividade_remota", decisao_em_voo)
+    enviar = Mock()
+    monkeypatch.setattr(tasks, "execute_organogram_submission", enviar)
+
+    assert tasks.processar_envio_organograma(envio_id) == {
+        "ignorado": True,
+        "motivo": "estado_alterado_apos_iam",
+    }
+    envio = EnvioOrganogramaProdest.objects.get(pk=envio_id)
+    assert envio.strstatus == StatusEnvioOrganograma.ERRO
+    assert EventoIntegracaoProdest.objects.filter(
+        idenvioorganograma_id=envio_id,
+        strcodigo="ATIVIDADE_ENCERRADA_REVOGACAO",
+    ).exists()
+    enviar.assert_not_called()
+
+
+@pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(),
+    reason="Ensaio entre processos requer fork e PostgreSQL local",
+)
+@pytest.mark.django_db(transaction=True)
+@override_settings(CARGA_IAM_ATIVIDADES_REMOTAS_ATIVAS=True)
+def test_dois_workers_nao_enviam_mesma_tentativa_concorrente(
+    client_gestor_carga_lot, patriarca, tipo_organograma, monkeypatch
+):
+    from apps.carga_org_lot import tasks
+
+    monkeypatch.setattr(tasks.processar_envio_organograma, "delay", Mock())
+    envio_id = _criar_envio(client_gestor_carga_lot, patriarca, tipo_organograma)
+    with _envio_em_outro_processo(envio_id) as (canal, liberacao):
+        # O primeiro worker está parado dentro da chamada externa. A segunda
+        # execução usa outra conexão PostgreSQL e deve respeitar o prazo salvo.
+        resposta_concorrente = tasks.processar_envio_organograma(envio_id)
+        assert resposta_concorrente == {
+            "ignorado": True,
+            "motivo": "ainda_nao_vencido",
+        }
+        liberacao.set()
+        assert _resultado_worker(canal) == {"processado": True}
+    envio = EnvioOrganogramaProdest.objects.get(pk=envio_id)
+    assert envio.strstatus == StatusEnvioOrganograma.PROCESSANDO
+    assert str(envio.idexternocarga) == "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+    assert EventoIntegracaoProdest.objects.filter(
+        idenvioorganograma_id=envio_id,
+        strcodigo="ENVIO_EXTERNO_INICIADO",
+    ).count() == 1
+
+
+@pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(),
+    reason="Ensaio entre processos requer fork e PostgreSQL local",
+)
+@pytest.mark.django_db(transaction=True)
+@override_settings(CARGA_IAM_ATIVIDADES_REMOTAS_ATIVAS=True)
+def test_reserva_vencida_nao_reenvia_tentativa_externa_em_voo(
+    client_gestor_carga_lot, patriarca, tipo_organograma, monkeypatch
+):
+    from apps.carga_org_lot import tasks
+
+    monkeypatch.setattr(tasks.processar_envio_organograma, "delay", Mock())
+    envio_id = _criar_envio(client_gestor_carga_lot, patriarca, tipo_organograma)
+
+    class ClienteProdestDuplicado:
+        def __init__(self, **_kwargs):
+            pass
+
+        def submit_organogram(self, *_args, **_kwargs):
+            raise AssertionError("O segundo worker tentou reenviar à PRODEST")
+
+    with _envio_em_outro_processo(envio_id) as (canal, liberacao):
+        EnvioOrganogramaProdest.objects.filter(pk=envio_id).update(
+            datproximaconsulta=timezone.now() - timedelta(seconds=1)
+        )
+        with (
+            patch.object(tasks, "decidir_atividade_remota", return_value={}),
+            patch(
+                "apps.carga_org_lot.services.organogram_submission.CargaRHClient",
+                ClienteProdestDuplicado,
+            ),
+        ):
+            resposta_concorrente = tasks.processar_envio_organograma(envio_id)
+        assert resposta_concorrente == {
+            "ignorado": True,
+            "motivo": "tentativa_externa_ja_iniciada",
+        }
+        liberacao.set()
+        assert _resultado_worker(canal) == {"processado": True}
+
+    envio = EnvioOrganogramaProdest.objects.get(pk=envio_id)
+    assert envio.strstatus == StatusEnvioOrganograma.PROCESSANDO
+    assert EventoIntegracaoProdest.objects.filter(
+        idenvioorganograma_id=envio_id,
+        strcodigo="ENVIO_EXTERNO_INICIADO",
+    ).count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(CARGA_IAM_ATIVIDADES_REMOTAS_ATIVAS=True)
+def test_tentativa_sem_resposta_local_nao_e_reenviada(
+    client_gestor_carga_lot, patriarca, tipo_organograma, monkeypatch
+):
+    from apps.carga_org_lot import tasks
+
+    monkeypatch.setattr(tasks.processar_envio_organograma, "delay", Mock())
+    envio_id = _criar_envio(client_gestor_carga_lot, patriarca, tipo_organograma)
+    envio = EnvioOrganogramaProdest.objects.get(pk=envio_id)
+    record_operational_event(
+        envio,
+        code="ENVIO_EXTERNO_INICIADO",
+        phase=FaseIntegracaoProdest.ENVIO,
+        status=StatusEventoOperacional.EM_ANDAMENTO,
+        title="Tentativa externa iniciada",
+        message="Aceite remoto ainda não confirmado.",
+        actor=AuditActor(user_name="Worker anterior"),
+    )
+    EnvioOrganogramaProdest.objects.filter(pk=envio_id).update(
+        datproximaconsulta=timezone.now() - timedelta(seconds=1)
+    )
+
+    class ClienteProdestProibido:
+        def __init__(self, **_kwargs):
+            raise AssertionError("A tentativa anterior não pode ser reenviada")
+
+    with (
+        patch.object(tasks, "decidir_atividade_remota", return_value={}),
+        patch(
+            "apps.carga_org_lot.services.organogram_submission.CargaRHClient",
+            ClienteProdestProibido,
+        ),
+    ):
+        assert tasks.processar_envio_organograma(envio_id) == {
+            "ignorado": True,
+            "motivo": "tentativa_externa_ja_iniciada",
+        }
+
+    envio.refresh_from_db()
+    assert envio.strstatus == StatusEnvioOrganograma.SOLICITANDO
+    assert envio.idexternocarga is None
+    assert EventoIntegracaoProdest.objects.filter(
+        idenvioorganograma_id=envio_id,
+        strcodigo="ENVIO_EXTERNO_INICIADO",
+    ).count() == 1
+    assert EventoIntegracaoProdest.objects.filter(
+        idenvioorganograma_id=envio_id,
+        strcodigo="REENVIO_AUTOMATICO_BLOQUEADO",
+    ).exists()
+
+
+@pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(),
+    reason="Ensaio entre processos requer fork e PostgreSQL local",
+)
+@pytest.mark.django_db(transaction=True)
+@override_settings(CARGA_IAM_ATIVIDADES_REMOTAS_ATIVAS=True)
+def test_revogacao_em_outro_processo_preserva_aceite_em_voo(
+    client_gestor_carga_lot, patriarca, tipo_organograma, monkeypatch
+):
+    from apps.carga_org_lot import tasks
+    from apps.carga_org_lot.services.organogram_submission import (
+        encerrar_atividade_por_revogacao,
+    )
+
+    monkeypatch.setattr(tasks.processar_envio_organograma, "delay", Mock())
+    envio_id = _criar_envio(client_gestor_carga_lot, patriarca, tipo_organograma)
+    with _envio_em_outro_processo(envio_id) as (canal, liberacao):
+        assert encerrar_atividade_por_revogacao(envio_id) is True
+        fechado = EnvioOrganogramaProdest.objects.get(pk=envio_id)
+        assert fechado.strstatus == (
+            StatusEnvioOrganograma.SITUACAO_REMOTA_INDETERMINADA
+        )
+        assert fechado.idexternocarga is None
+        liberacao.set()
+        assert _resultado_worker(canal) == {
+            "processado": False,
+            "motivo": "ATIVIDADE_ENCERRADA",
+        }
+    envio = EnvioOrganogramaProdest.objects.get(pk=envio_id)
+    assert envio.strstatus == StatusEnvioOrganograma.SITUACAO_REMOTA_INDETERMINADA
+    assert str(envio.idexternocarga) == "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+    assert envio.datproximaconsulta is None
+    assert EventoIntegracaoProdest.objects.filter(
+        idenvioorganograma_id=envio_id,
+        strcodigo="CARGA_REMOTA_CRIADA",
+        jsondetalhes__atividade_local_encerrada=True,
+    ).exists()
+    assert tasks.processar_envio_organograma(envio_id) == {"ignorado": True}
+
+
+@pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(),
+    reason="Ensaio entre processos requer fork e PostgreSQL local",
+)
+@pytest.mark.django_db(transaction=True)
+@override_settings(CARGA_IAM_ATIVIDADES_REMOTAS_ATIVAS=True)
+def test_revogacao_em_outro_processo_preserva_erro_prodest_em_voo(
+    client_gestor_carga_lot, patriarca, tipo_organograma, monkeypatch
+):
+    from apps.carga_org_lot import tasks
+    from apps.carga_org_lot.services.organogram_submission import (
+        encerrar_atividade_por_revogacao,
+    )
+
+    monkeypatch.setattr(tasks.processar_envio_organograma, "delay", Mock())
+    envio_id = _criar_envio(client_gestor_carga_lot, patriarca, tipo_organograma)
+    with _envio_em_outro_processo(envio_id, resultado="erro") as (canal, liberacao):
+        assert encerrar_atividade_por_revogacao(envio_id) is True
+        liberacao.set()
+        resposta = _resultado_worker(canal)
+        assert "Resposta rejeitada" in resposta["erro"]
+
+    envio = EnvioOrganogramaProdest.objects.get(pk=envio_id)
+    assert envio.strstatus == StatusEnvioOrganograma.SITUACAO_REMOTA_INDETERMINADA
+    assert envio.idexternocarga is None
+    assert envio.jsonstatusprodest["falha_solicitacao"]["http_status"] == 422
+    assert envio.datproximaconsulta is None
+    assert EventoIntegracaoProdest.objects.filter(
+        idenvioorganograma_id=envio_id,
+        strcodigo="ENVIO_REJEITADO",
+    ).exists()
+
+
+@pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(),
+    reason="Ensaio entre processos requer fork e PostgreSQL local",
+)
+@pytest.mark.django_db(transaction=True)
+@override_settings(CARGA_IAM_ATIVIDADES_REMOTAS_ATIVAS=True)
+def test_revogacao_em_outro_processo_enquanto_iam_responde_nao_envia(
+    client_gestor_carga_lot, patriarca, tipo_organograma, monkeypatch
+):
+    from apps.carga_org_lot import tasks
+    from apps.carga_org_lot.services.organogram_submission import (
+        encerrar_atividade_por_revogacao,
+    )
+
+    monkeypatch.setattr(tasks.processar_envio_organograma, "delay", Mock())
+    envio_id = _criar_envio(client_gestor_carga_lot, patriarca, tipo_organograma)
+    with _envio_em_outro_processo(envio_id, ponto="iam") as (canal, liberacao):
+        assert encerrar_atividade_por_revogacao(envio_id) is True
+        liberacao.set()
+        assert _resultado_worker(canal) == {
+            "ignorado": True,
+            "motivo": "estado_alterado_apos_iam",
+        }
+
+    envio = EnvioOrganogramaProdest.objects.get(pk=envio_id)
+    assert envio.strstatus == StatusEnvioOrganograma.ERRO
+    assert not EventoIntegracaoProdest.objects.filter(
+        idenvioorganograma_id=envio_id,
+        strcodigo="ENVIO_EXTERNO_INICIADO",
+    ).exists()
 
 
 @pytest.mark.django_db(transaction=True)

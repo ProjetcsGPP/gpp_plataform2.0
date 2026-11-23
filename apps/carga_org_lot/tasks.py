@@ -98,9 +98,15 @@ def processar_envio_organograma(envio_id):  # pylint: disable=too-many-return-st
         "idprocessocargainicial",
     ).get(pk=envio_id)
     actor = _actor(envio)
+    estado_autorizado = envio.strstatus
     decisao = _revalidar_atividade(envio)
     if decisao != "AUTORIZADO":
         return {"processado": False, "motivo": decisao}
+    # A decisão IAM pode demorar enquanto outra execução encerra ou avança
+    # este envio. O snapshot anterior não autoriza uma nova chamada externa.
+    envio.refresh_from_db()
+    if envio.strstatus != estado_autorizado:
+        return {"ignorado": True, "motivo": "estado_alterado_apos_iam"}
     try:
         if envio.strstatus == StatusEnvioOrganograma.SOLICITANDO:
             execute_organogram_submission(envio, actor=actor)
@@ -123,6 +129,8 @@ def processar_envio_organograma(envio_id):  # pylint: disable=too-many-return-st
                 if decisao != "AUTORIZADO":
                     return {"processado": False, "motivo": decisao}
     except OrganogramSubmissionError as exc:
+        if exc.kind in {"tentativa_externa_ja_iniciada", "estado_alterado"}:
+            return {"ignorado": True, "motivo": exc.kind}
         envio.refresh_from_db()
         if envio.strstatus == StatusEnvioOrganograma.PROCESSANDO:
             envio.datproximaconsulta = timezone.now() + timedelta(

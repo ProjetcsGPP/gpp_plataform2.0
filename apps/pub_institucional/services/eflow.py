@@ -95,7 +95,7 @@ def obter_preferencia_exibicao_eflow(
     """Obtém ou inicializa a preferência individual com auditoria."""
 
     preferencia, criada = PreferenciaExibicaoEflow.objects.get_or_create(
-        usuario=usuario,
+        usuario_id=usuario.pk,
         defaults={
             "perfil_preferido": PerfilCalculoEflow.CONSOLIDADO_PUBLICACAO,
             **_valores_auditoria(ator),

@@ -39,6 +39,21 @@ def test_todas_as_views_http_de_carga_usam_guard_comum():
     assert CanPermissionCarga in DashboardCargaOrgLotView.permission_classes
 
 
+def test_todas_as_acoes_http_expostas_declaram_permissao_tecnica():
+    """Uma nova ação não pode entrar na API sem decisão IAM correspondente."""
+    for rota in router.urls:
+        classe = getattr(rota.callback, "cls", None)
+        acoes = getattr(rota.callback, "actions", None)
+        if classe is None or acoes is None:
+            continue  # API root do roteador, sem ação de domínio.
+        for acao in acoes.values():
+            permissao = classe.permission_map.get(acao)
+            assert isinstance(permissao, str) and permissao, (
+                f"{classe.__name__}.{acao} sem permissão técnica"
+            )
+    assert DashboardCargaOrgLotView.required_permission
+
+
 @override_settings(CARGA_IAM_DECISAO_REMOTA_ATIVA=False)
 def test_padrao_permanece_autorizacao_local():
     with (

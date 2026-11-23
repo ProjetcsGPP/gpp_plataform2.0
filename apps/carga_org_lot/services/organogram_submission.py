@@ -30,6 +30,7 @@ from .cargarh import (
     CargaRHRequestError,
 )
 from .integration_events import record_operational_event
+from .submission_claim import reservar_tentativa_externa
 from .organograma import ORGANOGRAMA_TYPE_ID
 from .workflow import (
     AuditActor,
@@ -164,7 +165,7 @@ def build_organogram_payload(importacao: ImportacaoPlanilha) -> dict:
 
     units_by_organ = {organ.pk: [] for organ in organs}
     for item in items:
-        if item.pk == root.pk or item.idpai_id == root.pk:
+        if root.pk in (item.pk, item.idpai_id):
             continue
         organ_id = _owning_organ_id(item, by_id, root.pk)
         if organ_id not in units_by_organ:
@@ -290,6 +291,17 @@ def execute_organogram_submission(
     actor: AuditActor,
     client=None,
 ) -> EnvioOrganogramaProdest:
+    # A reserva temporal da task evita concorrência usual, mas não é uma
+    # garantia de idempotência: o POST pode durar mais que cinco minutos.
+    # A marca durável é criada sob o mesmo lock usado por outros workers e
+    # pela revogação, antes de qualquer comunicação com a PRODEST.
+    impedimento = reservar_tentativa_externa(envio.pk, actor)
+    if impedimento:
+        raise OrganogramSubmissionError(
+            "O reenvio automático foi impedido; verifique a situação da tentativa.",
+            envio=envio,
+            kind=impedimento,
+        )
     importacao = envio.idimportacaoplanilha
     process = envio.idprocessocargainicial
     payload = envio.jsonpayloadenviado
@@ -307,18 +319,6 @@ def execute_organogram_submission(
         patriarch_id=importacao.idpatriarca_id,
         process_id=process.pk,
         submission_id=envio.pk,
-        actor=actor,
-    )
-    record_operational_event(
-        envio,
-        code="ENVIO_EXTERNO_INICIADO",
-        phase=FaseIntegracaoProdest.ENVIO,
-        status=StatusEventoOperacional.EM_ANDAMENTO,
-        title="Iniciando envio à PRODEST",
-        message=(
-            "A tentativa de envio externo foi iniciada. O aceite pela "
-            "PRODEST ainda não está confirmado."
-        ),
         actor=actor,
     )
     try:

@@ -137,8 +137,10 @@ exige interrompê-las. Não desligar a aplicação para clonar.
 de dados cada app usa e implantar suas versões independentemente. Não
 implementar já um router que envie apps diferentes
 para bancos diferentes no mesmo processo: `accounts` e autenticação usam
-`default`, e `publicacoes.preferencia_exibicao_eflow` possui FK para
-`auth_user`; o Django não suporta essa relação entre bancos. Proposta mais
+`default`, e `publicacoes.preferencia_exibicao_eflow` possuía FK para
+`auth_user` até a migração `0015`, aplicada ao banco principal em 2026-11-23.
+O Django não suporta relações entre bancos.
+Mesmo após removê-la, identidade e migrações ainda exigem contrato. Proposta mais
 segura para **ensaio transitório**: duas execuções completas do backend, cada
 qual com `DB_NAME`, broker/cache, segredo, URLs e tarefas próprios. Isso
 permite testar a cópia HML, mas ainda duplica IAM e não satisfaz o requisito
@@ -342,6 +344,12 @@ consulta mais sessões/roles locais de Carga. Testes com sessões e roles reais 
   consumindo o IAM pelo contrato aprovado. Definir propriedade dos dados e
   plano de migração do schema, se necessário; não pressupor que mudar
   `SchemaRouter` sozinho separa bancos, FKs, transações ou histórico.
+- Fechar a [pendência de proteção dos canais internos](./BACKEND_CARGA_ISOLAMENTO_PILOTO.md):
+  o ensaio HTTPS atual cobre somente cliente→proxy. Validar conectividade e
+  restrição da rota contêiner→host (`host.docker.internal` não é loopback),
+  proteção proxy→backends e Carga→IAM na topologia efetiva, sem publicar
+  `/interno/` no proxy público. Exigir canal autenticado e cifrado entre hosts
+  distintos; a credencial M2M sozinha não protege a confidencialidade.
 - Fazer deploy paralelo e cutover controlado de rotas/filas, com monitoramento,
   rollback e comparação de respostas. Preservar histórico e auditoria. Usar
   um único escritor de dados e impedir que as versões antiga e nova executem
@@ -395,9 +403,10 @@ O inventário I0 e o contrato IAM v1 já foram registrados. Existem pilotos
 reversíveis de decisão remota nos guards HTTP e WebSocket de Carga, ambos
 desligados por padrão; isso **não** conclui I2 nem autoriza o corte para
 serviços independentes. O próximo incremento é fechar as lacunas descritas
-no [contrato IAM v1](./BACKEND_IAM_DECISION_CONTRACT_V1.md): escopo de objeto,
-revogação de WebSockets na topologia final, proteção das tarefas e ensaio operacional com
-proxy/canal protegido. A criação de `gpp_plataform_hml` permanece
+no [contrato IAM v1](./BACKEND_IAM_DECISION_CONTRACT_V1.md): decisão funcional
+sobre escopo de objeto (a auditoria do comportamento atual já foi registrada),
+revogação de WebSockets na topologia final, proteção das tarefas e ensaio
+operacional com proxy/canal protegido. A criação de `gpp_plataform_hml` permanece
 trilha operacional separada, sem restaurar o dump ou afetar o banco atual
 antes do gate I1. Não ativar os pilotos nem cortar rotas enquanto os gates
 de segurança, operação e rollback correspondentes estiverem abertos.

@@ -281,3 +281,29 @@ aplicada, flag ativada ou rota cortada.
    não transportar chave de sessão na fila.
 5. Validar segredo, canal, proxy, logs, observabilidade, disponibilidade,
    rollback e testes de contrato consumidor/provedor antes de qualquer cutover.
+
+### Escopo de recurso: constatação e decisão pendente
+
+O contrato v1 autoriza **ação técnica na aplicação**. Ele não recebe ID de
+patriarca, importação, conjunto ou envio e não devolve lista de objetos
+permitidos. As views de Carga usam `permission_map` por ação; filtros como
+`?patriarca=` restringem a consulta solicitada, mas não são uma política de
+autorização por objeto. A classe genérica `ObjectPermission` de `apps.core`
+verifica proprietário, porém não é usada nas views de Carga e não pode ser
+acoplada a elas por suposição: autoria auditável de uma operação não equivale
+necessariamente a propriedade exclusiva de seus dados.
+
+Assim, **o comportamento atual é acesso por permissão técnica ao conjunto de
+registros da aplicação**, sujeito às validações de estado e integridade do
+domínio. Não há no cadastro atual um vínculo usuário–patriarca a transportar
+para o IAM. Antes de exigir escopo por patriarca ou por criador, o responsável
+deve decidir se esse isolamento funcional é desejado, quem administra os
+vínculos e como ficam listagens, downloads, histórico e tarefas aceitas.
+Alterar isso somente no piloto remoto criaria divergência em relação ao modo
+local. Até a decisão, a separação de processos deve preservar o acesso
+existente e não declarar proteção anti-IDOR por proprietário que não existe.
+
+Um teste automatizado percorre as ações efetivamente expostas pelo roteador
+DRF e exige uma permissão técnica explícita para cada uma. Ele detecta novas
+ações sem guard, mas **não** prova escopo por objeto nem substitui testes de
+integridade das ações de domínio.

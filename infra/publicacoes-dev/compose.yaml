@@ -180,7 +180,7 @@ services:
       context: ./images/nginx
     restart: unless-stopped
     volumes:
-      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${GPP_NGINX_CONFIG_FILE:-./config/nginx/nginx.conf}:/etc/nginx/nginx.conf:ro
       - ./runtime/tls:/etc/nginx/tls:ro
     ports:
       - "127.0.0.1:${NGINX_HTTPS_PORT:-58443}:8443"
