@@ -13,6 +13,7 @@ from apps.carga_org_lot.models import (
     HistoricoProcessoCargaInicial,
     ImportacaoPlanilha,
     ProcessoCargaInicial,
+    StatusEnvioOrganograma,
     StatusImportacaoLocal,
     StatusLotacaoProcesso,
     StatusOrganogramaProcesso,
@@ -318,6 +319,44 @@ def register_organogram_result(
             "carga_id": str(envio.idexternocarga or ""),
             "dry_run": envio.flgdryrun,
             "origem_alterada": source_changed,
+        },
+    )
+    return process
+
+
+@transaction.atomic
+def register_organogram_revoked(
+    envio: EnvioOrganogramaProdest, *, actor: AuditActor
+) -> ProcessoCargaInicial:
+    """Registra encerramento local; não afirma cancelamento na PRODEST."""
+    process = ProcessoCargaInicial.objects.select_for_update().get(
+        pk=envio.idprocessocargainicial_id
+    )
+    previous = _snapshot(process)
+    situacao_remota_indeterminada = (
+        envio.strstatus == StatusEnvioOrganograma.SITUACAO_REMOTA_INDETERMINADA
+    )
+    if situacao_remota_indeterminada:
+        process.strfaseatual = FaseProcessoCargaInicial.PRONTO_PARA_ENVIO
+        process.strstatusorganograma = StatusOrganogramaProcesso.PRONTO
+    else:
+        process.strfaseatual = FaseProcessoCargaInicial.PREPARANDO_ORGANOGRAMA
+        process.strstatusorganograma = StatusOrganogramaProcesso.ERRO
+    process.updated_by_id = actor.user_id
+    process.updated_by_name = actor.user_name
+    process.save()
+    _record_history(
+        process,
+        actor,
+        action="ORGANOGRAMA_ATIVIDADE_ENCERRADA_REVOGACAO",
+        previous=previous,
+        message=envio.strmensagemerro,
+        details={
+            "idenvioorganograma": envio.pk,
+            "idexternocarga": str(envio.idexternocarga or ""),
+            "solicitante_id": envio.created_by_id,
+            "resposta_prodest_registrada": bool(envio.idexternocarga),
+            "situacao_remota_indeterminada": situacao_remota_indeterminada,
         },
     )
     return process

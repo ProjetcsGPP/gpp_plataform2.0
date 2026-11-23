@@ -8,15 +8,21 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import CanPermission
+from apps.carga_org_lot.permissoes_iam import CanPermissionCarga
+from config.iam_boundary import carga_http_iam_remoto
 
 from ..models import EnvioOrganogramaProdest, Patriarca
 from ..serializers import EnvioOrganogramaProdestSerializer
 
 
 class DashboardCargaOrgLotView(APIView):
-    permission_classes = [IsAuthenticated, CanPermission]
+    permission_classes = [IsAuthenticated, CanPermissionCarga]
     required_permission = "view_importacaoplanilha"
+
+    def get_permissions(self):
+        if carga_http_iam_remoto(self.request.path):
+            return [CanPermissionCarga()]
+        return super().get_permissions()
 
     @extend_schema(responses={200: dict})
     def get(self, request):

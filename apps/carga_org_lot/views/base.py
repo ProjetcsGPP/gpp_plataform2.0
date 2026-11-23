@@ -9,7 +9,8 @@ from rest_framework import serializers
 from rest_framework.filters import OrderingFilter
 from rest_framework.permissions import IsAuthenticated
 
-from apps.core.permissions import CanPermission
+from apps.carga_org_lot.permissoes_iam import CanPermissionCarga
+from config.iam_boundary import carga_http_iam_remoto
 
 from ..models import ImportacaoPlanilha
 
@@ -32,11 +33,14 @@ def spreadsheet_download_response(importacao: ImportacaoPlanilha) -> HttpRespons
 class PermissionedViewSetMixin:
     """Aplica a permissão Django correspondente a cada operação DRF."""
 
-    permission_classes = [IsAuthenticated, CanPermission]
+    permission_classes = [IsAuthenticated, CanPermissionCarga]
     permission_map: dict[str, str] = {}
 
     def get_permissions(self):
         self.required_permission = self.permission_map.get(self.action)
+        if carga_http_iam_remoto(self.request.path):
+            # A própria permissão remota autentica e autoriza em uma decisão.
+            return [CanPermissionCarga()]
         return [permission() for permission in self.permission_classes]
 
 

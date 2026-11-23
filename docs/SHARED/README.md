@@ -17,6 +17,10 @@ contrato, fase, bloqueio ou critério de aceite transversal mudar.
 |---|---|
 | [PUBLICACOES_INTEGRATION_MATRIX.md](./PUBLICACOES_INTEGRATION_MATRIX.md) | Matriz consolidada de decisões, responsáveis, contratos, fases, segurança e aceite de `PUBLICACOES`, Portal e integrações |
 | [PUBLICACOES_CURRENT_STATE_ASSESSMENT.md](./PUBLICACOES_CURRENT_STATE_ASSESSMENT.md) | Reconfirmação arquitetural conjunta de backend/frontend, matriz de impacto, fases, riscos, testes, rollout e parecer de prontidão |
+| [BACKEND_APPLICATION_ISOLATION_PLAN.md](./BACKEND_APPLICATION_ISOLATION_PLAN.md) | Plano em fases para implantar cada app independentemente, com IAM central, filas próprias e piloto em Carga; trata o banco local `_hml` como trilha de ensaio separada, sem autorizar cutover imediato |
+| [BACKEND_APPLICATION_ISOLATION_I0_INVENTORY.md](./BACKEND_APPLICATION_ISOLATION_I0_INVENTORY.md) | Inventário estático I0 de acoplamentos e contratos propostos para saúde e autorização entre serviços; registra pendências antes da extração de Carga |
+| [BACKEND_IAM_DECISION_CONTRACT_V1.md](./BACKEND_IAM_DECISION_CONTRACT_V1.md) | Contrato interno v1 de decisão IAM para o piloto de Carga; endpoint inicialmente desativado, segurança M2M, respostas e gates antes do cutover |
+| [BACKEND_CARGA_CELERY_INVENTORY.md](./BACKEND_CARGA_CELERY_INVENTORY.md) | Inventário das tarefas de Carga e regra de encerramento local por revogação, preservando a resposta já recebida da PRODEST |
 
 ## Protocolo obrigatório para chats e equipes
 

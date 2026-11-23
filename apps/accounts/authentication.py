@@ -6,17 +6,9 @@ Substitui o SessionAuthentication como default e preserva sua verificação de
 CSRF para toda requisição autenticada por cookie.
 """
 
-from rest_framework.authentication import BaseAuthentication, CSRFCheck
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.authentication import BaseAuthentication
 
-
-def enforce_csrf(request):
-    """Aplica a mesma validação usada pelo SessionAuthentication do DRF."""
-    check = CSRFCheck(lambda django_request: None)
-    check.process_request(request)
-    reason = check.process_view(request, None, (), {})
-    if reason:
-        raise PermissionDenied(f"CSRF Failed: {reason}")
+from common.authentication import enforce_csrf
 
 
 class AppContextAuthentication(BaseAuthentication):

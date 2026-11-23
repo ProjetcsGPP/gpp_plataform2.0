@@ -10,7 +10,22 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
+from apps.accounts.views_internas import (
+    DecisaoAtividadeIAMInternaView,
+    DecisaoIAMInternaView,
+)
+
 urlpatterns = [
+    path(
+        "interno/iam/v1/decisoes-atividade/",
+        DecisaoAtividadeIAMInternaView.as_view(),
+        name="iam-decisao-atividade-interna-v1",
+    ),
+    path(
+        "interno/iam/v1/decisoes/",
+        DecisaoIAMInternaView.as_view(),
+        name="iam-decisao-interna-v1",
+    ),
     # Admin
     path("admin/", admin.site.urls),
     # ── Apps ──────────────────────────────────────────────────────────────

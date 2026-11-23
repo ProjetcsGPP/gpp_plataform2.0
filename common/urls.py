@@ -3,7 +3,10 @@ from django.urls import path
 
 
 def health_check(request):
-    return JsonResponse({"status": "ok", "service": "gpp_plataform2"})
+    """Vivacidade do processo; não verifica banco, IAM nem integrações."""
+    response = JsonResponse({"status": "ok", "service": "gpp_plataform2"})
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 urlpatterns = [

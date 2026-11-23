@@ -16,6 +16,8 @@ Estrategia de cache:
     Version key: authz_version:{user_id}
     Invalidação: signals em UserRole, Role, auth_group_permissions,
                  UserPermissionOverride
+    Exceção: o endpoint IAM interno usa `usar_cache=False` para decidir a
+    partir das permissões confirmadas no banco em cada chamada.
 
 Resolução de permissões (ordem):
     1. Permissões herdadas do grupo da role (auth_group_permissions)
@@ -36,9 +38,10 @@ CACHE_TTL = 300
 
 class AuthorizationService:
 
-    def __init__(self, user, application=None):
+    def __init__(self, user, application=None, *, usar_cache=True):
         self.user = user
         self.application = application
+        self._usar_cache = usar_cache
 
         self._permissions: Optional[set] = None
         self._attributes: Optional[dict] = None
@@ -46,6 +49,7 @@ class AuthorizationService:
 
         # cache interno por request
         self._is_admin: Optional[bool] = None
+        self._user_policy = None
 
     # ─────────────────────────────────────────────
     # API pública
@@ -119,7 +123,7 @@ class AuthorizationService:
 
     def _policy(self):
         """Retorna a instância única de UserPolicy para este ciclo de request."""
-        if not hasattr(self, "_user_policy"):
+        if self._user_policy is None:
             from apps.accounts.policies import UserPolicy
 
             self._user_policy = UserPolicy(self.user)
@@ -204,20 +208,9 @@ class AuthorizationService:
 
         return True
 
-        # ─────────────────────────────────────────────
-        # Cache loaders
-        # ─────────────────────────────────────────────
-
-        #    def _load_permissions(self) -> set:
-        """
-        Resolve o conjunto final de permissões do usuário.
-
-        Ordem de resolução (ADR-PERM-01):
-          1. Permissões herdadas do grupo da role (auth_group_permissions)
-          2. Permissões diretas do usuário (auth_user_user_permissions)  [D-02]
-          3. + grant overrides (UserPermissionOverride mode='grant')     [D-01]
-          4. - revoke overrides (UserPermissionOverride mode='revoke')   [D-01]
-        """
+    # ─────────────────────────────────────────────
+    # Cache loaders
+    # ─────────────────────────────────────────────
 
     def _load_permissions(self) -> set:
         """
@@ -238,19 +231,20 @@ class AuthorizationService:
         if self._permissions is not None:
             return self._permissions
 
-        cache_key = self._permissions_cache_key()
+        if self._usar_cache:
+            cache_key = self._permissions_cache_key()
+            cached = cache.get(cache_key)
 
-        cached = cache.get(cache_key)
-
-        if cached is not None:
-            self._permissions = cached
-            return self._permissions
+            if cached is not None:
+                self._permissions = cached
+                return self._permissions
 
         self._permissions = set(
             self.user.user_permissions.values_list("codename", flat=True)
         )
 
-        cache.set(cache_key, self._permissions, CACHE_TTL)
+        if self._usar_cache:
+            cache.set(cache_key, self._permissions, CACHE_TTL)
 
         return self._permissions
 

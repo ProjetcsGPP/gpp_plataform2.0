@@ -30,6 +30,7 @@ from rest_framework.request import Request
 
 from apps.accounts.services.application_registry import ApplicationRegistry
 from apps.accounts.services.authorization_service import AuthorizationService
+from apps.core.services.autorizacao_iam_local import autorizar
 
 security_logger = logging.getLogger("gpp.security")
 
@@ -114,8 +115,12 @@ class CanPermission(BasePermission):
 
         application = _resolve_application(request)
         context = getattr(view, "permission_context", None)
-        service = AuthorizationService(request.user, application)
-        result = service.can(permission_codename, context=context)
+        result = autorizar(
+            request.user,
+            permission_codename,
+            aplicacao=application,
+            contexto=context,
+        )
         if not result:
             security_logger.warning(
                 "DRF_DENY CanPermission user_id=%s perm=%s path=%s",

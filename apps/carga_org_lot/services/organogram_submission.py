@@ -14,6 +14,7 @@ from django.utils.dateparse import parse_datetime
 
 from apps.carga_org_lot.models import (
     EnvioOrganogramaProdest,
+    EventoIntegracaoProdest,
     FaseIntegracaoProdest,
     ImportacaoPlanilha,
     OperacaoIntegracaoProdest,
@@ -34,6 +35,7 @@ from .workflow import (
     AuditActor,
     get_or_create_active_process,
     register_organogram_monitoring_closed,
+    register_organogram_revoked,
     register_organogram_result,
     register_organogram_submission,
 )
@@ -54,6 +56,75 @@ class OrganogramSubmissionError(RuntimeError):
         self.envio = envio
         self.details = details or {}
         self.kind = kind
+
+
+@transaction.atomic
+def encerrar_atividade_por_revogacao(envio_id: int) -> bool:
+    """Encerra a atividade local, preservando a resposta remota já registrada."""
+    envio = EnvioOrganogramaProdest.objects.select_for_update().get(pk=envio_id)
+    if envio.strstatus not in {
+        StatusEnvioOrganograma.SOLICITANDO,
+        StatusEnvioOrganograma.PROCESSANDO,
+    }:
+        return False
+    resposta_registrada = bool(envio.idexternocarga)
+    tentativa_externa_iniciada = resposta_registrada or (
+        EventoIntegracaoProdest.objects.filter(
+            idenvioorganograma_id=envio_id,
+            strcodigo="ENVIO_EXTERNO_INICIADO",
+        ).exists()
+    )
+    now = timezone.now()
+    if resposta_registrada:
+        mensagem = (
+            "Atividade local encerrada porque a autorização do solicitante "
+            "foi revogada. A PRODEST já aceitou o envio e pode continuar "
+            "processando-o; não haverá novas consultas automáticas."
+        )
+    elif tentativa_externa_iniciada:
+        mensagem = (
+            "Atividade local encerrada por revogação. A tentativa externa "
+            "foi iniciada, mas não há confirmação local de aceite pela "
+            "PRODEST; nenhuma nova consulta ou tentativa automática será "
+            "realizada."
+        )
+    else:
+        mensagem = (
+            "Envio externo não iniciado: a autorização do solicitante "
+            "foi revogada."
+        )
+    envio.strstatus = (
+        StatusEnvioOrganograma.SITUACAO_REMOTA_INDETERMINADA
+        if tentativa_externa_iniciada else StatusEnvioOrganograma.ERRO
+    )
+    envio.strmensagemerro = mensagem
+    envio.datproximaconsulta = None
+    envio.datfimmonitoramento = now if tentativa_externa_iniciada else None
+    envio.datfinalizacao = now
+    envio.save(update_fields=[
+        "strstatus", "strmensagemerro", "datproximaconsulta",
+        "datfimmonitoramento", "datfinalizacao", "updated_at",
+    ])
+    ator_sistema = AuditActor(user_name="Serviço IAM / Carga")
+    register_organogram_revoked(envio, actor=ator_sistema)
+    record_operational_event(
+        envio,
+        code="ATIVIDADE_ENCERRADA_REVOGACAO",
+        phase=FaseIntegracaoProdest.CONCLUSAO,
+        status=StatusEventoOperacional.AVISO,
+        title="Atividade encerrada por revogação",
+        message=mensagem,
+        actor=ator_sistema,
+        details={
+            "solicitante_id": envio.created_by_id,
+            "idexternocarga": str(envio.idexternocarga or ""),
+            "resposta_prodest_registrada": resposta_registrada,
+            "tentativa_externa_iniciada": tentativa_externa_iniciada,
+            "cancelamento_remoto_confirmado": False,
+        },
+        deduplicate=False,
+    )
+    return True
 
 
 def build_organogram_payload(importacao: ImportacaoPlanilha) -> dict:
@@ -238,6 +309,18 @@ def execute_organogram_submission(
         submission_id=envio.pk,
         actor=actor,
     )
+    record_operational_event(
+        envio,
+        code="ENVIO_EXTERNO_INICIADO",
+        phase=FaseIntegracaoProdest.ENVIO,
+        status=StatusEventoOperacional.EM_ANDAMENTO,
+        title="Iniciando envio à PRODEST",
+        message=(
+            "A tentativa de envio externo foi iniciada. O aceite pela "
+            "PRODEST ainda não está confirmado."
+        ),
+        actor=actor,
+    )
     try:
         carga_id = cargarh.submit_organogram(
             importacao.idpatriarca.idexternopatriarca,
@@ -268,6 +351,10 @@ def execute_organogram_submission(
             details=details,
             status_code=getattr(exc, "status_code", None),
         )
+        encerrado_por_revogacao = EnvioOrganogramaProdest.objects.filter(
+            pk=envio.pk,
+            strstatus=StatusEnvioOrganograma.SITUACAO_REMOTA_INDETERMINADA,
+        ).exists()
         record_operational_event(
             envio,
             code=(
@@ -283,10 +370,16 @@ def execute_organogram_submission(
                 else "Não foi possível enviar o organograma"
             ),
             message=(
+                "Resposta da PRODEST registrada após encerramento local "
+                "por revogação; o acompanhamento não será retomado. " + str(exc)
+                if encerrado_por_revogacao else
                 "Nenhuma carga remota foi confirmada. " + str(exc)
             ),
             actor=actor,
-            details=operational_details,
+            details=(
+                {**operational_details, "atividade_local_encerrada": True}
+                if encerrado_por_revogacao else operational_details
+            ),
             method=getattr(exc, "method", None) or "INTERNAL",
             endpoint=getattr(exc, "endpoint", None) or "local",
             http_status=getattr(exc, "status_code", None),
@@ -302,27 +395,56 @@ def execute_organogram_submission(
             ),
         ) from exc
 
-    envio.idexternocarga = carga_id
-    envio.strstatus = StatusEnvioOrganograma.PROCESSANDO
-    envio.strmensagemerro = ""
-    now = timezone.now()
-    envio.datiniciomonitoramento = now
-    envio.datproximaconsulta = now + timedelta(
-        seconds=settings.CARGA_ORG_LOT_MONITOR_INTERVAL_SECONDS
-    )
-    envio.updated_by_id = actor.user_id
-    envio.updated_by_name = actor.user_name
-    envio.save()
-    record_operational_event(
-        envio,
-        code="CARGA_REMOTA_CRIADA",
-        phase=FaseIntegracaoProdest.PROCESSAMENTO,
-        status=StatusEventoOperacional.EM_ANDAMENTO,
-        title="Carga recebida pela PRODEST",
-        message="A PRODEST recebeu o organograma e iniciou o processamento.",
-        actor=actor,
-        details={"idexternocarga": str(carga_id)},
-    )
+    # A autorização pode ter sido revogada enquanto o POST estava em voo.
+    # Guardar o aceite remoto sem reabrir uma atividade encerrada localmente.
+    with transaction.atomic():
+        envio_atual = EnvioOrganogramaProdest.objects.select_for_update().get(
+            pk=envio.pk
+        )
+        encerrado_por_revogacao = (
+            envio_atual.strstatus
+            == StatusEnvioOrganograma.SITUACAO_REMOTA_INDETERMINADA
+            and EventoIntegracaoProdest.objects.filter(
+                idenvioorganograma_id=envio.pk,
+                strcodigo="ATIVIDADE_ENCERRADA_REVOGACAO",
+            ).exists()
+        )
+        envio_atual.idexternocarga = carga_id
+        if not encerrado_por_revogacao:
+            envio_atual.strstatus = StatusEnvioOrganograma.PROCESSANDO
+            envio_atual.strmensagemerro = ""
+            now = timezone.now()
+            envio_atual.datiniciomonitoramento = now
+            envio_atual.datproximaconsulta = now + timedelta(
+                seconds=settings.CARGA_ORG_LOT_MONITOR_INTERVAL_SECONDS
+            )
+            envio_atual.updated_by_id = actor.user_id
+            envio_atual.updated_by_name = actor.user_name
+        envio_atual.save()
+        record_operational_event(
+            envio_atual,
+            code="CARGA_REMOTA_CRIADA",
+            phase=(
+                FaseIntegracaoProdest.CONCLUSAO
+                if encerrado_por_revogacao
+                else FaseIntegracaoProdest.PROCESSAMENTO
+            ),
+            status=StatusEventoOperacional.AVISO if encerrado_por_revogacao
+            else StatusEventoOperacional.EM_ANDAMENTO,
+            title="Carga recebida pela PRODEST",
+            message=(
+                "A PRODEST aceitou o envio após o encerramento local por "
+                "revogação; não haverá acompanhamento automático."
+                if encerrado_por_revogacao else
+                "A PRODEST recebeu o organograma e iniciou o processamento."
+            ),
+            actor=actor,
+            details={
+                "idexternocarga": str(carga_id),
+                "atividade_local_encerrada": encerrado_por_revogacao,
+            },
+        )
+    envio.refresh_from_db()
     return envio
 
 
@@ -347,11 +469,30 @@ def refresh_submission_status(
     try:
         remote_status = cargarh.get_status(envio.idexternocarga)
     except (CargaRHConfigurationError, CargaRHRequestError) as exc:
-        envio.strmensagemerro = str(exc)
-        envio.datultimaconsulta = timezone.now()
-        envio.updated_by_id = actor.user_id
-        envio.updated_by_name = actor.user_name
-        envio.save()
+        with transaction.atomic():
+            atual = EnvioOrganogramaProdest.objects.select_for_update().get(
+                pk=envio.pk
+            )
+            if atual.strstatus == StatusEnvioOrganograma.PROCESSANDO:
+                atual.strmensagemerro = str(exc)
+                atual.datultimaconsulta = timezone.now()
+                atual.updated_by_id = actor.user_id
+                atual.updated_by_name = actor.user_name
+                atual.save()
+            else:
+                record_operational_event(
+                    atual,
+                    code="CONSULTA_PRODEST_APOS_ENCERRAMENTO",
+                    phase=FaseIntegracaoProdest.CONCLUSAO,
+                    status=StatusEventoOperacional.AVISO,
+                    title="Consulta retornou após encerramento local",
+                    message=(
+                        "A consulta à PRODEST retornou após a revogação; "
+                        "o acompanhamento local permanece encerrado. " + str(exc)
+                    ),
+                    actor=actor,
+                    details={"http_status": getattr(exc, "status_code", None)},
+                )
         raise OrganogramSubmissionError(
             str(exc),
             envio=envio,
@@ -362,6 +503,34 @@ def refresh_submission_status(
                 else "upstream"
             ),
         ) from exc
+
+    with transaction.atomic():
+        atual = EnvioOrganogramaProdest.objects.select_for_update().get(
+            pk=envio.pk
+        )
+        if atual.strstatus != StatusEnvioOrganograma.PROCESSANDO:
+            atual.jsonstatusprodest = remote_status
+            atual.datultimaconsulta = timezone.now()
+            atual.save(update_fields=["jsonstatusprodest", "datultimaconsulta", "updated_at"])
+            record_operational_event(
+                atual,
+                code="RESPOSTA_PRODEST_APOS_ENCERRAMENTO",
+                phase=FaseIntegracaoProdest.CONCLUSAO,
+                status=StatusEventoOperacional.AVISO,
+                title="Resposta recebida após encerramento local",
+                message=(
+                    "A resposta da PRODEST foi registrada após a revogação; "
+                    "o acompanhamento local permanece encerrado."
+                ),
+                actor=actor,
+                details={"finalizada": bool(remote_status.get("finalizada"))},
+            )
+            return atual
+        return _aplicar_status_remoto(atual, remote_status, actor, cargarh)
+
+
+def _aplicar_status_remoto(envio, remote_status, actor, cargarh):
+    """Aplica a resposta sob bloqueio da tentativa, sem reabrir revogações."""
 
     previous_status = envio.strstatus
     previous_remote_status = envio.jsonstatusprodest
@@ -699,6 +868,7 @@ def refresh_submission_report(
     return envio
 
 
+@transaction.atomic
 def _mark_submission_error(
     envio,
     message,
@@ -707,19 +877,25 @@ def _mark_submission_error(
     details=None,
     status_code=None,
 ):
-    envio.strstatus = StatusEnvioOrganograma.ERRO
-    envio.strmensagemerro = message
-    envio.jsonstatusprodest = {
+    atual = EnvioOrganogramaProdest.objects.select_for_update().get(pk=envio.pk)
+    atual.jsonstatusprodest = {
         "falha_solicitacao": {
             "http_status": status_code,
             "problem": details or {},
         }
     }
-    envio.datfinalizacao = timezone.now()
-    envio.updated_by_id = actor.user_id
-    envio.updated_by_name = actor.user_name
-    envio.save()
-    register_organogram_result(envio, success=False, actor=actor)
+    if atual.strstatus == StatusEnvioOrganograma.SITUACAO_REMOTA_INDETERMINADA:
+        # A falha chegou depois da revogação: preservar a decisão local e
+        # registrar a resposta remota sem reabrir o processo.
+        atual.save(update_fields=["jsonstatusprodest", "updated_at"])
+        return
+    atual.strstatus = StatusEnvioOrganograma.ERRO
+    atual.strmensagemerro = message
+    atual.datfinalizacao = timezone.now()
+    atual.updated_by_id = actor.user_id
+    atual.updated_by_name = actor.user_name
+    atual.save()
+    register_organogram_result(atual, success=False, actor=actor)
 
 
 def _operational_failure_details(envio, exc, *, phase):

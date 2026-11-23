@@ -3,6 +3,7 @@
 from http.cookies import SimpleCookie
 
 from channels.db import database_sync_to_async
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Q
 from django.utils import timezone
@@ -22,11 +23,21 @@ class MiddlewareSessaoAplicacaoWebSocket:
 
     async def __call__(self, escopo, receber, enviar):
         escopo = dict(escopo)
-        escopo["user"], escopo["app_context"] = await self._resolver(escopo)
+        contexto = self._obter_contexto(escopo.get("path", ""))
+        if (
+            contexto == "CARGA_ORG_LOT"
+            and settings.CARGA_IAM_WEBSOCKET_REMOTO_ATIVO
+        ):
+            # O consumer valida a sessão no IAM; não consultar AccountsSession
+            # ou roles locais antes da decisão remota.
+            escopo["user"] = AnonymousUser()
+            escopo["app_context"] = contexto
+        else:
+            escopo["user"], escopo["app_context"] = await self._resolver(escopo)
         return await self.aplicacao(escopo, receber, enviar)
 
     @database_sync_to_async
-    def _resolver(self, escopo):
+    def _resolver(self, escopo):  # pylint: disable=too-many-return-statements
         contexto = self._obter_contexto(escopo.get("path", ""))
         if contexto is None:
             return AnonymousUser(), None
@@ -51,22 +62,30 @@ class MiddlewareSessaoAplicacaoWebSocket:
                     app_context=contexto,
                     revoked=False,
                     expires_at__gt=timezone.now(),
+                    user__is_active=True,
                 )
                 .select_related("user")
                 .first()
             )
             if sessao:
                 return sessao.user, contexto
+            # Cookie dedicado presente e inválido impede fallback administrativo.
+            return AnonymousUser(), contexto
 
         consulta = Q()
         for nome, valor in pares.items():
-            consulta |= Q(session_cookie_name=nome, session_key=valor)
+            consulta |= Q(
+                session_cookie_name=nome,
+                session_key=valor,
+                app_context=nome.removeprefix("gpp_session_"),
+            )
         sessao = (
             AccountsSession.objects.filter(
                 consulta,
                 revoked=False,
                 expires_at__gt=timezone.now(),
                 app_context__isnull=False,
+                user__is_active=True,
             )
             .select_related("user")
             .order_by("-created_at")

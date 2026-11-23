@@ -33,6 +33,8 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.http import JsonResponse
 
+from config.iam_boundary import carga_http_iam_remoto
+
 security_logger = logging.getLogger("gpp.security")
 
 
@@ -40,14 +42,36 @@ class AuthorizationMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
-    def __call__(self, request):
-        # Rotas isentas — nunca bloquear
-        # Lido de settings a cada request para suportar @override_settings nos testes
-        if self._is_exempt(request.path):
-            return self.get_response(request)
+    @staticmethod
+    def process_view(request, view_func, _view_args, _view_kwargs):
+        """Impede que uma rota nova de Carga escape do guard remoto."""
+        if not carga_http_iam_remoto(request.path):
+            return None
+        classe = getattr(view_func, "cls", None)
+        if classe is not None and any(
+            getattr(permissao, "protege_identidade_iam_remota", False)
+            for permissao in getattr(classe, "permission_classes", ())
+        ):
+            return None
+        security_logger.error(
+            "CARGA_IAM_VIEW_SEM_GUARD path=%s metodo=%s",
+            request.path, request.method,
+        )
+        return AuthorizationMiddleware._json_response(
+            status=503,
+            code="servico_iam_indisponivel",
+            detail="Serviço de autorização temporariamente indisponível.",
+        )
 
-        # PORTAL_ADMIN — acesso irrestrito
-        if getattr(request, "is_portal_admin", False):
+    def __call__(self, request):
+        # Carga remota é decidida no guard DRF; process_view exige sua presença.
+        # Rotas públicas/isentas também não são bloqueadas nesta camada.
+        # Lido de settings a cada request para suportar @override_settings nos testes
+        if (
+            carga_http_iam_remoto(request.path)
+            or self._is_exempt(request.path)
+            or getattr(request, "is_portal_admin", False)
+        ):
             return self.get_response(request)
 
         # Usuário não autenticado

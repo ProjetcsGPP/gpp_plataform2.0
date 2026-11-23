@@ -40,6 +40,39 @@ SECRET_KEY = env("SECRET_KEY")
 DEBUG = False  # sobrescrito em development.py
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[])
 
+# Piloto de decisão IAM entre serviços. Desativado até existir transporte
+# protegido e uma credencial exclusiva de Carga provisionada fora do Git.
+IAM_DECISOES_INTERNAS_ATIVAS = env.bool(
+    "GPP_IAM_DECISOES_INTERNAS_ATIVAS", default=False
+)
+IAM_TOKEN_SERVICO_CARGA = env("GPP_IAM_TOKEN_SERVICO_CARGA", default="").strip()
+IAM_URL_CARGA = env("GPP_CARGA_IAM_URL", default="").strip()
+# Piloto HTTP controlado: ainda depende dos middlewares locais de sessão/roles.
+# Não ativar como implantação independente antes dos gates de I2/I4.
+CARGA_IAM_DECISAO_REMOTA_ATIVA = env.bool(
+    "GPP_CARGA_IAM_DECISAO_REMOTA_ATIVA", default=False
+)
+# Piloto HTTP integral: remove leituras locais de sessão, aplicação e roles
+# somente para /api/carga-org-lot/. Requer o IAM produtor com usuario_nome.
+# Não ativar antes dos testes de I2/I4 no proxy e canal protegido.
+CARGA_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA = env.bool(
+    "GPP_CARGA_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA", default=False
+)
+# Piloto independente para conexões WebSocket de Carga. Também continua
+# dependente do middleware local de sessão até a extração de processo.
+CARGA_IAM_WEBSOCKET_REMOTO_ATIVO = env.bool(
+    "GPP_CARGA_IAM_WEBSOCKET_REMOTO_ATIVO", default=False
+)
+CARGA_IAM_ATIVIDADES_REMOTAS_ATIVAS = env.bool(
+    "GPP_CARGA_IAM_ATIVIDADES_REMOTAS_ATIVAS", default=False
+)
+# Somente no piloto remoto: limita o tempo de uma conexão ociosa sem nova
+# decisão IAM. O limite operacional fica entre 30 s e 5 min.
+CARGA_IAM_WEBSOCKET_REVALIDACAO_SEGUNDOS = max(
+    30,
+    min(300, env.int("GPP_CARGA_IAM_WEBSOCKET_REVALIDACAO_SEGUNDOS", default=300)),
+)
+
 # ─── Applications ───────────────────────────────────────────────────────────
 DJANGO_APPS = [
     # Deve preceder staticfiles para fornecer o runserver ASGI.
@@ -663,6 +696,7 @@ APPLICATION_DOMAIN_MAP = {
 # Prefixos: qualquer path que COMECE com estes valores é liberado pelo
 # AuthorizationMiddleware sem checagem de autenticação/roles.
 AUTHORIZATION_EXEMPT_PATHS = [
+    "/interno/iam/v1/decisoes/",  # autenticação M2M feita na própria view
     "/api/accounts/login/",  # login via sessão
     "/api/accounts/logout/",  # logout (IsAuthenticated no DRF, mas sem roles)
     "/api/accounts/auth/",  # AplicacaoPublicaViewSet (AllowAny) — seletor de login
@@ -679,6 +713,8 @@ AUTHORIZATION_EXEMPT_PATHS = [
 # Endpoints públicos que não devem resolver sessão, aplicação ou roles. A lista
 # é deliberadamente mais restrita que AUTHORIZATION_EXEMPT_PATHS.
 PUBLIC_ANONYMOUS_PATHS = [
+    "/interno/iam/v1/decisoes/",  # não resolver cookie do navegador neste endpoint
+    "/api/health/",  # vivacidade: não depende do cadastro de aplicações/IAM
     "/api/public/v1/publicacoes-institucionais/",
 ]
 
