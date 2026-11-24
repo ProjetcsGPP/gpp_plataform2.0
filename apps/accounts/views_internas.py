@@ -15,6 +15,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from apps.accounts.services.decisao_interna import (
     decidir_acesso_carga,
+    decidir_acesso_publicacoes,
     decidir_atividade_carga,
 )
 
@@ -30,7 +31,7 @@ def _resposta(dados, status=200):
     return resposta
 
 
-def _servico_autenticado(request):
+def _servico_autenticado(request, token_servico):
     esquema, separador, credencial = request.headers.get(
         "Authorization", ""
     ).partition(" ")
@@ -39,7 +40,7 @@ def _servico_autenticado(request):
         and separador
         and credencial
         and len(credencial) <= 256
-        and secrets.compare_digest(credencial, settings.IAM_TOKEN_SERVICO_CARGA)
+        and secrets.compare_digest(credencial, token_servico)
     )
 
 
@@ -93,17 +94,27 @@ class DecisaoIAMInternaView(View):
     """Autentica o serviço antes de examinar a credencial opaca do usuário."""
 
     http_method_names = ["post"]
+    nome_configuracao_token = "IAM_TOKEN_SERVICO_CARGA"
+    codigo_aplicacao = "CARGA_ORG_LOT"
+
+    def _token_servico(self):
+        return getattr(settings, self.nome_configuracao_token, "")
+
+    def _decidir(self, credenciais, permissao):
+        return decidir_acesso_carga(
+            credenciais=credenciais, permissao=permissao,
+        )
 
     def dispatch(self, request, *args, **kwargs):
         if (
             not settings.IAM_DECISOES_INTERNAS_ATIVAS
-            or not 32 <= len(settings.IAM_TOKEN_SERVICO_CARGA) <= 256
+            or not 32 <= len(self._token_servico()) <= 256
         ):
             return _resposta({"erro": "nao_disponivel"}, status=404)
         return super().dispatch(request, *args, **kwargs)
 
     def post(self, request):
-        if not _servico_autenticado(request):
+        if not _servico_autenticado(request, self._token_servico()):
             resposta = _resposta({"erro": "servico_nao_autenticado"}, status=401)
             resposta["WWW-Authenticate"] = 'Bearer realm="gpp-iam-interno"'
             return resposta
@@ -118,10 +129,7 @@ class DecisaoIAMInternaView(View):
             correlacao = uuid4().hex
         decisao_id = uuid4().hex
         try:
-            resultado = decidir_acesso_carga(
-                credenciais=credenciais,
-                permissao=permissao,
-            )
+            resultado = self._decidir(credenciais, permissao)
         except Exception as exc:  # fronteira: nunca liberar acesso em falha do IAM
             security_logger.error(
                 "IAM_DECISAO_INDISPONIVEL decisao_id=%s correlacao=%s tipo=%s",
@@ -135,13 +143,33 @@ class DecisaoIAMInternaView(View):
             )
 
         security_logger.info(
-            "IAM_DECISAO resultado=%s usuario_id=%s decisao_id=%s correlacao=%s app=CARGA_ORG_LOT",
+            "IAM_DECISAO resultado=%s usuario_id=%s decisao_id=%s correlacao=%s app=%s",
             resultado["resultado"],
             resultado.get("usuario_id", "indisponivel"),
             decisao_id,
             correlacao,
+            self.codigo_aplicacao,
         )
         return _resposta({"versao": 1, "decisao_id": decisao_id, **resultado})
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class DecisaoPublicacoesIAMInternaView(DecisaoIAMInternaView):
+    """Contrato HTTP opt-in de Publicações, com credencial M2M independente."""
+
+    nome_configuracao_token = "IAM_TOKEN_SERVICO_PUBLICACOES"
+    codigo_aplicacao = "PUB_INSTITUCIONAL"
+
+    def dispatch(self, request, *args, **kwargs):
+        token = self._token_servico()
+        if token and secrets.compare_digest(token, settings.IAM_TOKEN_SERVICO_CARGA):
+            return _resposta({"erro": "nao_disponivel"}, status=404)
+        return super().dispatch(request, *args, **kwargs)
+
+    def _decidir(self, credenciais, permissao):
+        return decidir_acesso_publicacoes(
+            credenciais=credenciais, permissao=permissao,
+        )
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -159,7 +187,7 @@ class DecisaoAtividadeIAMInternaView(View):
         return super().dispatch(request, *args, **kwargs)
 
     def post(self, request):  # pylint: disable=too-many-return-statements
-        if not _servico_autenticado(request):
+        if not _servico_autenticado(request, settings.IAM_TOKEN_SERVICO_CARGA):
             resposta = _resposta({"erro": "servico_nao_autenticado"}, status=401)
             resposta["WWW-Authenticate"] = 'Bearer realm="gpp-iam-interno"'
             return resposta

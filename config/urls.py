@@ -13,9 +13,15 @@ from django.urls import include, path
 from apps.accounts.views_internas import (
     DecisaoAtividadeIAMInternaView,
     DecisaoIAMInternaView,
+    DecisaoPublicacoesIAMInternaView,
 )
 
 urlpatterns = [
+    path(
+        "interno/iam/v1/decisoes-publicacoes/",
+        DecisaoPublicacoesIAMInternaView.as_view(),
+        name="iam-decisao-publicacoes-interna-v1",
+    ),
     path(
         "interno/iam/v1/decisoes-atividade/",
         DecisaoAtividadeIAMInternaView.as_view(),

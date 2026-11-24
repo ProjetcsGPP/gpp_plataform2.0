@@ -72,3 +72,39 @@ transporte e certificados conforme
 O perfil monolítico e o piloto anterior de dois processos permanecem
 inalterados. Não ligar este terceiro perfil enquanto houver processo antigo
 servindo as mesmas rotas ou worker antigo consumindo suas tarefas.
+
+## Inventário para o próximo gate: IAM administrativo de Publicações
+
+O perfil de Publicações separa processos e rotas, **não** a identidade. Hoje
+`AppContextMiddleware` resolve `AccountsSession` para
+`/api/pub-institucional/`; os middlewares de contexto consultam aplicação e
+roles; `IsAuthenticated` e `CanPermission` usam a identidade e a autorização
+locais. Apenas trocar `CanPermission` por um cliente remoto não é suficiente.
+
+| Ponto atual | Dependência a substituir antes do cutover |
+| --- | --- |
+| `apps/accounts/middleware.py` e `apps/core/middleware/{application_context,role_context,authorization}.py` | O bypass remoto deve valer **somente** para `/api/pub-institucional/`, com guarda obrigatório na view; `/api/public/v1/publicacoes-institucionais/` permanece anônimo e independente do IAM. |
+| `apps/pub_institucional/visoes.py` (`MixinPermissaoPorAcao` e `VisaoIbgeBase`) | Cada ação administrativa precisa de decisão IAM para a permissão técnica declarada. Erros devem distinguir sessão inválida `401`, permissão negada `403` e IAM indisponível/contrato inválido `503`, sem fallback ao banco IAM local. |
+| `visoes.py` (`get_serializer_context` e `_contexto_serializador`) | Os indicadores `pode_*` e `permissoes_acoes` fazem decisões adicionais via `AuthorizationService`; devem vir de decisões IAM verificadas, nunca de inferência por role, cache desatualizado ou valor `True` padrão. |
+| `visoes.py` (atores e preferência E-Flow) | O ID e nome auditáveis devem vir da decisão IAM; a preferência persiste `usuario_id` lógico, sem FK para o schema IAM. A identidade mínima precisa oferecer `pk`, `get_full_name()` e `get_username()` ou os usos devem ser adaptados explicitamente. |
+| `apps/core/middleware/websocket.py` e `apps/pub_institucional/consumidores.py` | O handshake deve consultar IAM para `visualizar_coletas_patriarcas`; conexões longas precisam revalidar a autorização e fechar após revogação, sem consultar `AccountsSession`/`has_perm` local. |
+| `apps/pub_institucional/tasks.py` e serviços de coleta | Atividades já aceitas precisam revalidar permissão do solicitante antes de cada etapa externa relevante. Revogação encerra novas ações; a resposta de uma chamada externa já concluída continua registrada na auditoria. |
+
+Sequência de implementação, ainda **não ativada**:
+
+1. **Contrato produtor implementado no piloto:**
+   `/interno/iam/v1/decisoes-publicacoes/` usa
+   `GPP_IAM_TOKEN_SERVICO_PUBLICACOES`, recusa token ausente, inválido ou
+   compartilhado com Carga e fixa `PUB_INSTITUCIONAL` no servidor. Reaproveita
+   as regras de sessão/role e consulta a autorização sem cache. Permanece
+   inativo sem `GPP_IAM_DECISOES_INTERNAS_ATIVAS` e sem credencial provisionada
+   fora do Git. A borda bloqueia `/interno/`; não há cliente Publicações ainda.
+2. Criar cliente e guarda HTTP opt-in com canal de loopback no mesmo host,
+   timeout curto, sem retry/cache de decisão e falha fechada. Preservar CSRF
+   para mutações autenticadas por cookie e não limpar cookie em `503`.
+3. Substituir também as decisões auxiliares e testar matriz de ações,
+   identidade/auditoria, preferência, revogação, indisponibilidade e proteção
+   contra rota administrativa sem guarda.
+4. Tratar WebSocket e tarefa Celery em incrementos próprios. Só então ensaiar
+   os três processos com IAM indisponível, revogação durante a execução e
+   proxy TLS. O perfil padrão continua como rollback até cumprir os gates.

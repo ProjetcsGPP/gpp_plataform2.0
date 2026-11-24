@@ -1,7 +1,7 @@
-"""Decisão IAM para o piloto remoto de Carga, sem expor modelos ao serviço.
+"""Decisão IAM para serviços internos, sem expor modelos ao serviço.
 
-O serviço chamador não escolhe a aplicação-alvo: sua credencial M2M é
-exclusiva de CARGA_ORG_LOT. Esta operação não substitui autorização por objeto.
+O serviço chamador não escolhe a aplicação-alvo: cada endpoint usa credencial
+M2M exclusiva e fixa a aplicação no servidor. Não substitui autorização por objeto.
 """
 
 from django.db.models import Q
@@ -14,12 +14,28 @@ from apps.accounts.services.application_registry import ApplicationRegistry
 from apps.accounts.services.authorization_service import AuthorizationService
 
 APLICACAO_CARGA = "CARGA_ORG_LOT"
+APLICACAO_PUBLICACOES = "PUB_INSTITUCIONAL"
 PREFIXO_COOKIE = "gpp_session_"
 
 
 def decidir_acesso_carga(*, credenciais, permissao):
     """Retorna resultado e metadados mínimos, sem replicar política no chamador."""
-    dedicado = PREFIXO_COOKIE + APLICACAO_CARGA
+    return _decidir_acesso_aplicacao(
+        credenciais=credenciais, permissao=permissao,
+        codigo_aplicacao=APLICACAO_CARGA,
+    )
+
+
+def decidir_acesso_publicacoes(*, credenciais, permissao):
+    """Decide para Publicações sem aceitar aplicação-alvo do solicitante."""
+    return _decidir_acesso_aplicacao(
+        credenciais=credenciais, permissao=permissao,
+        codigo_aplicacao=APLICACAO_PUBLICACOES,
+    )
+
+
+def _decidir_acesso_aplicacao(*, credenciais, permissao, codigo_aplicacao):
+    dedicado = PREFIXO_COOKIE + codigo_aplicacao
     filtros = {
         "revoked": False,
         "expires_at__gt": timezone.now(),
@@ -31,13 +47,13 @@ def decidir_acesso_carga(*, credenciais, permissao):
             AccountsSession.objects.filter(
                 session_key=credenciais[dedicado],
                 session_cookie_name=dedicado,
-                app_context=APLICACAO_CARGA,
+                app_context=codigo_aplicacao,
                 **filtros,
             )
             .select_related("user")
             .first()
         )
-        contexto_cookie = APLICACAO_CARGA
+        contexto_cookie = codigo_aplicacao
     else:
         pares = Q()
         for nome_cookie, chave_sessao in credenciais.items():
@@ -59,7 +75,7 @@ def decidir_acesso_carga(*, credenciais, permissao):
         return {"resultado": "SESSAO_INVALIDA"}
 
     usuario = sessao.user
-    if contexto_cookie != APLICACAO_CARGA:
+    if contexto_cookie != codigo_aplicacao:
         administrador = usuario.is_superuser or UserRole.objects.filter(
             user=usuario,
             role__codigoperfil="PORTAL_ADMIN",
@@ -67,9 +83,9 @@ def decidir_acesso_carga(*, credenciais, permissao):
         if not administrador:
             return {"resultado": "SESSAO_INVALIDA"}
 
-    aplicacao = ApplicationRegistry().get(APLICACAO_CARGA)
+    aplicacao = ApplicationRegistry().get(codigo_aplicacao)
     if aplicacao is None:
-        raise RuntimeError("Aplicação Carga não cadastrada no IAM")
+        raise RuntimeError("Aplicação interna não cadastrada no IAM")
 
     # O endpoint entre serviços decide sempre sobre o estado confirmado no
     # banco, sem reutilizar uma versão de permissões em cache após revogação.
