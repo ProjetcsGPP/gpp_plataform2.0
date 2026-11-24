@@ -55,6 +55,53 @@ apareciam; a identificação das filas em operação continua pendente.
 O proxy alternativo permanece **não ativado**. Estes achados descrevem a
 sandbox local; não são a topologia institucional de HML/PRD.
 
+Em 2026-11-24, o contêiner Nginx padrão resolveu `host.docker.internal`
+para `172.17.0.1`; a consulta de vivacidade em `:8000` foi recusada enquanto
+o backend escutava em `127.0.0.1:8000`. Um contêiner **efêmero** com
+`network_mode: host` alcançou a mesma vivacidade por `127.0.0.1:8000`.
+Isso confirma a limitação da ponte Docker nesta sandbox e a viabilidade de
+loopback para um piloto Linux no mesmo host, não para hosts distintos.
+
+Foi preparado `infra/publicacoes-dev/compose-isolamento-loopback.yaml`, projeto
+Compose separado e opt-in, com
+`config/nginx/nginx-isolamento-loopback.conf`. Ele escuta somente em
+`127.0.0.1:58444`, preserva o proxy padrão em `58443`, roteia API e WebSocket
+para os processos piloto em loopback; bloqueia `/interno/` com `404` e devolve
+`503` para o frontend e demais rotas. No ensaio efêmero com certificado verificado,
+`/infra/healthz` e `/api/health/` responderam `200`; o bloqueio explícito de
+`/interno/` respondeu `404`. A vivacidade de Carga respondeu
+`502` porque **não havia** processo
+na porta `8001`. O contêiner de ensaio foi removido; o novo Compose não foi
+ativado. A prova cobre apenas roteamento local da plataforma atual, não
+perfis ASGI separados, login/CSRF, WebSocket ou autorização via IAM remoto.
+
+Em seguida, o ensaio automatizado com `test_gpp_plataform` montou dois
+processos WSGI temporários com os URLConfs/middlewares piloto atrás de um
+Nginx efêmero derivado da nova configuração loopback. O HTTPS foi verificado
+com certificado de teste; Carga autorizada retornou `200`, sem sessão `401`,
+após revogação de role `403` e, com IAM parado, `503` sem `Set-Cookie`.
+`/interno/` não foi encaminhado (`404`) e `/` permaneceu indisponível (`503`).
+Ao parar somente o processo de Carga, sua vivacidade passou a `502`, enquanto
+a API pública e a vivacidade da plataforma conservaram suas respostas. Os
+quatro testes focados passaram; todos os processos e contêineres efêmeros
+foram encerrados. Isso **não** demonstra boot dos perfis ASGI completos,
+WebSocket autenticado, CSRF, Celery, conectividade entre hosts ou cutover.
+
+Em 2026-11-24, outro ensaio iniciou os **dois perfis ASGI completos** em
+portas temporárias, sempre direcionados ao `test_gpp_plataform` por um lançador
+de teste que recusa o banco operacional. Um Nginx efêmero com TLS verificado
+roteou HTTP e WebSocket. Foram confirmados: Carga `200` com sessão e `401` sem
+sessão; vivacidade separada; handshake WebSocket de Carga `101` com sessão e
+`403` sem sessão; emissão de cookie CSRF e recusa `403` sem o token; requisição
+com token e `Referer` válido atravessando o CSRF e chegando à validação do
+login; `/interno/` inacessível pelo proxy (`404`). Parar somente Carga produziu
+`502` em sua vivacidade sem afetar a API pública da plataforma. Com IAM parado,
+Carga respondeu `503` em recurso protegido, sem emitir `Set-Cookie`. Os dois
+testes passaram e encerraram os processos/contêineres de ensaio. A sessão e a
+credencial M2M eram sintéticas; não houve Celery, Beat, migração, publicação de
+dados ou conexão entre hosts. TLS cobriu somente cliente→proxy; os trechos em
+loopback permaneceram HTTP. O proxy operacional não foi alterado.
+
 ## Contrato de processos do ensaio (não iniciar em paralelo ao launcher atual)
 
 | Processo | Perfil | Porta/fila | Responsabilidade |
@@ -195,6 +242,13 @@ em uma instalação em uso apenas por existir esta configuração.
 
 ## Pendência registrada — proteção dos canais internos
 
+**Decisão de escopo em 2026-11-24:** não há previsão de colocar os serviços em
+hosts diferentes. O ensaio atual permanece restrito a processos no mesmo host
+e a endereços de loopback. A exigência de TLS interno entre hosts fica
+registrada para uma eventual mudança de topologia, não como implementação
+imediata. Isso não dispensa verificar o vínculo a loopback, a exposição de
+portas e a rede efetivamente usada pelo proxy antes de ativar o piloto.
+
 O HTTPS do cliente termina no Nginx. `X-Forwarded-Proto: https` comunica ao
 backend o protocolo de entrada, mas **não** cifra o tráfego seguinte. O
 `nginx-isolamento.conf` ainda usa `proxy_pass http://host.docker.internal` para
@@ -210,19 +264,20 @@ Antes de ativar o isolamento, resolver e ensaiar separadamente:
 1. A topologia de rede efetiva entre proxy e cada backend, inclusive alcance
    de processos ligados apenas a `127.0.0.1`, exposição de portas e isolamento
    de outros contêineres/processos.
-2. A proteção proxy→backends e Carga→IAM conforme a topologia aprovada. Se os
-   serviços ficarem em hosts distintos, exigir HTTPS com certificado verificado
-   e autenticação de serviço no IAM (preferencialmente mTLS); manter
+2. A restrição a loopback para proxy→backends e Carga→IAM na topologia local.
+   Se os serviços ficarem em hosts distintos, exigir HTTPS com certificado
+   verificado e autenticação de serviço no IAM (preferencialmente mTLS); manter
    `/interno/` fora do proxy público. A credencial M2M não substitui TLS.
-3. Testes de certificado válido, certificado não confiável/expirado, destino
-   indisponível, `401`/`403`/`503` e ausência de vazamento de cookie/token em
-   respostas ou logs. Confirmar também HTTP, WebSocket, CSRF e rollback pela
-   topologia escolhida.
+3. Testes de destino indisponível, `401`/`403`/`503` e ausência de vazamento de
+   cookie/token em respostas ou logs. Confirmar também HTTP, WebSocket, CSRF
+   e rollback. Testes de certificado válido, não confiável e expirado tornam-se
+   obrigatórios se a topologia passar a usar TLS interno.
 
 **Critério de fechamento:** demonstrar por teste na topologia efetiva quais
 trechos são cifrados/autenticados, quais são restritos a loopback e que o
 proxy não expõe o IAM interno. O ensaio HTTPS atual fecha apenas
-cliente→proxy; não autoriza cutover.
+cliente→proxy. O novo ensaio confirma loopback somente na máquina local; não
+autoriza cutover nem resolve TLS/autenticação entre hosts distintos.
 
 ## Dívida antes do isolamento final
 

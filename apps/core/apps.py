@@ -7,8 +7,8 @@ class CoreConfig(AppConfig):
     verbose_name = "Núcleo do Sistema GPP Plataform 2.0"
 
     def ready(self):
-        # O perfil de Carga ainda instala todos os modelos para leitura, mas
-        # nunca pode ser o proprietário de migrações do banco compartilhado.
+        # Os perfis de domínio ainda instalam todos os modelos para leitura,
+        # mas não podem migrar o banco compartilhado no lugar da plataforma.
         from django.db.models.signals import pre_migrate
 
         from .migration_guards import bloquear_migracao_carga_piloto

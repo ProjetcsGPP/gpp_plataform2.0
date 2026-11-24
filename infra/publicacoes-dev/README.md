@@ -5,12 +5,29 @@ ferramentas podem mudar em HML/PRD, mas os contratos de segurança e preflights
 deverão ser repetidos.
 
 O Nginx padrão continua apontando `/api/` para um único backend local.
+O ensaio adicional de três processos (IAM, Carga e Publicações) está descrito
+em [BACKEND_PUBLICACOES_ISOLAMENTO_PILOTO.md](../../docs/SHARED/BACKEND_PUBLICACOES_ISOLAMENTO_PILOTO.md).
+O arquivo `compose-isolamento-tres.yaml` é opt-in e não substitui o proxy em
+uso; Publicações ainda depende do banco IAM compartilhado para autorização
+administrativa.
 Para o ensaio **opt-in** de dois processos, há uma configuração alternativa
 em `config/nginx/nginx-isolamento.conf`; consulte primeiro o
 [contrato do piloto de Carga](../../docs/SHARED/BACKEND_CARGA_ISOLAMENTO_PILOTO.md).
 Uma entrada TLS compartilhada pode encaminhar processos separados: não é
 necessário criar um proxy por aplicação. O proxy alternativo não é ativado
 automaticamente e exige teste de conectividade host-contêiner.
+
+Na topologia local observada em 2026-11-24, `host.docker.internal` resolveu
+para `172.17.0.1`, mas o backend escutava somente em `127.0.0.1:8000`; o
+contêiner Nginx recebeu conexão recusada. **Não** habilitar o arquivo
+alternativo acima esperando que ele alcance esse backend. Para o ensaio Linux
+de processos no mesmo host, `compose-isolamento-loopback.yaml` fornece um
+proxy opt-in em `https://localhost:58444`, separado do proxy padrão, com
+`network_mode: host` e upstreams em loopback. Só serve API e WebSocket;
+`/interno/` e o frontend não são encaminhados. Não executar esse Compose como
+substituto do proxy institucional ou enquanto houver conflito de porta. O modo
+host compartilha a rede do sistema e reduz o isolamento de rede do contêiner;
+é uma solução de ensaio local, não a topologia final aprovada.
 
 O PostgreSQL deste Compose é uma sandbox auxiliar de testes e não substitui a
 instância on-premises configurada nos settings normais. Sua permanência está em
@@ -104,8 +121,9 @@ instalado como autoridade confiável global.
 
 ## Limites atuais
 
-- Django e frontend continuam executando no host; Nginx os alcança por
-  `host.docker.internal`.
+- Django e frontend continuam executando no host; o Nginx padrão **tenta**
+  alcançá-los por `host.docker.internal`. A conectividade depende do endereço
+  em que cada processo escuta e não é garantida para listeners em loopback.
 - O preflight básico já cobre autenticação Redis, negação administrativa,
   detecção EICAR, leitura via AppRole sem escrita, separação positiva e negativa
   dos papéis S3, disponibilidade dos serviços, proxy, limites e SSRF. O teste

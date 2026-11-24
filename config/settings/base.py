@@ -40,8 +40,10 @@ SECRET_KEY = env("SECRET_KEY")
 DEBUG = False  # sobrescrito em development.py
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[])
 
-# Piloto de decisão IAM entre serviços. Desativado até existir transporte
-# protegido e uma credencial exclusiva de Carga provisionada fora do Git.
+# Piloto de decisão IAM entre serviços. Sem previsão atual de hosts distintos:
+# HTTP só é permitido para IAM em loopback no mesmo host; para outro host,
+# exigir HTTPS verificado. Credencial exclusiva de Carga fica fora do Git.
+# As flags continuam desligadas até validar a topologia e os gates do piloto.
 IAM_DECISOES_INTERNAS_ATIVAS = env.bool(
     "GPP_IAM_DECISOES_INTERNAS_ATIVAS", default=False
 )

@@ -1,0 +1,18 @@
+# Piloto API/WebSocket local e opt-in. Projeto Compose separado do proxy em uso.
+name: gpp-isolamento-loopback
+
+services:
+  proxy:
+    image: gpp-publicacoes/nginx-dev:1.30.6-alpine-security-20261026
+    network_mode: host
+    restart: "no"
+    volumes:
+      - ./config/nginx/nginx-isolamento-loopback.conf:/etc/nginx/nginx.conf:ro
+      - ./runtime/tls:/etc/nginx/tls:ro
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true

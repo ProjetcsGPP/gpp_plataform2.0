@@ -26,6 +26,10 @@ class PermissaoIAMNegada(RuntimeError):
 
 
 def _validar_url(url, *, caminho="/interno/iam/v1/decisoes/"):
+    # HTTP só é aceito para IAM em loopback no mesmo host. A credencial M2M
+    # autentica a chamada, mas não cifra o transporte. Se Carga e IAM forem
+    # separados por host, exigir HTTPS com certificado verificado e ensaiar
+    # falhas de confiança; nunca liberar HTTP para um endereço de rede.
     try:
         partes = urlsplit(url)
         porta = partes.port  # força validação de porta malformada

@@ -17,3 +17,8 @@ def carga_viva(_request):
 def plataforma_viva(_request):
     """Informa apenas que o processo HTTP da plataforma respondeu."""
     return _vivo("plataforma")
+
+
+def publicacoes_vivas(_request):
+    """Informa apenas que o processo HTTP de Publicações respondeu."""
+    return _vivo("pub_institucional")
