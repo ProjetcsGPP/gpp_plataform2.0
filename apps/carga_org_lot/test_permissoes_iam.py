@@ -115,6 +115,30 @@ def test_sem_cookie_nao_consulta_iam():
 
 
 @override_settings(CARGA_IAM_DECISAO_REMOTA_ATIVA=True)
+def test_cookie_de_outra_app_nao_consulta_iam():
+    requisicao = _requisicao(com_cookie=False)
+    requisicao.COOKIES["gpp_session_PORTAL"] = "sessao-portal"
+    with patch("apps.carga_org_lot.permissoes_iam.decidir_acesso_remoto") as remoto:
+        with pytest.raises(SessaoCargaInvalida):
+            CanPermissionCarga().has_permission(requisicao, VISAO)
+    remoto.assert_not_called()
+
+
+@override_settings(CARGA_IAM_DECISAO_REMOTA_ATIVA=True)
+def test_apenas_cookie_de_carga_e_enviado_ao_iam():
+    requisicao = _requisicao()
+    requisicao.COOKIES["gpp_session_PORTAL"] = "sessao-portal"
+    with patch(
+        "apps.carga_org_lot.permissoes_iam.decidir_acesso_remoto",
+        return_value={"usuario_id": 7, "decisao_id": "teste"},
+    ) as remoto:
+        assert CanPermissionCarga().has_permission(requisicao, VISAO) is True
+    assert remoto.call_args.kwargs["credenciais"] == {
+        "gpp_session_CARGA_ORG_LOT": "sessao-opaca"
+    }
+
+
+@override_settings(CARGA_IAM_DECISAO_REMOTA_ATIVA=True)
 def test_contexto_abac_nao_suportado_bloqueia_piloto():
     visao = SimpleNamespace(
         required_permission="view_importacaoplanilha",

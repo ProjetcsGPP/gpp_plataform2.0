@@ -12,7 +12,7 @@ from django.db.models import Q
 from django.http import JsonResponse
 from django.utils import timezone
 
-from config.iam_boundary import carga_http_iam_remoto
+from config.iam_boundary import dominio_http_iam_remoto
 
 from .models import AccountsSession
 
@@ -50,10 +50,11 @@ class AppContextMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if carga_http_iam_remoto(request.path):
+        dominio_remoto = dominio_http_iam_remoto(request.path)
+        if dominio_remoto:
             # O guard da view obterá a identidade somente após decisão IAM.
             request.user = AnonymousUser()
-            request.app_context = "CARGA_ORG_LOT"
+            request.app_context = dominio_remoto
             return self.get_response(request)
 
         # ── 1. Logout por app — bypass total ──────────────────────────────────

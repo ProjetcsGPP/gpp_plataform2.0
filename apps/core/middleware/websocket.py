@@ -25,8 +25,11 @@ class MiddlewareSessaoAplicacaoWebSocket:
         escopo = dict(escopo)
         contexto = self._obter_contexto(escopo.get("path", ""))
         if (
-            contexto == "CARGA_ORG_LOT"
-            and settings.CARGA_IAM_WEBSOCKET_REMOTO_ATIVO
+            (contexto == "CARGA_ORG_LOT" and settings.CARGA_IAM_WEBSOCKET_REMOTO_ATIVO)
+            or (
+                contexto == "PUB_INSTITUCIONAL"
+                and settings.PUBLICACOES_IAM_WEBSOCKET_REMOTO_ATIVO
+            )
         ):
             # O consumer valida a sessão no IAM; não consultar AccountsSession
             # ou roles locais antes da decisão remota.

@@ -14,6 +14,7 @@ from .services.cliente_iam import (IAMIndisponivel, PermissaoIAMNegada,
 from .services.identidade_iam import IdentidadeIAM
 
 logger = logging.getLogger("gpp.security")
+COOKIE_CARGA = "gpp_session_CARGA_ORG_LOT"
 
 
 class SessaoCargaInvalida(APIException):
@@ -55,16 +56,13 @@ class CanPermissionCarga(CanPermission):
             logger.error("CARGA_IAM_CONTRATO_INSUFICIENTE view=%s", view.__class__.__name__)
             raise ServicoIAMIndisponivel()
 
-        credenciais = {
-            nome: valor for nome, valor in request.COOKIES.items()
-            if nome.startswith("gpp_session_")
-        }
-        if not credenciais:
+        valor_cookie = request.COOKIES.get(COOKIE_CARGA)
+        if not valor_cookie:
             raise SessaoCargaInvalida()
 
         try:
             decisao = decidir_acesso_remoto(
-                credenciais=credenciais,
+                credenciais={COOKIE_CARGA: valor_cookie},
                 permissao=permissao,
                 correlacao=request.headers.get("X-Correlation-ID"),
             )

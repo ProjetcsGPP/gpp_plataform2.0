@@ -19,6 +19,7 @@ from apps.core.services.autorizacao_iam_local import autorizar, obter_aplicacao
 
 logger = logging.getLogger("gpp.security")
 PERMISSAO_EVENTOS = "view_importacaoplanilha"
+COOKIE_CARGA = "gpp_session_CARGA_ORG_LOT"
 CODIGOS_FECHAMENTO = {
     "SESSAO_INVALIDA": 4401,
     "NEGADO": 4403,
@@ -116,17 +117,13 @@ class CargaOrgLotConsumer(AsyncJsonWebsocketConsumer):
             cookies.load(cabecalhos.get(b"cookie", b"").decode("latin1"))
         except (CookieError, TypeError, ValueError):
             return "SESSAO_INVALIDA"
-        credenciais = {
-            nome: item.value
-            for nome, item in cookies.items()
-            if nome.startswith("gpp_session_")
-        }
-        if not credenciais:
+        cookie_carga = cookies.get(COOKIE_CARGA)
+        if cookie_carga is None or not cookie_carga.value:
             return "SESSAO_INVALIDA"
 
         try:
             decisao = decidir_acesso_remoto(
-                credenciais=credenciais,
+                credenciais={COOKIE_CARGA: cookie_carga.value},
                 permissao=PERMISSAO_EVENTOS,
                 correlacao=cabecalhos.get(b"x-correlation-id", b"").decode(
                     "ascii", errors="ignore"

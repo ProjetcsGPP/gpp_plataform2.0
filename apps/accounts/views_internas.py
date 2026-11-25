@@ -17,6 +17,7 @@ from apps.accounts.services.decisao_interna import (
     decidir_acesso_carga,
     decidir_acesso_publicacoes,
     decidir_atividade_carga,
+    decidir_atividade_publicacoes,
 )
 
 security_logger = logging.getLogger("gpp.security")
@@ -100,6 +101,9 @@ class DecisaoIAMInternaView(View):
     def _token_servico(self):
         return getattr(settings, self.nome_configuracao_token, "")
 
+    def _decisoes_ativas(self):
+        return settings.IAM_DECISOES_INTERNAS_ATIVAS
+
     def _decidir(self, credenciais, permissao):
         return decidir_acesso_carga(
             credenciais=credenciais, permissao=permissao,
@@ -107,7 +111,7 @@ class DecisaoIAMInternaView(View):
 
     def dispatch(self, request, *args, **kwargs):
         if (
-            not settings.IAM_DECISOES_INTERNAS_ATIVAS
+            not self._decisoes_ativas()
             or not 32 <= len(self._token_servico()) <= 256
         ):
             return _resposta({"erro": "nao_disponivel"}, status=404)
@@ -160,6 +164,9 @@ class DecisaoPublicacoesIAMInternaView(DecisaoIAMInternaView):
     nome_configuracao_token = "IAM_TOKEN_SERVICO_PUBLICACOES"
     codigo_aplicacao = "PUB_INSTITUCIONAL"
 
+    def _decisoes_ativas(self):
+        return settings.IAM_DECISOES_PUBLICACOES_ATIVAS
+
     def dispatch(self, request, *args, **kwargs):
         token = self._token_servico()
         if token and secrets.compare_digest(token, settings.IAM_TOKEN_SERVICO_CARGA):
@@ -177,17 +184,28 @@ class DecisaoAtividadeIAMInternaView(View):
     """Revalidação M2M de uma atividade persistida, sem cookie de usuário."""
 
     http_method_names = ["post"]
+    nome_configuracao_token = "IAM_TOKEN_SERVICO_CARGA"
+    codigo_aplicacao = "CARGA_ORG_LOT"
+
+    def decidir_atividade(self, *, usuario_id, permissao):
+        return decidir_atividade_carga(usuario_id=usuario_id, permissao=permissao)
+
+    def _token_servico(self):
+        return getattr(settings, self.nome_configuracao_token)
+
+    def _decisoes_ativas(self):
+        return settings.IAM_DECISOES_INTERNAS_ATIVAS
 
     def dispatch(self, request, *args, **kwargs):
         if (
-            not settings.IAM_DECISOES_INTERNAS_ATIVAS
-            or not 32 <= len(settings.IAM_TOKEN_SERVICO_CARGA) <= 256
+            not self._decisoes_ativas()
+            or not 32 <= len(self._token_servico()) <= 256
         ):
             return _resposta({"erro": "nao_disponivel"}, status=404)
         return super().dispatch(request, *args, **kwargs)
 
     def post(self, request):  # pylint: disable=too-many-return-statements
-        if not _servico_autenticado(request, settings.IAM_TOKEN_SERVICO_CARGA):
+        if not _servico_autenticado(request, self._token_servico()):
             resposta = _resposta({"erro": "servico_nao_autenticado"}, status=401)
             resposta["WWW-Authenticate"] = 'Bearer realm="gpp-iam-interno"'
             return resposta
@@ -218,7 +236,7 @@ class DecisaoAtividadeIAMInternaView(View):
             correlacao = uuid4().hex
         decisao_id = uuid4().hex
         try:
-            resultado = decidir_atividade_carga(
+            resultado = self.decidir_atividade(
                 usuario_id=usuario_id, permissao=permissao
             )
         except Exception as exc:  # nunca liberar execução em falha do IAM
@@ -230,7 +248,30 @@ class DecisaoAtividadeIAMInternaView(View):
                 {"erro": "iam_indisponivel", "decisao_id": decisao_id}, status=503
             )
         security_logger.info(
-            "IAM_ATIVIDADE resultado=%s usuario_id=%s decisao_id=%s correlacao=%s app=CARGA_ORG_LOT",
+            "IAM_ATIVIDADE resultado=%s usuario_id=%s decisao_id=%s correlacao=%s app=%s",
             resultado["resultado"], usuario_id, decisao_id, correlacao,
+            self.codigo_aplicacao,
         )
         return _resposta({"versao": 1, "decisao_id": decisao_id, **resultado})
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class DecisaoAtividadePublicacoesIAMInternaView(DecisaoAtividadeIAMInternaView):
+    """Decisão M2M exclusiva de Publicações, sem cookie de sessão."""
+
+    nome_configuracao_token = "IAM_TOKEN_SERVICO_PUBLICACOES"
+    codigo_aplicacao = "PUB_INSTITUCIONAL"
+
+    def _decisoes_ativas(self):
+        return settings.IAM_DECISOES_PUBLICACOES_ATIVAS
+
+    def decidir_atividade(self, *, usuario_id, permissao):
+        return decidir_atividade_publicacoes(
+            usuario_id=usuario_id, permissao=permissao
+        )
+
+    def dispatch(self, request, *args, **kwargs):
+        token = self._token_servico()
+        if token and secrets.compare_digest(token, settings.IAM_TOKEN_SERVICO_CARGA):
+            return _resposta({"erro": "nao_disponivel"}, status=404)
+        return super().dispatch(request, *args, **kwargs)

@@ -1,16 +1,22 @@
 """Testes da persistência mensal versionada dos relatórios E-Docs."""
 
 import json
+import multiprocessing
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
 from io import StringIO
+from threading import Event
 from uuid import UUID
+from unittest.mock import Mock, patch
 
 import pytest
 from django.contrib.auth.models import User
 from django.core.management import call_command
+from django.db import connections
 from django.urls import resolve
 from django.utils import timezone
+from django.test import override_settings
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.accounts.models import Aplicacao, Role, UserRole
@@ -191,6 +197,203 @@ def test_coleta_mensal_preserva_fontes_e_normaliza_resultados(
         tipo_evento="SUCESSO",
     )
     assert evento_sucesso.metadados["versao_calculo"] == ("PLANILHA_MUNICIPIOS_V1")
+
+
+@override_settings(PUBLICACOES_IAM_ATIVIDADES_REMOTAS_ATIVAS=True)
+def test_revogacao_antes_de_coletar_nao_consulta_edocs(patriarca_selecionado):
+    from common.services.cliente_iam import PermissaoIAMNegada
+
+    coleta = solicitar_coleta_mensal_edocs(
+        ano=2024, mes=9, ator=AtorAuditoriaEdocs(7, "Gestor"), agendar=False,
+    )
+    cliente = Mock()
+    with patch(
+        "apps.pub_institucional.services.edocs_mensal.decidir_atividade_remota",
+        side_effect=PermissaoIAMNegada("revogado"),
+    ):
+        resultado = executar_coleta_mensal_edocs(coleta.pk, cliente=cliente)
+    assert resultado.situacao == SituacaoColetaMensalEdocs.ERRO
+    assert resultado.codigo_erro == "AutorizacaoColetaRevogada"
+    assert "revogada" in resultado.mensagem_erro
+    assert resultado.quantidade_fontes_brutas == 0
+    cliente.listar_patriarcas.assert_not_called()
+
+
+@override_settings(PUBLICACOES_IAM_ATIVIDADES_REMOTAS_ATIVAS=True)
+def test_revogacao_apos_resposta_preserva_fonte_e_interrompe(
+    patriarca_selecionado,
+):
+    from common.services.cliente_iam import PermissaoIAMNegada
+
+    coleta = solicitar_coleta_mensal_edocs(
+        ano=2024, mes=9, ator=AtorAuditoriaEdocs(7, "Gestor"), agendar=False,
+    )
+    cliente = ClienteEdocsMensalSimulado()
+    cliente.relatorio_documentos_por_patriarca = Mock()
+    autorizacao = {"usuario_id": 7, "decisao_id": "decisao-1", "versao_autorizacao": 1}
+    with patch(
+        "apps.pub_institucional.services.edocs_mensal.decidir_atividade_remota",
+        side_effect=[autorizacao] * 5 + [PermissaoIAMNegada("revogado")],
+    ) as remoto:
+        resultado = executar_coleta_mensal_edocs(coleta.pk, cliente=cliente)
+    assert remoto.call_count == 6
+    assert remoto.call_args.kwargs["usuario_id"] == 7
+    assert resultado.situacao == SituacaoColetaMensalEdocs.ERRO
+    assert resultado.codigo_erro == "AutorizacaoColetaRevogada"
+    assert resultado.quantidade_fontes_brutas == 4
+    assert set(resultado.fontes_brutas.values_list("codigo_fonte", flat=True)) == {
+        "EDOC-05", "EDOC-01", "EDOC-03", "EDOC-02",
+    }
+    cliente.relatorio_documentos_por_patriarca.assert_not_called()
+    assert not ResultadoMensalPatriarcaEdocs.objects.filter(coleta=coleta).exists()
+    assert resultado.eventos_auditoria.filter(tipo_evento="AUTORIZACAO_VALIDADA").count() == 5
+
+
+@override_settings(PUBLICACOES_IAM_ATIVIDADES_REMOTAS_ATIVAS=True)
+def test_iam_indisponivel_nao_se_confunde_com_revogacao(patriarca_selecionado):
+    from common.services.cliente_iam import IAMIndisponivel
+
+    coleta = solicitar_coleta_mensal_edocs(
+        ano=2024, mes=9, ator=AtorAuditoriaEdocs(7, "Gestor"), agendar=False,
+    )
+    cliente = Mock()
+    with patch(
+        "apps.pub_institucional.services.edocs_mensal.decidir_atividade_remota",
+        side_effect=IAMIndisponivel("sem IAM"),
+    ):
+        resultado = executar_coleta_mensal_edocs(coleta.pk, cliente=cliente)
+    assert resultado.situacao == SituacaoColetaMensalEdocs.ERRO
+    assert resultado.codigo_erro == "IAMColetaIndisponivel"
+    assert "confirmar" in resultado.mensagem_erro
+    cliente.listar_patriarcas.assert_not_called()
+
+
+def _processo_iam_atividade_publicacoes(canal, token):
+    """Mantém uma conexão de IAM distinta durante a coleta em outro processo."""
+    from django.test import Client
+
+    connections.close_all()
+    try:
+        while True:
+            mensagem = canal.recv()
+            if mensagem is None:
+                break
+            usuario_id, permissao = mensagem
+            resposta = Client().post(
+                "/interno/iam/v1/decisoes-atividade-publicacoes/",
+                data={"usuario_id": usuario_id, "acao": permissao},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+            canal.send((resposta.status_code, resposta.json()))
+    finally:
+        connections.close_all()
+        canal.close()
+
+
+@pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(),
+    reason="Ensaio entre processos requer fork e PostgreSQL local",
+)
+@pytest.mark.django_db(transaction=True)
+@override_settings(
+    PUBLICACOES_IAM_ATIVIDADES_REMOTAS_ATIVAS=True,
+    IAM_DECISOES_PUBLICACOES_ATIVAS=True,
+    IAM_TOKEN_SERVICO_PUBLICACOES="credencial-publicacoes-ensaio-concorrencia",
+    IAM_TOKEN_SERVICO_CARGA="credencial-carga-ensaio-concorrencia",
+)
+def test_revogacao_em_outro_processo_durante_resposta_edocs(  # pylint: disable=too-many-statements
+    patriarca_selecionado, gestor_publicacoes_mensal,
+):
+    """Preserva resposta em voo e impede a chamada seguinte após revogação."""
+    from common.services.cliente_iam import PermissaoIAMNegada
+
+    coleta = solicitar_coleta_mensal_edocs(
+        ano=2024, mes=9,
+        ator=AtorAuditoriaEdocs(
+            gestor_publicacoes_mensal.pk, gestor_publicacoes_mensal.username,
+        ),
+        agendar=False,
+    )
+    resposta_iniciada = Event()
+    liberar_resposta = Event()
+    cliente = ClienteEdocsMensalSimulado()
+    relatorio_original = cliente.relatorio_processos_por_patriarca
+
+    def relatorio_em_voo(*args):
+        resposta_iniciada.set()
+        assert liberar_resposta.wait(10), "Resposta E-Docs não foi liberada"
+        return relatorio_original(*args)
+
+    cliente.relatorio_processos_por_patriarca = Mock(side_effect=relatorio_em_voo)
+    cliente.relatorio_documentos_por_patriarca = Mock()
+    connections.close_all()
+    contexto = multiprocessing.get_context("fork")
+    pai, filho = contexto.Pipe()
+    processo = contexto.Process(
+        target=_processo_iam_atividade_publicacoes,
+        args=(filho, "credencial-publicacoes-ensaio-concorrencia"),
+    )
+    processo.start()
+    filho.close()
+
+    def consultar_iam(**opcoes):
+        pai.send((opcoes["usuario_id"], opcoes["permissao"]))
+        assert pai.poll(10), "IAM não respondeu dentro do prazo"
+        codigo, corpo = pai.recv()
+        assert codigo == 200
+        if corpo["resultado"] == "NEGADO":
+            raise PermissaoIAMNegada("revogado")
+        assert corpo["resultado"] == "AUTORIZADO"
+        return corpo
+
+    def executar():
+        try:
+            return executar_coleta_mensal_edocs(coleta.pk, cliente=cliente)
+        finally:
+            connections.close_all()
+
+    try:
+        with patch(
+            "apps.pub_institucional.services.edocs_mensal.decidir_atividade_remota",
+            side_effect=consultar_iam,
+        ), ThreadPoolExecutor(max_workers=1) as executor:
+            futuro = executor.submit(executar)
+            assert resposta_iniciada.wait(10), "Coleta não chegou ao E-Docs"
+            UserRole.objects.filter(
+                user=gestor_publicacoes_mensal,
+                aplicacao__codigointerno="PUB_INSTITUCIONAL",
+            ).delete()
+            liberar_resposta.set()
+            resultado = futuro.result(timeout=15)
+            codigos_fontes = set(resultado.fontes_brutas.values_list("codigo_fonte", flat=True))
+            autorizacoes_validadas = resultado.eventos_auditoria.filter(
+                tipo_evento="AUTORIZACAO_VALIDADA"
+            ).count()
+    finally:
+        liberar_resposta.set()
+        if processo.is_alive():
+            pai.send(None)
+        processo.join(timeout=5)
+        if processo.is_alive():
+            processo.terminate()
+            processo.join(timeout=5)
+        pai.close()
+        # O banco reutilizável pode não limpar tabelas em schemas de app no
+        # flush transacional; remova apenas os registros sintéticos do ensaio.
+        FonteBrutaColetaMensalEdocs.objects.filter(coleta_id=coleta.pk).delete()
+        EventoAuditoriaColetaMensalEdocs.objects.filter(coleta_id=coleta.pk).delete()
+        ColetaMensalEdocs.objects.filter(pk=coleta.pk).delete()
+        PatriarcaEdocs.objects.filter(pk=patriarca_selecionado.pk).delete()
+        User.objects.filter(pk=gestor_publicacoes_mensal.pk).delete()
+    assert processo.exitcode == 0
+    assert resultado.situacao == SituacaoColetaMensalEdocs.ERRO
+    assert resultado.codigo_erro == "AutorizacaoColetaRevogada"
+    assert codigos_fontes == {
+        "EDOC-05", "EDOC-01", "EDOC-03", "EDOC-02",
+    }
+    cliente.relatorio_documentos_por_patriarca.assert_not_called()
+    assert autorizacoes_validadas == 5
 
 
 def test_recoleta_da_mesma_competencia_cria_nova_revisao(
@@ -562,13 +765,52 @@ def test_recuperacao_periodica_reencaminha_solicitacao_antiga(
     recuperadas = []
     monkeypatch.setattr(
         "apps.pub_institucional.tasks.reencaminhar_coleta_mensal_edocs",
-        lambda coleta_id: recuperadas.append(coleta_id),
+        recuperadas.append,
     )
 
     resultado = recuperar_coletas_mensais_edocs()
 
     assert resultado == {"encontradas": 1, "reencaminhadas": 1}
     assert recuperadas == [coleta.pk]
+
+
+@override_settings(PUBLICACOES_IAM_ATIVIDADES_REMOTAS_ATIVAS=True)
+def test_recuperacao_de_solicitacao_revogada_encerra_sem_consultar_edocs(
+    patriarca_selecionado, gestor_publicacoes_mensal, monkeypatch, settings,
+):
+    from common.services.cliente_iam import PermissaoIAMNegada
+
+    settings.GPP_EDOCS_REQUEST_STALE_SECONDS = 120
+    coleta = solicitar_coleta_mensal_edocs(
+        ano=2024, mes=9,
+        ator=AtorAuditoriaEdocs(
+            gestor_publicacoes_mensal.pk, gestor_publicacoes_mensal.username,
+        ),
+        agendar=False,
+    )
+    ColetaMensalEdocs.objects.filter(pk=coleta.pk).update(
+        atualizado_em=timezone.now() - timedelta(minutes=3),
+    )
+    UserRole.objects.filter(user=gestor_publicacoes_mensal).delete()
+    agendamentos = []
+    monkeypatch.setattr(
+        "apps.pub_institucional.services.edocs_mensal._agendar_processamento",
+        agendamentos.append,
+    )
+    assert recuperar_coletas_mensais_edocs() == {
+        "encontradas": 1, "reencaminhadas": 1,
+    }
+    assert agendamentos == [coleta.pk]
+    cliente = Mock()
+    with patch(
+        "apps.pub_institucional.services.edocs_mensal.decidir_atividade_remota",
+        side_effect=PermissaoIAMNegada("revogado"),
+    ):
+        resultado = executar_coleta_mensal_edocs(coleta.pk, cliente=cliente)
+    assert resultado.situacao == SituacaoColetaMensalEdocs.ERRO
+    assert resultado.codigo_erro == "AutorizacaoColetaRevogada"
+    assert resultado.eventos_auditoria.filter(tipo_evento="REENCAMINHADA").exists()
+    cliente.listar_patriarcas.assert_not_called()
 
 
 def test_comando_importa_codigo_municipal_com_auditoria(

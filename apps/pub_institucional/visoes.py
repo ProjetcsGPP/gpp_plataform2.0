@@ -17,8 +17,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.services.authorization_service import AuthorizationService
-from apps.core.permissions import CanPermission
 from apps.pub_institucional.models import (ColetaEflow, ColetaMensalEdocs,
                                            ColetaPatriarcasEdocs,
                                            ConfiguracaoVisaoPublicacao,
@@ -45,6 +43,8 @@ from apps.pub_institucional.models import (ColetaEflow, ColetaMensalEdocs,
                                            TipoComparacaoPatriarca,
                                            TipoEventoAuditoriaEflow,
                                            TipoEventoAuditoriaPatriarca)
+from apps.pub_institucional.permissoes_iam import (
+    CanPermissionPublicacoes, pode_acao_adicional)
 from apps.pub_institucional.serializadores import (
     SerializadorAlteracaoPreferenciaEflow,
     SerializadorAlteracaoSituacaoMunicipioEdocs, SerializadorArquivoEflow,
@@ -145,7 +145,7 @@ class ConflitoPublicacao(APIException):
 class MixinPermissaoPorAcao:
     """Seleciona a permissão técnica declarada para cada operação DRF."""
 
-    permission_classes = [IsAuthenticated, CanPermission]
+    permission_classes = [CanPermissionPublicacoes, IsAuthenticated]
     mapa_permissoes: dict[str, str] = {}
 
     def get_permissions(self):
@@ -213,7 +213,7 @@ def _parametro_inteiro(request, nome):
 
 
 class VisaoIbgeBase(APIView):
-    permission_classes = [IsAuthenticated, CanPermission]
+    permission_classes = [CanPermissionPublicacoes, IsAuthenticated]
     required_permission = "view_municipioedocs"
 
     @staticmethod
@@ -298,12 +298,8 @@ class VisaoMunicipioEdocs(MixinPermissaoPorAcao, viewsets.ReadOnlyModelViewSet):
                 ativo=True,
             ).select_related("implantacao_edocs_observada")
         }
-        autorizacao = AuthorizationService(
-            self.request.user,
-            getattr(self.request, "application", None),
-        )
-        contexto["pode_alterar"] = autorizacao.can(
-            "alterar_situacao_municipio_edocs"
+        contexto["pode_alterar"] = pode_acao_adicional(
+            self.request, "alterar_situacao_municipio_edocs"
         )
         return contexto
 
@@ -458,18 +454,14 @@ class VisaoPatriarcaEdocs(MixinPermissaoPorAcao, viewsets.ReadOnlyModelViewSet):
 
     def get_serializer_context(self):
         contexto = super().get_serializer_context()
-        autorizacao = AuthorizationService(
-            self.request.user,
-            getattr(self.request, "application", None),
+        contexto["pode_selecionar"] = pode_acao_adicional(
+            self.request, "selecionar_patriarcas_coleta"
         )
-        contexto["pode_selecionar"] = autorizacao.can(
-            "selecionar_patriarcas_coleta"
+        contexto["pode_alterar_indicador"] = pode_acao_adicional(
+            self.request, "alterar_indicador_municipio_sem_edocs"
         )
-        contexto["pode_alterar_indicador"] = autorizacao.can(
-            "alterar_indicador_municipio_sem_edocs"
-        )
-        contexto["pode_alterar_indicadores_municipais"] = autorizacao.can(
-            "alterar_indicadores_municipais_edocs"
+        contexto["pode_alterar_indicadores_municipais"] = pode_acao_adicional(
+            self.request, "alterar_indicadores_municipais_edocs"
         )
         return contexto
 
@@ -620,11 +612,9 @@ class VisaoDivergenciaPatriarcaEdocs(
 
     def get_serializer_context(self):
         contexto = super().get_serializer_context()
-        autorizacao = AuthorizationService(
-            self.request.user,
-            getattr(self.request, "application", None),
+        contexto["pode_revisar"] = pode_acao_adicional(
+            self.request, "revisar_patriarcas_edocs"
         )
-        contexto["pode_revisar"] = autorizacao.can("revisar_patriarcas_edocs")
         return contexto
 
     @extend_schema(
@@ -730,12 +720,8 @@ class VisaoColetaMensalEdocs(MixinPermissaoPorAcao, viewsets.ReadOnlyModelViewSe
 
     def get_serializer_context(self):
         contexto = super().get_serializer_context()
-        autorizacao = AuthorizationService(
-            self.request.user,
-            getattr(self.request, "application", None),
-        )
-        contexto["pode_solicitar"] = autorizacao.can(
-            "solicitar_coleta_mensal_edocs"
+        contexto["pode_solicitar"] = pode_acao_adicional(
+            self.request, "solicitar_coleta_mensal_edocs"
         )
         return contexto
 
@@ -1127,14 +1113,10 @@ class VisaoPreferenciaExibicaoEflow(MixinPermissaoPorAcao, viewsets.ViewSet):
         return [classe() for classe in self.permission_classes]
 
     def _contexto_serializador(self, request):
-        autorizacao = AuthorizationService(
-            request.user,
-            getattr(request, "application", None),
-        )
         return {
             "request": request,
-            "pode_alterar": autorizacao.can(
-                "alterar_preferencia_exibicao_eflow"
+            "pode_alterar": pode_acao_adicional(
+                request, "alterar_preferencia_exibicao_eflow"
             ),
         }
 
@@ -1316,10 +1298,6 @@ class VisaoPublicacao(MixinPermissaoPorAcao, viewsets.ReadOnlyModelViewSet):
 
     def get_serializer_context(self):
         contexto = super().get_serializer_context()
-        autorizacao = AuthorizationService(
-            self.request.user,
-            getattr(self.request, "application", None),
-        )
         contexto["permissoes_acoes"] = {
             codigo
             for codigo in (
@@ -1330,7 +1308,7 @@ class VisaoPublicacao(MixinPermissaoPorAcao, viewsets.ReadOnlyModelViewSet):
                 "revogar_publicacao",
                 "visualizar_previa_publicacao",
             )
-            if autorizacao.can(codigo)
+            if pode_acao_adicional(self.request, codigo)
         }
         return contexto
 

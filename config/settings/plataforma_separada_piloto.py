@@ -3,6 +3,12 @@
 # pylint: disable=wildcard-import,unused-wildcard-import
 from .development import *  # noqa: F401,F403
 
+from .segredo_iam_publicacoes_piloto import carregar_token
+
+# Opt-in pelo perfil separado; o monólito não lê o segredo local do piloto.
+IAM_TOKEN_SERVICO_PUBLICACOES = carregar_token(IAM_TOKEN_SERVICO_PUBLICACOES)
+IAM_DECISOES_PUBLICACOES_ATIVAS = True
+
 ROOT_URLCONF = "config.urls_plataforma_separada_piloto"
 ASGI_APPLICATION = "config.asgi_plataforma_separada_piloto.application"
 

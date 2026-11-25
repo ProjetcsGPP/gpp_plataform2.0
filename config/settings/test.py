@@ -37,6 +37,9 @@ from .development import *  # noqa: F401, F403
 # O flush transacional precisa alcançar as FKs entre public e os schemas
 # explícitos das aplicações. Esta especialização existe apenas nos testes.
 DATABASES["default"]["ENGINE"] = "config.db_backends.postgresql_test"  # noqa: F405
+# Nunca derivar o destino da suíte a partir de DB_NAME do ambiente operacional.
+# O banco permanente de testes é exclusivo da suíte e pode sofrer flush.
+DATABASES["default"].setdefault("TEST", {})["NAME"] = "test_gpp_plataform"  # noqa: F405
 
 # ---------------------------------------------------------------------------
 # 1. Cache — LocMemCache (in-process, zerado a cada run)

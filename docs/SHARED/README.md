@@ -4,7 +4,7 @@
 repositório
 **Autoridade:** coordenação transversal; não substitui ADR, OpenAPI, contrato
 de fonte ou documentação operacional detalhada
-**Última revisão:** 2026-11-03
+**Última revisão:** 2026-11-25
 
 Esta pasta é a referência comum mantida no repositório backend. Chats e equipes
 que trabalhem em qualquer aplicação afetada devem consultar estes documentos
@@ -21,6 +21,7 @@ contrato, fase, bloqueio ou critério de aceite transversal mudar.
 | [BACKEND_APPLICATION_ISOLATION_I0_INVENTORY.md](./BACKEND_APPLICATION_ISOLATION_I0_INVENTORY.md) | Inventário estático I0 de acoplamentos e contratos propostos para saúde e autorização entre serviços; registra pendências antes da extração de Carga |
 | [BACKEND_IAM_DECISION_CONTRACT_V1.md](./BACKEND_IAM_DECISION_CONTRACT_V1.md) | Contrato interno v1 de decisão IAM para o piloto de Carga; endpoint inicialmente desativado, segurança M2M, respostas e gates antes do cutover |
 | [BACKEND_CARGA_CELERY_INVENTORY.md](./BACKEND_CARGA_CELERY_INVENTORY.md) | Inventário das tarefas de Carga e regra de encerramento local por revogação, preservando a resposta já recebida da PRODEST |
+| [FRONTEND_IAM_INDISPONIBILIDADE.md](./FRONTEND_IAM_INDISPONIBILIDADE.md) | Contrato implementado de erro e orientação de interface para Carga, Publicações, WebSocket, tarefas e Portal público quando o IAM ou um serviço fica indisponível |
 
 ## Protocolo obrigatório para chats e equipes
 

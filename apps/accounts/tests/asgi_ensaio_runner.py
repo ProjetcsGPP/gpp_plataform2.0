@@ -50,12 +50,20 @@ def main():
     settings.IAM_TOKEN_SERVICO_CARGA = (
         "credencial-m2m-sintetica-para-testes-de-integracao"
     )
+    settings.IAM_TOKEN_SERVICO_PUBLICACOES = (
+        "credencial-publicacoes-sintetica-de-integracao"
+    )
     settings.IAM_DECISOES_INTERNAS_ATIVAS = True
+    settings.IAM_DECISOES_PUBLICACOES_ATIVAS = True
     if perfil == "carga":
         settings.IAM_URL_CARGA = os.environ["GPP_ENSAIO_IAM_URL"]
         settings.CARGA_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA = True
         settings.CARGA_IAM_DECISAO_REMOTA_ATIVA = True
         settings.CARGA_IAM_WEBSOCKET_REMOTO_ATIVO = True
+    if perfil == "publicacoes":
+        settings.IAM_URL_PUBLICACOES = os.environ["GPP_ENSAIO_IAM_URL"]
+        settings.PUBLICACOES_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA = True
+        settings.PUBLICACOES_IAM_WEBSOCKET_REMOTO_ATIVO = True
 
     from daphne.cli import CommandLineInterface  # pylint: disable=import-outside-toplevel
 

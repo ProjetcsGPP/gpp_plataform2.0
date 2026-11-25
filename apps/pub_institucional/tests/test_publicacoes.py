@@ -162,7 +162,7 @@ def test_publicacao_municipal_congela_competencia_fontes_e_resultado():
     _resultado(coleta, municipio, paginas=10)
     _resultado(coleta, governo, paginas=100)
     visao = ConfiguracaoVisaoPublicacao.objects.create(
-        codigo="MUNICIPIOS_EDOCS",
+        codigo="MUNICIPIOS_EDOCS_CONGELAMENTO_TESTE",
         nome="Municípios E-Docs",
         fonte=FonteVisaoPublicacao.EDOCS,
         escopo=EscopoVisaoPublicacao.MUNICIPIOS,

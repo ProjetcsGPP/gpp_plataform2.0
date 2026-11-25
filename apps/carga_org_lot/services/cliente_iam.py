@@ -50,13 +50,11 @@ def _validar_url(url, *, caminho="/interno/iam/v1/decisoes/"):
 
 
 def _validar_credenciais(credenciais):
-    if not isinstance(credenciais, dict) or not 1 <= len(credenciais) <= 8:
+    if not isinstance(credenciais, dict) or set(credenciais) != {
+        "gpp_session_CARGA_ORG_LOT"
+    }:
         raise IAMIndisponivel("Credenciais de sessão indisponíveis")
-    for nome, valor in credenciais.items():
-        if not isinstance(nome, str) or not (
-            nome.startswith("gpp_session_") and len(nome) <= 100
-        ):
-            raise IAMIndisponivel("Credenciais de sessão indisponíveis")
+    for valor in credenciais.values():
         if not isinstance(valor, str) or not 1 <= len(valor) <= 40:
             raise IAMIndisponivel("Credenciais de sessão indisponíveis")
 

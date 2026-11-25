@@ -1,7 +1,9 @@
 # Piloto opt-in de três processos: IAM, Carga e Publicações
 
-**Estado em 2026-11-24:** perfis e proxy local criados e ensaiados no
-`test_gpp_plataform`; não ativados nos serviços, proxy, Celery ou banco em uso.
+**Estado em 2026-11-25:** perfis e proxy local criados e ensaiados no
+`test_gpp_plataform`, inclusive na porta alternativa fixa `58445`; credencial
+local provisionada e flags habilitadas apenas nos perfis separados, mas
+serviços, proxy, Celery e banco em uso não sofreram cutover.
 Não representam cutover nem ambientes institucionais separados.
 
 ## Fronteiras do incremento
@@ -41,9 +43,156 @@ ambos os casos sem usar uma prévia privada como substituto.
   suas rotas ficaram indisponíveis, enquanto IAM e Carga permaneceram vivos.
 - O roteador Celery foi consultado diretamente: tarefa E-Docs →
   `pub_institucional`; tarefa Carga → `carga_org_lot`.
+- Ensaio separado iniciou Redis descartável em loopback, um Beat com agenda
+  exclusivamente sintética e um worker real do perfil Publicações. O Beat
+  publicou na fila `pub_institucional`, o worker executou a tarefa de prova,
+  registrou tarefas de Publicações sem registrar as de Carga e deixou uma
+  mensagem de prova na fila `carga_org_lot` intocada. Processos e Redis foram
+  encerrados ao fim do teste; nenhuma tarefa E-Docs ou PRODEST foi executada.
+- Em 2026-11-25, um novo ensaio parou e reiniciou IAM, Publicações e Carga,
+  um de cada vez, mantendo o proxy TLS efêmero ativo. A parada do IAM fez a
+  API administrativa falhar fechada em `503`, sem interromper a API pública;
+  a parada de Publicações devolveu `502` só em suas rotas; a parada de Carga
+  devolveu `502` só em suas rotas. Cada serviço voltou a responder após seu
+  reinício. Outro ensaio parou e reiniciou, sequencialmente, Beat e worker de
+  Publicações usando apenas Redis descartável: a nova mensagem sintética foi
+  processada e a fila de Carga permaneceu intocada. Os quatro testes focados
+  de ASGI/proxy e Celery passaram; Pylint dos arquivos de ensaio: 10/10.
+- O teste local **opt-in** `test_proxy_publicacoes_58445.py` iniciou a imagem
+  real do Nginx alternativo na porta fixa `58445`, sem tocar no proxy `58443`.
+  Os três ASGI usaram `test_gpp_plataform`, credenciais IAM sintéticas, cache
+  e canais em memória. Passaram TLS, saúde dos três perfis, bloqueio de
+  `/interno/`, HTTP autenticado e WebSocket de Carga e Publicações. Com IAM
+  parado, as duas APIs administrativas responderam `503` com
+  `servico_iam_indisponivel`, enquanto a API pública de Publicações manteve
+  sua resposta. Ao fim, o container alternativo e os três ASGI foram
+  encerrados; `58443` permaneceu ativo e as filas operacionais em zero.
 
-Esses testes não iniciaram worker ou Beat, não executaram migrações, não
-usaram credenciais reais nem verificaram publicação de mensagens no broker.
+O ensaio de filas corrigido não usa a agenda operacional nem o broker em uso. Os
+testes não executaram migrações, não usaram credenciais reais e não provam
+cutover operacional ou tratamento de mensagens antigas. O reinício foi
+comprovado somente com processos descartáveis e configurações de ensaio,
+não com o Beat/agendamentos operacionais.
+O ensaio opt-in posterior cobriu a porta `58445`, mas **não** substituiu
+credenciais sintéticas por autorização operacional, nem conectou canais ou
+workers ao broker em uso; esses limites permanecem antes de qualquer corte.
+
+### Inventário operacional local em 2026-11-24
+
+Antes da parada feita pelo operador, havia um worker monolítico iniciado com
+`celery -A config worker --loglevel=INFO` e um Beat monolítico iniciado com
+`celery -A config beat --loglevel=INFO`. Ambos tinham cerca de sete horas de
+execução. O perfil de desenvolvimento apontava o broker para o Redis local
+`127.0.0.1:6379/0`; sua agenda incluía monitoramento de Carga e recuperação
+de coletas E-Docs. Não iniciar o Beat do piloto enquanto o antigo estiver
+ativo.
+
+Durante a preparação do ensaio, um publicador auxiliar de teste direcionou
+indevidamente cinco mensagens sintéticas `ensaio.publicacoes.ping` para esse
+broker: três em `carga_org_lot` e duas em `pub_institucional`. A inspeção
+somente de cabeçalhos confirmou que eram todas mensagens de teste. Após o
+operador parar worker e Beat, as cinco foram removidas individualmente por
+tipo e ID, sem `FLUSHDB` ou remoção de outras mensagens. A verificação final
+registrou `LLEN=0` em `celery`, `carga_org_lot` e `pub_institucional`, além de
+`HLEN unacked=0`, `ZCARD unacked_index=0` e nenhum processo Celery ativo.
+O publicador auxiliar foi retirado do teste: a prova da fila de Carga agora
+é inserida diretamente **somente** no Redis descartável do ensaio. Esse
+incidente não equivale a um teste do broker operacional e deve ser considerado
+na revisão antes de qualquer cutover.
+
+Após a correção, o teste foi repetido com verificação explícita do endereço
+do broker no processo worker; as filas do Redis em uso continuaram em zero.
+Na verificação anterior, URL e token IAM de Publicações não estavam
+configurados. Em 2026-11-24, o token local exclusivo foi provisionado no
+diretório ignorado pelo Git; a URL de loopback e as flags remotas foram
+configuradas **somente nos perfis separados**. O monólito continua com as
+flags desligadas e sem esse token. Isso ainda **não** autoriza iniciar o perfil
+separado como substituto funcional: faltam ensaio operacional e plano de
+retorno.
+
+O token local exclusivo do piloto é provisionado uma vez, sem ser exibido:
+
+```bash
+.venv/bin/python -m scripts.provisionar_token_iam_publicacoes_piloto
+```
+
+O arquivo ignorado pelo Git fica em
+`infra/publicacoes-dev/runtime/secrets/iam_publicacoes_token`, com modo `0600`.
+Os perfis separados IAM e Publicações leem o mesmo arquivo quando não há
+token explícito no ambiente do processo; o monólito não o lê. Repetir o
+comando valida o segredo existente sem rotacioná-lo. As flags
+remotas são ligadas **apenas nos módulos de settings dos perfis separados**;
+isso não inicia nem substitui serviços. Antes de iniciar qualquer perfil,
+verificar que o monólito e seus workers não disputam rotas ou filas.
+O produtor de Publicações usa a flag própria
+`IAM_DECISOES_PUBLICACOES_ATIVAS`; a flag histórica de Carga
+`IAM_DECISOES_INTERNAS_ATIVAS` não é ativada por consequência.
+
+### Rechecagem operacional em 2026-11-25
+
+Leitura do **host**, sem iniciar/parar processos nem alterar o broker:
+
+- Não havia processo Django/Daphne/Gunicorn/Uvicorn do projeto nem Celery/Beat
+  identificado; `8000`, `8001`, `8002` e `58445` não estavam em escuta.
+  Trata-se de um retrato momentâneo, não de garantia para o instante do corte.
+- O proxy Docker atual `gpp-publicacoes-dev-nginx-1` continuava saudável em
+  `127.0.0.1:58443`; o proxy alternativo de três processos não estava ativo.
+  A porta `3000` pertencia ao container `open-webui`, não ao frontend GPP.
+- O broker configurado pelo perfil base era `127.0.0.1:6379/0`. Consultas
+  **somente de contagem** retornaram `LLEN=0` nas filas `celery`,
+  `carga_org_lot` e `pub_institucional`, `HLEN unacked=0` e
+  `ZCARD unacked_index=0`. Nenhum payload foi lido ou removido.
+- Os dois preflights locais de configuração, IAM e Publicações, passaram. O
+  container OpenBao da sandbox aparecia `unhealthy`: a consulta de estado
+  confirmou `initialized=true` e `sealed=true`. Desse modo, integrações que
+  precisem buscar credenciais no cofre não estão prontas para operação; isso
+  não invalida o preflight de configuração local. Os demais
+  containers da sandbox necessários ao proxy/Redis/PostgreSQL apareciam
+  ativos. A rechecagem não validou as integrações externas.
+
+Na mesma data, o operador executou o bootstrap local existente **sem**
+`--replace-app-identities`. O cofre foi desbloqueado com a chave local já
+guardada fora do Git; nenhum segredo foi exibido e não foi solicitada rotação
+de AppRoles. O healthcheck
+passou a `healthy`. A leitura AppRole/KV2 das credenciais E-Docs HML e PRD
+passou sem expor valores nem chamar a API externa. Em seguida, 12 testes
+focados de isolamento ASGI/proxy, Celery, segredo e prontidão passaram no
+`test_gpp_plataform`, com Redis descartável para o ensaio Celery. A condição
+`sealed=true` acima descreve apenas o estado **antes** dessa correção. Um
+reinício do container pode exigir novo desbloqueio; repetir o bootstrap sem
+a opção de substituição e confirmar saúde antes de novo ensaio.
+
+**Condição para avanço operacional:** repetir inventário imediatamente antes
+do ensaio; confirmar qual processo é dono de cada porta, que somente um Beat
+publicará agendamentos e que cada worker escutará exclusivamente sua fila.
+Manter `58443` e a configuração monolítica disponíveis para retorno, sem
+apontar tráfego real a `58445` até validar autenticação/CSRF, WebSocket,
+API pública independente do IAM, indisponibilidade do IAM e recuperação dos
+três processos. Interromper o ensaio se surgirem mensagens pendentes,
+processos antigos concorrentes ou falha de dependência; não purgar filas nem
+executar coleta E-Docs/PRODEST como prova. A janela de cutover e o plano de
+retorno precisam ser confirmados antes de trocar o proxy em uso.
+
+Conferir os dois perfis sem imprimir credencial:
+
+```bash
+DJANGO_SETTINGS_MODULE=config.settings.publicacoes_piloto \
+  .venv/bin/python -m scripts.verificar_piloto_publicacoes
+DJANGO_SETTINGS_MODULE=config.settings.plataforma_separada_piloto \
+  .venv/bin/python -m scripts.verificar_piloto_publicacoes
+```
+
+O comando retorna código diferente de zero e descreve pendências sem imprimir
+URL completa ou token. Resultado aprovado significa apenas coerência local:
+o perfil de Publicações verifica o consumidor, e o perfil IAM verifica o
+produtor separadamente. Ambos usam a mesma credencial local, fora do `.env`
+compartilhado. A URL do IAM usa o loopback `127.0.0.1:8000` por padrão
+**somente** no perfil local de Publicações, conforme a topologia do proxy de
+três processos; outro destino exige configuração explícita e nova validação.
+As flags permanecem desligadas no monólito.
+O preflight não prova conectividade IAM, ausência de processos antigos, fila
+vazia, autorização real nem aptidão para cutover. O token permanece fora do
+Git; não iniciar os perfis separados antes dos ensaios e do plano de retorno.
 TLS protegeu cliente→proxy; proxy→backends ficou em HTTP/loopback, conforme o
 escopo de mesmo host. Não há previsão de separar hosts; se isso mudar, revisar
 transporte e certificados conforme
@@ -51,16 +200,26 @@ transporte e certificados conforme
 
 ## Gates antes de ativar
 
-1. **IAM administrativo de Publicações:** `CanPermission`, middleware HTTP e
-   WebSocket ainda leem `AccountsSession`, roles e permissões no banco
-   compartilhado. O processo pode ser reiniciado separadamente, mas não é
-   independente do IAM. Definir contrato remoto com falha fechada `401/403/503`,
-   CSRF, revalidação de WebSocket e autorização por objeto antes de remover
-   seu acesso às tabelas IAM. Não aplicar a autorização à API pública anônima.
-2. **Tarefas E-Docs:** a coleta persiste ID/nome do solicitante, mas não
-   revalida autorização antes de iniciar ou continuar chamadas externas.
-   Definir semântica de revogação e recuperação, eventos de auditoria e o
-   tratamento de resposta já recebida antes de copiar a política de Carga.
+1. **IAM administrativo de Publicações:** o caminho HTTP opt-in usa decisão
+   remota e falha fechada `401/403/503`, com CSRF. O WebSocket possui flag
+   independente para decisão remota no handshake, antes de cada evento e
+   durante a ociosidade; permanece local por padrão. Tarefas e matriz de
+   autorização por objeto ainda são gates antes de remover o acesso às tabelas
+   IAM. Não aplicar autorização IAM à
+   API pública anônima.
+2. **Tarefas E-Docs:** o worker pode revalidar a autorização do solicitante
+   persistido por decisão M2M exclusiva, antes da primeira chamada, de cada
+   chamada seguinte e da conclusão. Resposta E-Docs já recebida é persistida
+   antes da decisão seguinte. Revogação encerra a coleta em `ERRO`, com
+   `AutorizacaoColetaRevogada`; indisponibilidade do IAM encerra em
+   `IAMColetaIndisponivel`, sem rotular revogação. A flag fica desligada no
+   monólito e ligada somente no perfil separado. O ensaio transacional entre
+   processos confirmou revogação
+   durante uma resposta simulada do E-Docs: a fonte já recebida ficou
+   preservada e a chamada seguinte não começou. A recuperação simulada de
+   solicitação antiga com permissão revogada reencaminha a mensagem, mas o
+   worker a encerra antes de consultar E-Docs. Falta operação real de
+   workers e broker, inclusive observar a fila durante o corte.
 3. **Operação:** ensaiar Beat único, workers `-Q`, mensagens pendentes,
    reciclagem de cada processo, Redis/canais, cache, rollback, prontidão e
    falhas do IAM/proxy. Todos os perfis ainda instalam os modelos de todas
@@ -72,6 +231,48 @@ transporte e certificados conforme
 O perfil monolítico e o piloto anterior de dois processos permanecem
 inalterados. Não ligar este terceiro perfil enquanto houver processo antigo
 servindo as mesmas rotas ou worker antigo consumindo suas tarefas.
+
+### Pendências após o ensaio da porta fixa
+
+O teste de `58445` fecha a dúvida de **roteamento local** do proxy alternativo;
+não fecha os gates de ativação. A próxima sequência do backend é:
+
+1. O ensaio sintético já cobre um Beat, filas exclusivas dos dois workers,
+   Carga parada enquanto Publicações processa, mensagens pendentes e retomada
+   de Carga, sempre em Redis descartável e sem executar E-Docs/PRODEST.
+   Ainda falta validar a configuração operacional real em janela controlada,
+   sobretudo persistência, concorrência e roteamento de tarefas não sintéticas.
+2. A varredura automatizada confirma que todas as ações administrativas HTTP
+   habilitadas no roteador de Publicações declaram permissão técnica. Falta a
+   matriz dinâmica de ações administrativas e autorização por objeto nos dois
+   serviços, inclusive mutações, respostas `401/403/503` e auditoria de
+   revogação. O teste da porta fixa cobre leituras e WebSockets, não todas as
+   ações.
+3. Definir e testar inicialização, supervisão, versão, migração executada uma
+   vez, rollback e observabilidade por serviço. Os três perfis ainda usam o
+   mesmo banco e instalam modelos compartilhados; isso é isolamento de
+   processos/rotas, não independência de dados ou de release.
+4. Repetir inventário de processos, portas, filas e estado do OpenBao antes
+   de qualquer janela de ativação. O proxy atual `58443` e o perfil monolítico
+   permanecem como referência; não há autorização de cutover neste documento.
+
+### Matriz de testes para o próximo gate
+
+| Cenário | Evidência/critério de aceite | Estado |
+| --- | --- | --- |
+| Beat único e workers exclusivos | Cada fila recebe apenas sua tarefa; parar Carga preserva mensagens até o retorno, sem bloquear Publicações; nenhum worker registra tarefas da outra app. | Ensaio sintético automatizado, Redis descartável. |
+| Falha e reconexão do broker | Confirmar que mensagens persistentes não se perdem, que não há consumo duplicado indevido e que tarefas idempotentes retomam após reinício. | Pendente; exige broker de ensaio com configuração representativa. |
+| IAM desligado durante leitura/mutação | API administrativa responde `503` e código `servico_iam_indisponivel`, sem gravação parcial; API pública segue independente. | Leituras e API pública ensaiadas; mutações pendentes. |
+| Sessão ausente, cookie de outra app e permissão revogada | `401` para sessão inválida, `403` para autorização negada; nenhuma decisão local substitui IAM; WebSocket fecha; ações ainda pendentes não executam. | Parte HTTP/WS coberta; ampliar para cada ação mutável. |
+| Revogação durante tarefa externa | Parar antes de nova chamada externa; se resposta PRODEST já chegou, preservá-la e auditá-la; nenhuma conclusão posterior à revogação. | Testes de domínio existentes; repetir ponta a ponta por fila isolada. |
+| Autorização por objeto e escopo | IDs de outra app/usuário não dão acesso nem permitem alteração; auditar tentativa negada sem vazar dados. | Pendente por endpoint. |
+| Migração única e rollback | Rodar `migrate --plan`/`--check` no perfil IAM, proibir migração pelos perfis Carga/Publicações, comprovar backup e restauração antes do corte. | Pendente de procedimento operacional; não usar o banco em uso para ensaio destrutivo. |
+| Versões incompatíveis durante reinício individual | API e tarefas suportam sobreposição de versões prevista; rejeição explícita de contrato incompatível; rollback recupera o serviço sem reiniciar os demais. | Pendente de artefatos/versionamento de implantação. |
+| Observabilidade | Correlation ID atravessa proxy, IAM e app; métricas/logs por serviço e fila permitem distinguir `401/403/503/502`, latência e falha de worker. | Pendente de ensaio integrado. |
+
+O teste de filas usa `test_gpp_plataform`, Redis efêmero em loopback fora da
+porta operacional padrão e tarefas sintéticas. Não substitui uma validação de
+implantação nem autoriza ligar o perfil separado em operação.
 
 ## Inventário para o próximo gate: IAM administrativo de Publicações
 
@@ -85,10 +286,10 @@ locais. Apenas trocar `CanPermission` por um cliente remoto não é suficiente.
 | --- | --- |
 | `apps/accounts/middleware.py` e `apps/core/middleware/{application_context,role_context,authorization}.py` | O bypass remoto deve valer **somente** para `/api/pub-institucional/`, com guarda obrigatório na view; `/api/public/v1/publicacoes-institucionais/` permanece anônimo e independente do IAM. |
 | `apps/pub_institucional/visoes.py` (`MixinPermissaoPorAcao` e `VisaoIbgeBase`) | Cada ação administrativa precisa de decisão IAM para a permissão técnica declarada. Erros devem distinguir sessão inválida `401`, permissão negada `403` e IAM indisponível/contrato inválido `503`, sem fallback ao banco IAM local. |
-| `visoes.py` (`get_serializer_context` e `_contexto_serializador`) | Os indicadores `pode_*` e `permissoes_acoes` fazem decisões adicionais via `AuthorizationService`; devem vir de decisões IAM verificadas, nunca de inferência por role, cache desatualizado ou valor `True` padrão. |
+| `visoes.py` (`get_serializer_context` e `_contexto_serializador`) | No piloto opt-in, os indicadores `pode_*` e `permissoes_acoes` usam decisões adicionais IAM; não há inferência por role nem fallback local. |
 | `visoes.py` (atores e preferência E-Flow) | O ID e nome auditáveis devem vir da decisão IAM; a preferência persiste `usuario_id` lógico, sem FK para o schema IAM. A identidade mínima precisa oferecer `pk`, `get_full_name()` e `get_username()` ou os usos devem ser adaptados explicitamente. |
 | `apps/core/middleware/websocket.py` e `apps/pub_institucional/consumidores.py` | O handshake deve consultar IAM para `visualizar_coletas_patriarcas`; conexões longas precisam revalidar a autorização e fechar após revogação, sem consultar `AccountsSession`/`has_perm` local. |
-| `apps/pub_institucional/tasks.py` e serviços de coleta | Atividades já aceitas precisam revalidar permissão do solicitante antes de cada etapa externa relevante. Revogação encerra novas ações; a resposta de uma chamada externa já concluída continua registrada na auditoria. |
+| `apps/pub_institucional/tasks.py` e serviços de coleta | Decisão M2M por solicitante persistido, antes de cada chamada externa e da conclusão; a resposta externa já concluída fica na fonte bruta. Revogação entre processos foi ensaiada; falta operação real. |
 
 Sequência de implementação, ainda **não ativada**:
 
@@ -97,14 +298,71 @@ Sequência de implementação, ainda **não ativada**:
    `GPP_IAM_TOKEN_SERVICO_PUBLICACOES`, recusa token ausente, inválido ou
    compartilhado com Carga e fixa `PUB_INSTITUCIONAL` no servidor. Reaproveita
    as regras de sessão/role e consulta a autorização sem cache. Permanece
-   inativo sem `GPP_IAM_DECISOES_INTERNAS_ATIVAS` e sem credencial provisionada
-   fora do Git. A borda bloqueia `/interno/`; não há cliente Publicações ainda.
-2. Criar cliente e guarda HTTP opt-in com canal de loopback no mesmo host,
-   timeout curto, sem retry/cache de decisão e falha fechada. Preservar CSRF
-   para mutações autenticadas por cookie e não limpar cookie em `503`.
-3. Substituir também as decisões auxiliares e testar matriz de ações,
-   identidade/auditoria, preferência, revogação, indisponibilidade e proteção
-   contra rota administrativa sem guarda.
-4. Tratar WebSocket e tarefa Celery em incrementos próprios. Só então ensaiar
-   os três processos com IAM indisponível, revogação durante a execução e
-   proxy TLS. O perfil padrão continua como rollback até cumprir os gates.
+   inativo sem a flag própria `IAM_DECISOES_PUBLICACOES_ATIVAS` e sem
+   credencial provisionada fora do Git.
+   A borda bloqueia `/interno/`; o cliente administrativo opt-in
+   usa somente o endereço interno de loopback.
+2. **HTTP administrativo implementado em modo opt-in:** cliente e guarda
+   aceitam HTTP somente em loopback no mesmo host, com timeout curto, sem
+   retry/cache de decisão e falha fechada. Exigem exatamente
+   `gpp_session_PUB_INSTITUCIONAL`: cookie do Portal ou de outra aplicação
+   não autoriza Publicações, mesmo para administrador. Preservam CSRF para
+   mutações autenticadas por cookie e não limpam cookie em `503`.
+3. **Decisões auxiliares substituídas no código:** os `pode_*` e a projeção
+   de ações usam o IAM remoto quando a flag está ativa. O ensaio HTTP no proxy
+   cobre leitura autorizada, revogação, CSRF, IAM indisponível e API pública;
+   a matriz de mutações e autorização por objeto ainda não foi integralmente
+   ensaiada.
+4. O incremento WebSocket opt-in exige exclusivamente o cookie
+   `gpp_session_PUB_INSTITUCIONAL`, fecha a conexão em `4401` por sessão
+   inválida, `4403` por permissão negada e `1013` por indisponibilidade do
+   IAM. Revalida antes de cada evento e a cada 30–300 s ocioso. A rota real
+   via proxy foi ensaiada; a tarefa Celery recebeu incremento opt-in próprio.
+   Revogação entre processos durante chamada em voo e fila/worker/Beat
+   sintéticos foram ensaiados. Ainda falta observar broker, workers e Beat
+   operacionais antes de ativar o perfil.
+   O perfil padrão continua como rollback até cumprir esses gates.
+
+**Incremento HTTP ensaiado somente em testes:** o consumidor administrativo pode ser
+ativado apenas no ensaio opt-in por
+`GPP_PUBLICACOES_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA`, com
+`GPP_PUBLICACOES_IAM_URL` apontando ao endpoint interno em loopback e token
+exclusivo configurado fora do Git. O guarda `CanPermissionPublicacoes` consulta
+o IAM por ação, revalida CSRF, projeta identidade mínima e traduz negativa e
+falha para `401/403/503`. As decisões `pode_*` dos serializadores também
+consultam o IAM; a API pública não entra nesse fluxo. A flag permanece
+desligada no monólito e ligada somente no perfil separado. O ensaio ASGI real
+com Nginx TLS efêmero e
+`test_gpp_plataform` verificou `200` autorizado, `401` anônimo, `403` após
+revogação de role, `403` por falta de CSRF e `503` quando o IAM para, com
+   `errors.code` estável; a API pública continuou respondendo sem IAM. O
+WebSocket remoto foi ensaiado via proxy com handshake autorizado, recusa após
+revogação e indisponibilidade do IAM; operação Celery, matriz administrativa completa e retirada do
+acesso às tabelas IAM também são gates de ativação. O proxy não foi alterado
+em operação.
+
+**Flag adicional, desligada no monólito e ligada no perfil separado:**
+`GPP_PUBLICACOES_IAM_WEBSOCKET_REMOTO_ATIVO`; intervalo opcional
+`GPP_PUBLICACOES_IAM_WEBSOCKET_REVALIDACAO_SEGUNDOS` (30–300 s).
+Requer URL e token IAM exclusivos de Publicações, já usados pelo HTTP.
+
+**Tarefa mensal E-Docs, flag desligada no monólito e ligada no perfil separado:**
+`GPP_PUBLICACOES_IAM_ATIVIDADES_REMOTAS_ATIVAS`. O produtor M2M é
+`/interno/iam/v1/decisoes-atividade-publicacoes/`, indisponível sem token
+exclusivo ou se ele coincidir com o de Carga. A identidade vem do campo
+`criado_por_id` da coleta, nunca da mensagem Celery. Cada decisão autorizada
+gera evento de auditoria `AUTORIZACAO_VALIDADA`, com etapa, ID de decisão e
+versão, sem token ou cookie. Resposta em voo já obtida é gravada antes de
+revalidar; novas chamadas param após revogação. Solicitações antigas sem
+`criado_por_id` falham fechadas quando a flag estiver ligada e exigem
+tratamento operacional explícito. Recuperação agendada pode reencaminhar uma
+solicitação revogada, mas o worker a encerra antes de consultar E-Docs.
+O `has_permission` de Carga mantém duas flags históricas: decisão remota
+mantendo identidade local e identidade HTTP totalmente remota. Publicações
+implementa apenas a segunda modalidade; ambos os guardas exigem o cookie
+exato da própria aplicação. O produtor IAM também recusa o fallback por
+cookie do Portal nos dois contratos remotos.
+O transporte genérico deste incremento está em `common/services/cliente_iam.py`;
+o cliente anterior de Carga permanece em sua app para não misturar uma
+refatoração de contrato já ensaiado ao corte de Publicações. Consolidar os
+dois clientes é dívida técnica posterior, após testes de equivalência.

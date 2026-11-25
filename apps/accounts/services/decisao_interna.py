@@ -4,12 +4,11 @@ O serviço chamador não escolhe a aplicação-alvo: cada endpoint usa credencia
 M2M exclusiva e fixa a aplicação no servidor. Não substitui autorização por objeto.
 """
 
-from django.db.models import Q
 from django.utils import timezone
 
 from django.contrib.auth import get_user_model
 
-from apps.accounts.models import AccountsSession, UserAuthzState, UserRole
+from apps.accounts.models import AccountsSession, UserAuthzState
 from apps.accounts.services.application_registry import ApplicationRegistry
 from apps.accounts.services.authorization_service import AuthorizationService
 
@@ -36,53 +35,28 @@ def decidir_acesso_publicacoes(*, credenciais, permissao):
 
 def _decidir_acesso_aplicacao(*, credenciais, permissao, codigo_aplicacao):
     dedicado = PREFIXO_COOKIE + codigo_aplicacao
+    chave_sessao = credenciais.get(dedicado)
+    if not chave_sessao:
+        return {"resultado": "SESSAO_INVALIDA"}
     filtros = {
         "revoked": False,
         "expires_at__gt": timezone.now(),
         "user__is_active": True,
     }
-    if dedicado in credenciais:
-        # Cookie dedicado inválido impede fallback, como no middleware atual.
-        sessao = (
-            AccountsSession.objects.filter(
-                session_key=credenciais[dedicado],
-                session_cookie_name=dedicado,
-                app_context=codigo_aplicacao,
-                **filtros,
-            )
-            .select_related("user")
-            .first()
+    sessao = (
+        AccountsSession.objects.filter(
+            session_key=chave_sessao,
+            session_cookie_name=dedicado,
+            app_context=codigo_aplicacao,
+            **filtros,
         )
-        contexto_cookie = codigo_aplicacao
-    else:
-        pares = Q()
-        for nome_cookie, chave_sessao in credenciais.items():
-            pares |= Q(
-                session_key=chave_sessao,
-                session_cookie_name=nome_cookie,
-                app_context=nome_cookie.removeprefix(PREFIXO_COOKIE),
-            )
-        sessao = (
-            AccountsSession.objects.filter(
-                pares, app_context__isnull=False, **filtros
-            )
-            .select_related("user")
-            .order_by("-created_at")
-            .first()
-        )
-        contexto_cookie = None
+        .select_related("user")
+        .first()
+    )
     if sessao is None:
         return {"resultado": "SESSAO_INVALIDA"}
 
     usuario = sessao.user
-    if contexto_cookie != codigo_aplicacao:
-        administrador = usuario.is_superuser or UserRole.objects.filter(
-            user=usuario,
-            role__codigoperfil="PORTAL_ADMIN",
-        ).exists()
-        if not administrador:
-            return {"resultado": "SESSAO_INVALIDA"}
-
     aplicacao = ApplicationRegistry().get(codigo_aplicacao)
     if aplicacao is None:
         raise RuntimeError("Aplicação interna não cadastrada no IAM")
@@ -124,6 +98,28 @@ def decidir_atividade_carga(*, usuario_id, permissao):
     aplicacao = ApplicationRegistry().get(APLICACAO_CARGA)
     if aplicacao is None:
         raise RuntimeError("Aplicação Carga não cadastrada no IAM")
+    if not AuthorizationService(usuario, aplicacao, usar_cache=False).can(permissao):
+        return {"resultado": "NEGADO", "usuario_id": usuario_id}
+    versao = (
+        UserAuthzState.objects.filter(user_id=usuario_id)
+        .values_list("authz_version", flat=True)
+        .first()
+    )
+    return {
+        "resultado": "AUTORIZADO",
+        "usuario_id": usuario_id,
+        "versao_autorizacao": versao if versao is not None else 0,
+    }
+
+
+def decidir_atividade_publicacoes(*, usuario_id, permissao):
+    """Revalida uma coleta persistida de Publicações sem sessão no worker."""
+    usuario = get_user_model().objects.filter(pk=usuario_id, is_active=True).first()
+    if usuario is None:
+        return {"resultado": "NEGADO", "usuario_id": usuario_id}
+    aplicacao = ApplicationRegistry().get("PUB_INSTITUCIONAL")
+    if aplicacao is None:
+        raise RuntimeError("Aplicação Publicações não cadastrada no IAM")
     if not AuthorizationService(usuario, aplicacao, usar_cache=False).can(permissao):
         return {"resultado": "NEGADO", "usuario_id": usuario_id}
     versao = (

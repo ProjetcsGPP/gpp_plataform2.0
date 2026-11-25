@@ -185,43 +185,24 @@ def test_sessao_nao_encontrada_nao_consulta_permissoes():
     assert filtros["app_context"] == "CARGA_ORG_LOT"
 
 
-def test_cookie_de_outra_aplicacao_exige_portal_admin():
-    usuario = SimpleNamespace(pk=7, is_superuser=False)
-    sessao = SimpleNamespace(user=usuario)
-    with (
-        patch("apps.accounts.services.decisao_interna.AccountsSession") as sessoes,
-        patch("apps.accounts.services.decisao_interna.UserRole") as roles,
-        patch("apps.accounts.services.decisao_interna.AuthorizationService") as autorizador,
-    ):
-        sessoes.objects.filter.return_value.select_related.return_value.order_by.return_value.first.return_value = sessao
-        roles.objects.filter.return_value.exists.return_value = False
+def test_cookie_de_outra_aplicacao_nao_consulta_sessao():
+    with patch("apps.accounts.services.decisao_interna.AccountsSession") as sessoes:
+        resultado = decidir_acesso_carga(
+            credenciais={"gpp_session_PORTAL": "sessao-portal"},
+            permissao="view_importacaoplanilha",
+        )
+    assert resultado == {"resultado": "SESSAO_INVALIDA"}
+    sessoes.objects.filter.assert_not_called()
+
+
+def test_portal_admin_tambem_precisa_de_cookie_da_aplicacao():
+    with patch("apps.accounts.services.decisao_interna.AuthorizationService") as autorizador:
         resultado = decidir_acesso_carga(
             credenciais={"gpp_session_PORTAL": "sessao-portal"},
             permissao="view_importacaoplanilha",
         )
     assert resultado == {"resultado": "SESSAO_INVALIDA"}
     autorizador.assert_not_called()
-
-
-def test_portal_admin_ainda_passa_pela_decisao_final():
-    usuario = SimpleNamespace(pk=7, is_superuser=False)
-    sessao = SimpleNamespace(user=usuario, expires_at=SimpleNamespace(isoformat=lambda: "fim"))
-    with (
-        patch("apps.accounts.services.decisao_interna.AccountsSession") as sessoes,
-        patch("apps.accounts.services.decisao_interna.UserRole") as roles,
-        patch("apps.accounts.services.decisao_interna.ApplicationRegistry") as registro,
-        patch("apps.accounts.services.decisao_interna.AuthorizationService") as autorizador,
-    ):
-        sessoes.objects.filter.return_value.select_related.return_value.order_by.return_value.first.return_value = sessao
-        roles.objects.filter.return_value.exists.return_value = True
-        autorizador.return_value.can.return_value = False
-        resultado = decidir_acesso_carga(
-            credenciais={"gpp_session_PORTAL": "sessao-portal"},
-            permissao="view_importacaoplanilha",
-        )
-    assert resultado == {"resultado": "NEGADO", "usuario_id": 7}
-    registro.return_value.get.assert_called_once_with("CARGA_ORG_LOT")
-    autorizador.return_value.can.assert_called_once_with("view_importacaoplanilha")
 
 
 def test_sessao_carga_autorizada_retorna_identidade_minima_e_versao():
@@ -233,7 +214,6 @@ def test_sessao_carga_autorizada_retorna_identidade_minima_e_versao():
     sessao = SimpleNamespace(user=usuario, expires_at=SimpleNamespace(isoformat=lambda: "fim"))
     with (
         patch("apps.accounts.services.decisao_interna.AccountsSession") as sessoes,
-        patch("apps.accounts.services.decisao_interna.UserRole") as roles,
         patch("apps.accounts.services.decisao_interna.ApplicationRegistry") as registro,
         patch("apps.accounts.services.decisao_interna.AuthorizationService") as autorizador,
         patch("apps.accounts.services.decisao_interna.UserAuthzState") as versoes,
@@ -252,7 +232,6 @@ def test_sessao_carga_autorizada_retorna_identidade_minima_e_versao():
         "versao_autorizacao": 4,
         "expira_em": "fim",
     }
-    roles.objects.filter.assert_not_called()
     registro.return_value.get.assert_called_once_with("CARGA_ORG_LOT")
 
 
@@ -292,30 +271,11 @@ def test_cookie_dedicado_invalido_nao_tenta_fallback():
     sessoes.objects.filter.return_value.select_related.return_value.order_by.assert_not_called()
 
 
-def test_fallback_usa_sessao_mais_recente_entre_cookies_validos():
-    usuario = SimpleNamespace(
-        pk=7, is_superuser=False,
-        get_full_name=lambda: "",
-        get_username=lambda: "usuario_teste",
-    )
-    sessao = SimpleNamespace(user=usuario, expires_at=SimpleNamespace(isoformat=lambda: "fim"))
-    with (
-        patch("apps.accounts.services.decisao_interna.AccountsSession") as sessoes,
-        patch("apps.accounts.services.decisao_interna.UserRole") as roles,
-        patch("apps.accounts.services.decisao_interna.ApplicationRegistry") as registro,
-        patch("apps.accounts.services.decisao_interna.AuthorizationService") as autorizador,
-        patch("apps.accounts.services.decisao_interna.UserAuthzState") as versoes,
-    ):
-        consulta = sessoes.objects.filter.return_value.select_related.return_value
-        consulta.order_by.return_value.first.return_value = sessao
-        roles.objects.filter.return_value.exists.return_value = True
-        autorizador.return_value.can.return_value = True
-        versoes.objects.filter.return_value.values_list.return_value.first.return_value = 4
+def test_multiplos_cookies_sem_cookie_dedicado_nao_autorizam():
+    with patch("apps.accounts.services.decisao_interna.AccountsSession") as sessoes:
         resultado = decidir_acesso_carga(
             credenciais={"gpp_session_PORTAL": "portal", "gpp_session_ACOES_PNGI": "acoes"},
             permissao="view_importacaoplanilha",
         )
-    assert resultado["resultado"] == "AUTORIZADO"
-    assert resultado["usuario_nome"] == "usuario_teste"
-    consulta.order_by.assert_called_once_with("-created_at")
-    registro.return_value.get.assert_called_once_with("CARGA_ORG_LOT")
+    assert resultado == {"resultado": "SESSAO_INVALIDA"}
+    sessoes.objects.filter.assert_not_called()

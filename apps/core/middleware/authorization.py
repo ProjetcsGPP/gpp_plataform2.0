@@ -33,7 +33,7 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.http import JsonResponse
 
-from config.iam_boundary import carga_http_iam_remoto
+from config.iam_boundary import dominio_http_iam_remoto
 
 security_logger = logging.getLogger("gpp.security")
 
@@ -44,8 +44,9 @@ class AuthorizationMiddleware:
 
     @staticmethod
     def process_view(request, view_func, _view_args, _view_kwargs):
-        """Impede que uma rota nova de Carga escape do guard remoto."""
-        if not carga_http_iam_remoto(request.path):
+        """Impede que uma rota de domínio escape do guard remoto."""
+        dominio = dominio_http_iam_remoto(request.path)
+        if not dominio:
             return None
         classe = getattr(view_func, "cls", None)
         if classe is not None and any(
@@ -54,8 +55,8 @@ class AuthorizationMiddleware:
         ):
             return None
         security_logger.error(
-            "CARGA_IAM_VIEW_SEM_GUARD path=%s metodo=%s",
-            request.path, request.method,
+            "DOMINIO_IAM_VIEW_SEM_GUARD app=%s path=%s metodo=%s",
+            dominio, request.path, request.method,
         )
         return AuthorizationMiddleware._json_response(
             status=503,
@@ -68,7 +69,7 @@ class AuthorizationMiddleware:
         # Rotas públicas/isentas também não são bloqueadas nesta camada.
         # Lido de settings a cada request para suportar @override_settings nos testes
         if (
-            carga_http_iam_remoto(request.path)
+            dominio_http_iam_remoto(request.path)
             or self._is_exempt(request.path)
             or getattr(request, "is_portal_admin", False)
         ):

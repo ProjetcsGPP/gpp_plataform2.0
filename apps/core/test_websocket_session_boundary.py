@@ -141,6 +141,25 @@ def test_piloto_carga_nao_altera_resolucao_local_de_publicacoes():
     assert escopo["app_context"] == "PUB_INSTITUCIONAL"
 
 
+@override_settings(PUBLICACOES_IAM_WEBSOCKET_REMOTO_ATIVO=True)
+def test_piloto_publicacoes_nao_consulta_sessao_local():
+    async def destino(escopo, _receber, _enviar):
+        return escopo
+
+    middleware = MiddlewareSessaoAplicacaoWebSocket(
+        destino,
+        contextos_por_prefixo={"ws/pub-institucional/": "PUB_INSTITUCIONAL"},
+    )
+    resolver = AsyncMock()
+    with patch.object(middleware, "_resolver", resolver):
+        escopo = asyncio.run(
+            middleware({"path": "/ws/pub-institucional/edocs/"}, None, None)
+        )
+    resolver.assert_not_awaited()
+    assert isinstance(escopo["user"], AnonymousUser)
+    assert escopo["app_context"] == "PUB_INSTITUCIONAL"
+
+
 @override_settings(CARGA_IAM_WEBSOCKET_REMOTO_ATIVO=False)
 def test_modo_padrao_carga_continua_resolvendo_sessao_local():
     async def destino(escopo, _receber, _enviar):

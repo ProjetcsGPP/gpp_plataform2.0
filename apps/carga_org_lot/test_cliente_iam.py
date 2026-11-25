@@ -157,7 +157,11 @@ def test_correlacao_invalida_e_substituida_sem_propagacao():
 
 
 @override_settings(**CONFIGURACAO)
-@pytest.mark.parametrize("credenciais", [{}, {"outro": "x"}, {"gpp_session_PORTAL": ""}])
+@pytest.mark.parametrize("credenciais", [
+    {}, {"outro": "x"}, {"gpp_session_PORTAL": ""},
+    {"gpp_session_PORTAL": "sessao-portal"},
+    {**CREDENCIAIS, "gpp_session_PORTAL": "sessao-portal"},
+])
 def test_credenciais_invalidas_nao_sao_enviadas(credenciais):
     with patch("apps.carga_org_lot.services.cliente_iam.requests.post") as postar:
         with pytest.raises(IAMIndisponivel):

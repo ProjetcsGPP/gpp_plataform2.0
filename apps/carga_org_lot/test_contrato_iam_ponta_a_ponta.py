@@ -19,8 +19,7 @@ CONFIGURACAO = {
     "IAM_URL_CARGA": "http://127.0.0.1:8000/interno/iam/v1/decisoes/",
 }
 CREDENCIAIS = {
-    "gpp_session_PORTAL": "sessao-portal-sintetica",
-    "gpp_session_ACOES_PNGI": "sessao-acoes-sintetica",
+    "gpp_session_CARGA_ORG_LOT": "sessao-carga-sintetica",
 }
 
 

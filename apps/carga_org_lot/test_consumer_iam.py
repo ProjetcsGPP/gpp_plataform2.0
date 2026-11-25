@@ -141,6 +141,31 @@ def test_piloto_sem_cookie_nao_consulta_iam():
 
 
 @override_settings(CARGA_IAM_WEBSOCKET_REMOTO_ATIVO=True)
+def test_piloto_cookie_de_outra_app_nao_consulta_iam():
+    consumer = _consumer(cookies="gpp_session_PORTAL=sessao-portal")
+    with patch("apps.carga_org_lot.consumers.decidir_acesso_remoto") as remoto:
+        _executar(consumer)
+    consumer.close.assert_awaited_once_with(code=4401)
+    remoto.assert_not_called()
+
+
+@override_settings(CARGA_IAM_WEBSOCKET_REMOTO_ATIVO=True)
+def test_piloto_envia_apenas_cookie_de_carga():
+    consumer = _consumer(cookies=(
+        "gpp_session_PORTAL=sessao-portal; "
+        "gpp_session_CARGA_ORG_LOT=sessao-opaca"
+    ))
+    with patch(
+        "apps.carga_org_lot.consumers.decidir_acesso_remoto",
+        return_value={"usuario_id": 7, "decisao_id": "teste"},
+    ) as remoto:
+        _executar(consumer)
+    assert remoto.call_args.kwargs["credenciais"] == {
+        "gpp_session_CARGA_ORG_LOT": "sessao-opaca"
+    }
+
+
+@override_settings(CARGA_IAM_WEBSOCKET_REMOTO_ATIVO=True)
 def test_asgi_nao_entrega_evento_apos_revogacao():
     """Exercita a rota e o channel layer, além do método do consumer."""
 

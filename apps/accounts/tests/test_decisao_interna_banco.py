@@ -152,22 +152,21 @@ def test_sessao_valida_sem_role_e_negada(usuario_sem_role):
 
 
 @override_settings(**CONFIGURACAO_TESTE)
-def test_fallback_portal_admin_com_role_real_e_autorizado(portal_admin):
+def test_cookie_portal_admin_nao_autoriza_carga(portal_admin):
     resposta = _consultar(_sessao(portal_admin, "PORTAL"))
     assert resposta.status_code == 200
-    assert resposta.json()["resultado"] == "AUTORIZADO"
-    assert resposta.json()["usuario_id"] == portal_admin.pk
+    assert resposta.json()["resultado"] == "SESSAO_INVALIDA"
 
 
 @override_settings(**CONFIGURACAO_TESTE)
-def test_fallback_de_usuario_nao_admin_e_sessao_invalida(gestor_carga):
+def test_cookie_portal_de_usuario_nao_admin_e_sessao_invalida(gestor_carga):
     resposta = _consultar(_sessao(gestor_carga, "PORTAL"))
     assert resposta.status_code == 200
     assert resposta.json()["resultado"] == "SESSAO_INVALIDA"
 
 
 @override_settings(**CONFIGURACAO_TESTE)
-def test_cookie_dedicado_invalido_nao_usa_portal_admin(portal_admin, gestor_carga):
+def test_cookie_dedicado_invalido_nao_usa_cookie_portal(portal_admin, gestor_carga):
     dedicado = _sessao(gestor_carga, revogada=True)
     portal = _sessao(portal_admin, "PORTAL")
     resposta = _consultar(dedicado, portal)
@@ -192,7 +191,7 @@ def test_sessao_expirada_revogada_ou_usuario_inativo_falha(gestor_carga, estado)
 
 
 @override_settings(**CONFIGURACAO_TESTE)
-def test_fallback_seleciona_sessao_valida_mais_recente(portal_admin, usuario_sem_role):
+def test_cookies_de_outras_apps_nao_autorizam_carga(portal_admin, usuario_sem_role):
     portal = _sessao(portal_admin, "PORTAL")
     outra = _sessao(usuario_sem_role, "ACOES_PNGI")
     AccountsSession.objects.filter(pk=portal.pk).update(

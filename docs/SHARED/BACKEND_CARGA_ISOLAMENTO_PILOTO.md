@@ -281,6 +281,12 @@ autoriza cutover nem resolve TLS/autenticação entre hosts distintos.
 
 ## Dívida antes do isolamento final
 
+No piloto IAM remoto, o HTTP e o WebSocket de Carga agora encaminham somente
+`gpp_session_CARGA_ORG_LOT`. A decisão produtora do IAM exige esse nome exato:
+um cookie `gpp_session_PORTAL` ou de outra app não substitui a sessão dedicada,
+mesmo para `PORTAL_ADMIN`. O modo monolítico padrão conserva o middleware
+local de sessão e sua política anterior; esta alteração não ativou o piloto.
+
 O repositório e o registro `INSTALLED_APPS` continuam compartilhados. O
 `SchemaRouter` aponta todos os modelos para `default`; o serviço de Carga
 ainda pode consultar IAM localmente quando as flags remotas estão desligadas.

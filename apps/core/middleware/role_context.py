@@ -30,7 +30,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 
 from apps.accounts.models import UserRole
-from config.iam_boundary import carga_http_iam_remoto
+from config.iam_boundary import dominio_http_iam_remoto
 
 security_logger = logging.getLogger("gpp.security")
 
@@ -43,7 +43,7 @@ class RoleContextMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if carga_http_iam_remoto(request.path):
+        if dominio_http_iam_remoto(request.path):
             request.user_roles = []
             request.is_portal_admin = False
             return self.get_response(request)

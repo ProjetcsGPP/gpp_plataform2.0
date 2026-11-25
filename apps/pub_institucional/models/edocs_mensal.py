@@ -32,6 +32,7 @@ class TipoEventoColetaMensalEdocs(models.TextChoices):
     SUCESSO = "SUCESSO", "Coleta concluída com sucesso"
     ERRO = "ERRO", "Coleta concluída com erro"
     REENCAMINHADA = "REENCAMINHADA", "Solicitação reencaminhada"
+    AUTORIZACAO_VALIDADA = "AUTORIZACAO_VALIDADA", "Autorização revalidada"
 
 
 class CompetenciaEdocs(ModeloAuditavel):

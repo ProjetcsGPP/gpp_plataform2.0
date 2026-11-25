@@ -33,12 +33,23 @@ from apps.pub_institucional.services.patriarcas_edocs import (
     AtorAuditoriaEdocs, sincronizar_patriarcas_edocs)
 from apps.pub_institucional.services.implantacao_edocs import (
     registrar_implantacoes_observadas)
+from common.services.cliente_iam import (
+    IAMIndisponivel, PermissaoIAMNegada, decidir_atividade_remota,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class ErroColetaMensalEdocs(ValueError):
     """A coleta não pode ser solicitada ou processada com segurança."""
+
+
+class AutorizacaoColetaRevogada(ErroColetaMensalEdocs):
+    """O solicitante perdeu a autorização antes de uma nova etapa."""
+
+
+class IAMColetaIndisponivel(ErroColetaMensalEdocs):
+    """Não foi possível obter decisão confiável do IAM."""
 
 
 @dataclass(frozen=True)
@@ -82,6 +93,38 @@ def _criar_evento(coleta, ator, tipo_evento, mensagem, metadados=None):
         mensagem=mensagem,
         metadados=metadados or {},
         **_auditoria(ator),
+    )
+
+
+def _revalidar_atividade(coleta, ator, etapa):
+    """Decisão sem cache antes de cada operação; o ator vem da coleta persistida."""
+    if not settings.PUBLICACOES_IAM_ATIVIDADES_REMOTAS_ATIVAS:
+        return
+    try:
+        decisao = decidir_atividade_remota(
+            url_decisao=settings.IAM_URL_PUBLICACOES,
+            caminho_decisao="/interno/iam/v1/decisoes-publicacoes/",
+            caminho_atividade="/interno/iam/v1/decisoes-atividade-publicacoes/",
+            token=settings.IAM_TOKEN_SERVICO_PUBLICACOES,
+            usuario_id=coleta.criado_por_id,
+            permissao="solicitar_coleta_mensal_edocs",
+            correlacao=str(coleta.pk),
+        )
+    except PermissaoIAMNegada as exc:
+        logger.warning("PUBLICACOES_COLETA_AUTORIZACAO_REVOGADA coleta=%s etapa=%s", coleta.pk, etapa)
+        raise AutorizacaoColetaRevogada(
+            "A autorização do solicitante foi revogada; a coleta foi interrompida."
+        ) from exc
+    except IAMIndisponivel as exc:
+        logger.error("PUBLICACOES_COLETA_IAM_INDISPONIVEL coleta=%s etapa=%s", coleta.pk, etapa)
+        raise IAMColetaIndisponivel(
+            "Não foi possível confirmar a autorização; a coleta foi interrompida."
+        ) from exc
+    _criar_evento(
+        coleta, ator, TipoEventoColetaMensalEdocs.AUTORIZACAO_VALIDADA,
+        "Autorização da atividade confirmada pelo IAM.",
+        {"etapa": etapa, "decisao_id": decisao["decisao_id"],
+         "versao_autorizacao": decisao["versao_autorizacao"]},
     )
 
 
@@ -373,7 +416,7 @@ def _criar_resultado_patriarca(
     )
 
 
-def executar_coleta_mensal_edocs(  # pylint: disable=too-many-locals
+def executar_coleta_mensal_edocs(  # pylint: disable=too-many-locals,too-many-statements
     coleta_id,
     *,
     cliente: ClienteEdocs | None = None,
@@ -402,6 +445,7 @@ def executar_coleta_mensal_edocs(  # pylint: disable=too-many-locals
 
     fontes = {}
     try:
+        _revalidar_atividade(coleta, ator, "ANTES_CATALOGO")
         api = cliente or ClienteEdocs()
         mes = f"{coleta.competencia.mes:02d}"
         ano = coleta.competencia.ano
@@ -417,6 +461,9 @@ def executar_coleta_mensal_edocs(  # pylint: disable=too-many-locals
             _RespostaFonte(CodigoFonteMensalEdocs.EDOC_05, catalogo),
             ator,
         )
+        # A resposta já recebida fica auditável mesmo se a role for revogada
+        # durante a chamada. Nenhuma nova etapa começa sem outra decisão.
+        _revalidar_atividade(coleta, ator, "APOS_CATALOGO")
         comparacao = sincronizar_patriarcas_edocs(
             ator=ator,
             cliente=_ClienteCatalogoObtido(catalogo),
@@ -436,6 +483,7 @@ def executar_coleta_mensal_edocs(  # pylint: disable=too-many-locals
                 "Há patriarca selecionado ausente no catálogo atual do E-Docs."
             )
 
+        _revalidar_atividade(coleta, ator, "ANTES_EDOC_01")
         fontes[CodigoFonteMensalEdocs.EDOC_01] = api.relatorio_processos(mes, ano)
         _persistir_fonte(
             coleta,
@@ -445,6 +493,7 @@ def executar_coleta_mensal_edocs(  # pylint: disable=too-many-locals
             ),
             ator,
         )
+        _revalidar_atividade(coleta, ator, "ANTES_EDOC_03")
         fontes[CodigoFonteMensalEdocs.EDOC_03] = api.relatorio_documentos(mes, ano)
         _persistir_fonte(
             coleta,
@@ -456,27 +505,31 @@ def executar_coleta_mensal_edocs(  # pylint: disable=too-many-locals
         )
         for patriarca in patriarcas:
             identificador = patriarca.id_externo
+            _revalidar_atividade(coleta, ator, f"ANTES_EDOC_02:{identificador}")
             processos = api.relatorio_processos_por_patriarca(
                 identificador, mes, ano
             )
-            documentos = api.relatorio_documentos_por_patriarca(
-                identificador, mes, ano
-            )
             fontes[(CodigoFonteMensalEdocs.EDOC_02, identificador)] = processos
-            fontes[(CodigoFonteMensalEdocs.EDOC_04, identificador)] = documentos
             _persistir_fonte(
                 coleta,
                 _RespostaFonte(CodigoFonteMensalEdocs.EDOC_02, processos, patriarca),
                 ator,
             )
+            _revalidar_atividade(coleta, ator, f"ANTES_EDOC_04:{identificador}")
+            documentos = api.relatorio_documentos_por_patriarca(
+                identificador, mes, ano
+            )
+            fontes[(CodigoFonteMensalEdocs.EDOC_04, identificador)] = documentos
             _persistir_fonte(
                 coleta,
                 _RespostaFonte(CodigoFonteMensalEdocs.EDOC_04, documentos, patriarca),
                 ator,
             )
+        _revalidar_atividade(coleta, ator, "ANTES_CONSOLIDACAO")
         resultados_patriarcas, resultados_organizacoes = _normalizar_resultados(
             coleta, fontes, patriarcas, ator
         )
+        _revalidar_atividade(coleta, ator, "ANTES_CONCLUSAO")
         _concluir_coleta(
             coleta,
             ator,

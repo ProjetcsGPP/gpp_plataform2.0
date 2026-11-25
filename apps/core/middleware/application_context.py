@@ -24,7 +24,7 @@ import logging
 from django.conf import settings
 
 from apps.accounts.services.application_registry import ApplicationRegistry
-from config.iam_boundary import carga_http_iam_remoto
+from config.iam_boundary import dominio_http_iam_remoto
 
 security_logger = logging.getLogger("gpp.security")
 
@@ -44,8 +44,8 @@ class ApplicationContextMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if carga_http_iam_remoto(request.path):
-            # Carga remota não consulta o cadastro de aplicações no banco IAM.
+        if dominio_http_iam_remoto(request.path):
+            # Domínio remoto não consulta o cadastro de aplicações no banco IAM.
             request.application = None
             return self.get_response(request)
 

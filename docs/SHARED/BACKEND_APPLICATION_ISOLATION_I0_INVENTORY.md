@@ -193,6 +193,13 @@ antes do cutover.
 
 ## 3. Contrato de erro para o frontend (proposto)
 
+**Nota de evolução (2026-11-25):** esta seção preserva a proposta do I0,
+incluindo um exemplo de mensagem e campos que **não** correspondem
+necessariamente ao payload implementado. Para Carga e Publicações nos perfis
+separados, usar o contrato verificado em
+[FRONTEND_IAM_INDISPONIBILIDADE.md](./FRONTEND_IAM_INDISPONIBILIDADE.md).
+Não implementar o exemplo abaixo como se fosse o retorno atual.
+
 O guard de cada serviço deve converter falha de comunicação com IAM em uma
 resposta estável, **antes** de chamar a regra de negócio ou enfileirar uma
 tarefa. Não devolver `401` ou `403` quando não foi possível obter decisão:

@@ -47,10 +47,27 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[])
 IAM_DECISOES_INTERNAS_ATIVAS = env.bool(
     "GPP_IAM_DECISOES_INTERNAS_ATIVAS", default=False
 )
+IAM_DECISOES_PUBLICACOES_ATIVAS = env.bool(
+    "GPP_IAM_DECISOES_PUBLICACOES_ATIVAS", default=False
+)
 IAM_TOKEN_SERVICO_CARGA = env("GPP_IAM_TOKEN_SERVICO_CARGA", default="").strip()
 IAM_TOKEN_SERVICO_PUBLICACOES = env(
     "GPP_IAM_TOKEN_SERVICO_PUBLICACOES", default=""
 ).strip()
+IAM_URL_PUBLICACOES = env("GPP_PUBLICACOES_IAM_URL", default="").strip()
+PUBLICACOES_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA = env.bool(
+    "GPP_PUBLICACOES_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA", default=False
+)
+PUBLICACOES_IAM_WEBSOCKET_REMOTO_ATIVO = env.bool(
+    "GPP_PUBLICACOES_IAM_WEBSOCKET_REMOTO_ATIVO", default=False
+)
+PUBLICACOES_IAM_ATIVIDADES_REMOTAS_ATIVAS = env.bool(
+    "GPP_PUBLICACOES_IAM_ATIVIDADES_REMOTAS_ATIVAS", default=False
+)
+PUBLICACOES_IAM_WEBSOCKET_REVALIDACAO_SEGUNDOS = max(
+    30,
+    min(300, env.int("GPP_PUBLICACOES_IAM_WEBSOCKET_REVALIDACAO_SEGUNDOS", default=300)),
+)
 IAM_URL_CARGA = env("GPP_CARGA_IAM_URL", default="").strip()
 # Piloto HTTP controlado: ainda depende dos middlewares locais de sessão/roles.
 # Não ativar como implantação independente antes dos gates de I2/I4.
@@ -701,6 +718,8 @@ APPLICATION_DOMAIN_MAP = {
 # Prefixos: qualquer path que COMECE com estes valores é liberado pelo
 # AuthorizationMiddleware sem checagem de autenticação/roles.
 AUTHORIZATION_EXEMPT_PATHS = [
+    "/interno/iam/v1/decisoes-atividade-publicacoes/",  # M2M na própria view
+    "/interno/iam/v1/decisoes-atividade/",  # M2M na própria view
     "/interno/iam/v1/decisoes-publicacoes/",  # M2M na própria view
     "/interno/iam/v1/decisoes/",  # autenticação M2M feita na própria view
     "/api/accounts/login/",  # login via sessão
@@ -719,6 +738,8 @@ AUTHORIZATION_EXEMPT_PATHS = [
 # Endpoints públicos que não devem resolver sessão, aplicação ou roles. A lista
 # é deliberadamente mais restrita que AUTHORIZATION_EXEMPT_PATHS.
 PUBLIC_ANONYMOUS_PATHS = [
+    "/interno/iam/v1/decisoes-atividade-publicacoes/",  # sem cookie do navegador
+    "/interno/iam/v1/decisoes-atividade/",  # sem cookie do navegador
     "/interno/iam/v1/decisoes-publicacoes/",  # não resolver cookie do navegador
     "/interno/iam/v1/decisoes/",  # não resolver cookie do navegador neste endpoint
     "/api/health/",  # vivacidade: não depende do cadastro de aplicações/IAM
