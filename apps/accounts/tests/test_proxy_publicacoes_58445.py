@@ -1,6 +1,6 @@
 """Ensaio local opt-in do proxy alternativo real, sem cutover.
 
-Uso: GPP_ENSAIO_PROXY_PUBLICACOES_58445=1 pytest -q -o addopts='' \
+Uso: GPP_ENSAIO_PROXY_PUBLICACOES_58445=1 pytest -q -o addopts='' --tb=line \
     --reuse-db apps/accounts/tests/test_proxy_publicacoes_58445.py
 
 Usa apenas o banco permanente de testes e ASGI com identidades sintéticas.

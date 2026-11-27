@@ -18,6 +18,7 @@ from apps.core.middleware.role_context import RoleContextMiddleware
 from apps.pub_institucional.services.recursos_funcionais import (
     semear_recursos_funcionais_publicacoes,
 )
+from apps.pub_institucional.models import PreferenciaExibicaoEflow
 
 pytestmark = pytest.mark.django_db
 
@@ -153,6 +154,7 @@ def _postar_iam_local(url, **opcoes):
         data=opcoes["json"],
         content_type="application/json",
         HTTP_AUTHORIZATION=opcoes["headers"]["Authorization"],
+        HTTP_X_CORRELATION_ID=opcoes["headers"]["X-Correlation-ID"],
     )
     return SimpleNamespace(status_code=resposta.status_code, json=resposta.json)
 
@@ -171,6 +173,29 @@ def test_api_administrativa_usa_iam_sem_consultas_locais(sessao_publicacoes):
         resposta = cliente.get("/api/pub-institucional/patriarcas/")
     assert resposta.status_code == 200
     assert "results" in resposta.json()
+
+
+@override_settings(**CONFIGURACAO_CONSUMIDOR)
+def test_correlacao_da_requisicao_chega_ao_log_do_iam(
+    sessao_publicacoes, caplog
+):
+    cliente = Client()
+    cliente.cookies[sessao_publicacoes.session_cookie_name] = (
+        sessao_publicacoes.session_key
+    )
+    with patch(
+        "common.services.cliente_iam.requests.post",
+        side_effect=_postar_iam_local,
+    ) as postar:
+        resposta = cliente.get(
+            "/api/pub-institucional/patriarcas/",
+            HTTP_X_CORRELATION_ID="ensaio-publicacoes-123",
+        )
+    assert resposta.status_code == 200
+    assert postar.call_args.kwargs["headers"]["X-Correlation-ID"] == (
+        "ensaio-publicacoes-123"
+    )
+    assert "correlacao=ensaio-publicacoes-123" in caplog.text
 
 
 @override_settings(**CONFIGURACAO_CONSUMIDOR)
@@ -217,6 +242,45 @@ def test_mutacao_administrativa_mantem_csrf(sessao_publicacoes):
         resposta = cliente.post("/api/pub-institucional/coletas/")
     assert resposta.status_code == 403
     assert "CSRF" in str(resposta.content)
+
+
+@override_settings(**CONFIGURACAO_CONSUMIDOR)
+def test_preferencia_eflow_fica_no_escopo_do_usuario_iam(sessao_publicacoes):
+    """O ID lógico do IAM, não um ID informado pelo cliente, define o objeto."""
+    aplicacao = Aplicacao.objects.get(codigointerno="PUB_INSTITUCIONAL")
+    perfil = Role.objects.get(aplicacao=aplicacao, codigoperfil="GESTOR_PUBLICACOES")
+    outro = User.objects.create_user(username="outro_gestor_publicacoes")
+    UserRole.objects.create(user=outro, aplicacao=aplicacao, role=perfil)
+    outra_sessao = AccountsSession.objects.create(
+        user=outro,
+        session_key=f"teste-iam-publicacoes-{outro.pk}",
+        session_cookie_name="gpp_session_PUB_INSTITUCIONAL",
+        app_context="PUB_INSTITUCIONAL",
+        expires_at=timezone.now() + timedelta(hours=1),
+    )
+    primeiro = Client()
+    primeiro.cookies[sessao_publicacoes.session_cookie_name] = (
+        sessao_publicacoes.session_key
+    )
+    segundo = Client()
+    segundo.cookies[outra_sessao.session_cookie_name] = outra_sessao.session_key
+    caminho = "/api/pub-institucional/preferencias-eflow/minha/"
+    with patch("common.services.cliente_iam.requests.post", side_effect=_postar_iam_local):
+        alteracao = primeiro.patch(
+            caminho,
+            data={"perfil_preferido": "COMPLETO_TECNICO"},
+            content_type="application/json",
+        )
+        consulta = segundo.get(caminho)
+    assert alteracao.status_code == 200, alteracao.content[:500]
+    assert consulta.status_code == 200, consulta.content[:500]
+    assert consulta.json()["perfil_preferido"] == "CONSOLIDADO_PUBLICACAO"
+    assert PreferenciaExibicaoEflow.objects.get(
+        usuario_id=sessao_publicacoes.user_id
+    ).perfil_preferido == "COMPLETO_TECNICO"
+    assert PreferenciaExibicaoEflow.objects.get(
+        usuario_id=outro.pk
+    ).perfil_preferido == "CONSOLIDADO_PUBLICACAO"
 
 
 def _consultar_atividade(usuario_id, *, token=TOKEN_PUBLICACOES):

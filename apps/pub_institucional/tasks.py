@@ -9,7 +9,8 @@ from django.utils import timezone
 from apps.pub_institucional.models import (ColetaMensalEdocs,
                                            SituacaoColetaMensalEdocs)
 from apps.pub_institucional.services.edocs_mensal import (
-    ErroColetaMensalEdocs, executar_coleta_mensal_edocs,
+    ErroColetaMensalEdocs, encerrar_coleta_interrompida_edocs,
+    executar_coleta_mensal_edocs,
     reencaminhar_coleta_mensal_edocs)
 
 
@@ -21,7 +22,7 @@ def processar_coleta_mensal_edocs(coleta_id):
 
 @shared_task(name="pub_institucional.recuperar_coletas_mensais_edocs")
 def recuperar_coletas_mensais_edocs():
-    """Reencaminha solicitações antigas que não chegaram a iniciar."""
+    """Reencaminha solicitações; opcionalmente encerra execuções órfãs."""
 
     limite = timezone.now() - timedelta(
         seconds=settings.GPP_EDOCS_REQUEST_STALE_SECONDS
@@ -39,4 +40,25 @@ def recuperar_coletas_mensais_edocs():
         except (ColetaMensalEdocs.DoesNotExist, ErroColetaMensalEdocs):
             continue
         recuperadas += 1
-    return {"encontradas": len(ids), "reencaminhadas": recuperadas}
+    resultado = {"encontradas": len(ids), "reencaminhadas": recuperadas}
+    if settings.GPP_EDOCS_ORPHAN_RECOVERY_ENABLED:
+        limite_execucao = timezone.now() - timedelta(
+            seconds=settings.GPP_EDOCS_EXECUTION_STALE_SECONDS
+        )
+        candidatas = list(
+            ColetaMensalEdocs.objects.filter(
+                situacao=SituacaoColetaMensalEdocs.EXECUTANDO,
+                iniciada_em__lte=limite_execucao,
+            ).values_list("pk", flat=True)
+        )
+        encerradas = 0
+        for coleta_id in candidatas:
+            try:
+                encerradas += int(encerrar_coleta_interrompida_edocs(
+                    coleta_id, limite=limite_execucao,
+                ))
+            except ColetaMensalEdocs.DoesNotExist:
+                continue
+        resultado.update({"orfas_encontradas": len(candidatas),
+                          "orfas_encerradas": encerradas})
+    return resultado

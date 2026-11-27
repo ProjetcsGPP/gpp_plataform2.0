@@ -10,6 +10,13 @@ em [BACKEND_PUBLICACOES_ISOLAMENTO_PILOTO.md](../../docs/SHARED/BACKEND_PUBLICAC
 O arquivo `compose-isolamento-tres.yaml` é opt-in e não substitui o proxy em
 uso; Publicações ainda depende do banco IAM compartilhado para autorização
 administrativa.
+`compose-isolamento-quatro.yaml` é outra alternativa opt-in, em
+`https://localhost:58446`, que encaminha Ações PNGI a um quarto processo
+(`127.0.0.1:8003`). Requer os perfis `plataforma_quatro_piloto`,
+`carga_piloto`, `publicacoes_piloto` e `acoes_piloto`, com credenciais M2M
+exclusivas por domínio. Não iniciá-lo junto com o proxy de três processos.
+O Compose não inicia os backends, não provisiona credenciais e não muda o
+proxy em uso.
 Para o ensaio **opt-in** de dois processos, há uma configuração alternativa
 em `config/nginx/nginx-isolamento.conf`; consulte primeiro o
 [contrato do piloto de Carga](../../docs/SHARED/BACKEND_CARGA_ISOLAMENTO_PILOTO.md).

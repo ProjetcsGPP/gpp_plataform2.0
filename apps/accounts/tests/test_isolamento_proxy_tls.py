@@ -30,7 +30,8 @@ def _porta_livre():
 
 @contextmanager
 def _proxy_tls(
-    tmp_path, plataforma, carga, arquivo_configuracao, porta=None, publicacoes=None
+    tmp_path, plataforma, carga, arquivo_configuracao, porta=None,
+    publicacoes=None, acoes=None,
 ):
     """Sobe Nginx temporário; jamais altera o contêiner ou proxy em uso."""
     porta = porta or _porta_livre()
@@ -60,6 +61,9 @@ def _proxy_tls(
         "listen 127.0.0.1:58445 ssl;", f"listen 127.0.0.1:{porta} ssl;"
     )
     configuracao = configuracao.replace(
+        "listen 127.0.0.1:58446 ssl;", f"listen 127.0.0.1:{porta} ssl;"
+    )
+    configuracao = configuracao.replace(
         "/etc/nginx/tls/dev.crt", "/etc/nginx/ensaio/ensaio.crt"
     ).replace(
         "/etc/nginx/tls/dev.key", "/etc/nginx/ensaio/ensaio.key"
@@ -72,18 +76,27 @@ def _proxy_tls(
         "host.docker.internal:3000", "127.0.0.1:1"
     )
     if arquivo_configuracao in {
-        "nginx-isolamento-loopback.conf", "nginx-isolamento-tres.conf"
+        "nginx-isolamento-loopback.conf", "nginx-isolamento-tres.conf",
+        "nginx-isolamento-quatro.conf",
     }:
         configuracao = configuracao.replace(
             "127.0.0.1:8000", plataforma.removeprefix("http://")
         ).replace(
             "127.0.0.1:8001", carga.removeprefix("http://")
         )
-    if arquivo_configuracao == "nginx-isolamento-tres.conf":
+    if arquivo_configuracao in {
+        "nginx-isolamento-tres.conf", "nginx-isolamento-quatro.conf"
+    }:
         if publicacoes is None:
             raise ValueError("O proxy de três processos exige Publicações")
         configuracao = configuracao.replace(
             "127.0.0.1:8002", publicacoes.removeprefix("http://")
+        )
+    if arquivo_configuracao == "nginx-isolamento-quatro.conf":
+        if acoes is None:
+            raise ValueError("O proxy de quatro processos exige Ações PNGI")
+        configuracao = configuracao.replace(
+            "127.0.0.1:8003", acoes.removeprefix("http://")
         )
     caminho = tmp_path / "nginx.conf"
     caminho.write_text(configuracao, encoding="utf-8")
@@ -114,12 +127,19 @@ def _proxy_tls(
             except requests.RequestException:
                 time.sleep(0.1)
         else:
-            raise AssertionError("Proxy HTTPS temporário não ficou disponível")
+            diagnostico = subprocess.run(
+                ["docker", "logs", "--tail", "30", nome],
+                check=False, capture_output=True, text=True, timeout=10,
+            )
+            detalhe = (diagnostico.stdout + diagnostico.stderr)[-1000:]
+            raise AssertionError(
+                f"Proxy HTTPS temporário não ficou disponível: {detalhe}"
+            )
         yield origem, str(certificado)
     finally:
         subprocess.run(
             ["docker", "stop", "--timeout", "1", nome],
-            check=True, capture_output=True, timeout=10,
+            check=False, capture_output=True, timeout=10,
         )
 
 

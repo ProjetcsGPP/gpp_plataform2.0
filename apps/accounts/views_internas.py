@@ -14,6 +14,7 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
 from apps.accounts.services.decisao_interna import (
+    decidir_acesso_acoes,
     decidir_acesso_carga,
     decidir_acesso_publicacoes,
     decidir_atividade_carga,
@@ -24,6 +25,21 @@ security_logger = logging.getLogger("gpp.security")
 PADRAO_ACAO = re.compile(r"^[a-z][a-z0-9_]{0,99}$")
 PADRAO_CORRELACAO = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 TAMANHO_MAXIMO_CORPO = 4096
+TOKENS_SERVICO = (
+    "IAM_TOKEN_SERVICO_CARGA",
+    "IAM_TOKEN_SERVICO_PUBLICACOES",
+    "IAM_TOKEN_SERVICO_ACOES",
+)
+
+
+def _token_exclusivo(nome_configuracao):
+    """Impede que uma credencial M2M autentique mais de uma aplicação."""
+    token = getattr(settings, nome_configuracao, "")
+    return bool(token) and all(
+        not outro or not secrets.compare_digest(token, outro)
+        for nome in TOKENS_SERVICO if nome != nome_configuracao
+        for outro in (getattr(settings, nome, ""),)
+    )
 
 
 def _resposta(dados, status=200):
@@ -113,6 +129,7 @@ class DecisaoIAMInternaView(View):
         if (
             not self._decisoes_ativas()
             or not 32 <= len(self._token_servico()) <= 256
+            or not _token_exclusivo(self.nome_configuracao_token)
         ):
             return _resposta({"erro": "nao_disponivel"}, status=404)
         return super().dispatch(request, *args, **kwargs)
@@ -167,14 +184,24 @@ class DecisaoPublicacoesIAMInternaView(DecisaoIAMInternaView):
     def _decisoes_ativas(self):
         return settings.IAM_DECISOES_PUBLICACOES_ATIVAS
 
-    def dispatch(self, request, *args, **kwargs):
-        token = self._token_servico()
-        if token and secrets.compare_digest(token, settings.IAM_TOKEN_SERVICO_CARGA):
-            return _resposta({"erro": "nao_disponivel"}, status=404)
-        return super().dispatch(request, *args, **kwargs)
-
     def _decidir(self, credenciais, permissao):
         return decidir_acesso_publicacoes(
+            credenciais=credenciais, permissao=permissao,
+        )
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class DecisaoAcoesIAMInternaView(DecisaoIAMInternaView):
+    """Contrato opt-in de Ações PNGI com aplicação e credencial próprias."""
+
+    nome_configuracao_token = "IAM_TOKEN_SERVICO_ACOES"
+    codigo_aplicacao = "ACOES_PNGI"
+
+    def _decisoes_ativas(self):
+        return settings.IAM_DECISOES_ACOES_ATIVAS
+
+    def _decidir(self, credenciais, permissao):
+        return decidir_acesso_acoes(
             credenciais=credenciais, permissao=permissao,
         )
 
@@ -200,6 +227,7 @@ class DecisaoAtividadeIAMInternaView(View):
         if (
             not self._decisoes_ativas()
             or not 32 <= len(self._token_servico()) <= 256
+            or not _token_exclusivo(self.nome_configuracao_token)
         ):
             return _resposta({"erro": "nao_disponivel"}, status=404)
         return super().dispatch(request, *args, **kwargs)
@@ -269,9 +297,3 @@ class DecisaoAtividadePublicacoesIAMInternaView(DecisaoAtividadeIAMInternaView):
         return decidir_atividade_publicacoes(
             usuario_id=usuario_id, permissao=permissao
         )
-
-    def dispatch(self, request, *args, **kwargs):
-        token = self._token_servico()
-        if token and secrets.compare_digest(token, settings.IAM_TOKEN_SERVICO_CARGA):
-            return _resposta({"erro": "nao_disponivel"}, status=404)
-        return super().dispatch(request, *args, **kwargs)

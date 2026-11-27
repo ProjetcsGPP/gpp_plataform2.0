@@ -50,10 +50,18 @@ IAM_DECISOES_INTERNAS_ATIVAS = env.bool(
 IAM_DECISOES_PUBLICACOES_ATIVAS = env.bool(
     "GPP_IAM_DECISOES_PUBLICACOES_ATIVAS", default=False
 )
+IAM_DECISOES_ACOES_ATIVAS = env.bool(
+    "GPP_IAM_DECISOES_ACOES_ATIVAS", default=False
+)
 IAM_TOKEN_SERVICO_CARGA = env("GPP_IAM_TOKEN_SERVICO_CARGA", default="").strip()
 IAM_TOKEN_SERVICO_PUBLICACOES = env(
     "GPP_IAM_TOKEN_SERVICO_PUBLICACOES", default=""
 ).strip()
+IAM_TOKEN_SERVICO_ACOES = env("GPP_IAM_TOKEN_SERVICO_ACOES", default="").strip()
+IAM_URL_ACOES = env("GPP_ACOES_IAM_URL", default="").strip()
+ACOES_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA = env.bool(
+    "GPP_ACOES_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA", default=False
+)
 IAM_URL_PUBLICACOES = env("GPP_PUBLICACOES_IAM_URL", default="").strip()
 PUBLICACOES_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA = env.bool(
     "GPP_PUBLICACOES_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA", default=False
@@ -434,6 +442,15 @@ GPP_EDOCS_REQUEST_STALE_SECONDS = env.int(
     "GPP_EDOCS_REQUEST_STALE_SECONDS",
     default=120,
 )
+# Só ativar após TODOS os workers E-Docs adotarem bloqueio de execução.
+# Na implantação mista, um worker antigo não detém o bloqueio e pode ser
+# confundido com uma execução órfã.
+GPP_EDOCS_ORPHAN_RECOVERY_ENABLED = env.bool(
+    "GPP_EDOCS_ORPHAN_RECOVERY_ENABLED", default=False,
+)
+GPP_EDOCS_EXECUTION_STALE_SECONDS = env.int(
+    "GPP_EDOCS_EXECUTION_STALE_SECONDS", default=3600,
+)
 CELERY_BEAT_SCHEDULE = {
     "monitorar-envios-organograma-prodest": {
         "task": "carga_org_lot.monitorar_envios_organograma",
@@ -718,6 +735,7 @@ APPLICATION_DOMAIN_MAP = {
 # Prefixos: qualquer path que COMECE com estes valores é liberado pelo
 # AuthorizationMiddleware sem checagem de autenticação/roles.
 AUTHORIZATION_EXEMPT_PATHS = [
+    "/interno/iam/v1/decisoes-acoes/",  # M2M na propria view
     "/interno/iam/v1/decisoes-atividade-publicacoes/",  # M2M na própria view
     "/interno/iam/v1/decisoes-atividade/",  # M2M na própria view
     "/interno/iam/v1/decisoes-publicacoes/",  # M2M na própria view
@@ -728,6 +746,7 @@ AUTHORIZATION_EXEMPT_PATHS = [
     "/admin/",
     "/admin",
     "/api/health/",
+    "/api/ready/",
     "/api/public/v1/publicacoes-institucionais/",
     "/__debug__/",
     "/api/schema/",  # ← schema JSON
@@ -738,11 +757,13 @@ AUTHORIZATION_EXEMPT_PATHS = [
 # Endpoints públicos que não devem resolver sessão, aplicação ou roles. A lista
 # é deliberadamente mais restrita que AUTHORIZATION_EXEMPT_PATHS.
 PUBLIC_ANONYMOUS_PATHS = [
+    "/interno/iam/v1/decisoes-acoes/",  # sem cookie do navegador
     "/interno/iam/v1/decisoes-atividade-publicacoes/",  # sem cookie do navegador
     "/interno/iam/v1/decisoes-atividade/",  # sem cookie do navegador
     "/interno/iam/v1/decisoes-publicacoes/",  # não resolver cookie do navegador
     "/interno/iam/v1/decisoes/",  # não resolver cookie do navegador neste endpoint
     "/api/health/",  # vivacidade: não depende do cadastro de aplicações/IAM
+    "/api/ready/",  # prontidão local: sem sessão ou decisão IAM
     "/api/public/v1/publicacoes-institucionais/",
 ]
 

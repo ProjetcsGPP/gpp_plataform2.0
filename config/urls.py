@@ -10,7 +10,10 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
+from common.health import prontidao_monolito
+
 from apps.accounts.views_internas import (
+    DecisaoAcoesIAMInternaView,
     DecisaoAtividadeIAMInternaView,
     DecisaoAtividadePublicacoesIAMInternaView,
     DecisaoIAMInternaView,
@@ -18,6 +21,11 @@ from apps.accounts.views_internas import (
 )
 
 urlpatterns = [
+    path(
+        "interno/iam/v1/decisoes-acoes/",
+        DecisaoAcoesIAMInternaView.as_view(),
+        name="iam-decisao-acoes-interna-v1",
+    ),
     path(
         "interno/iam/v1/decisoes-atividade-publicacoes/",
         DecisaoAtividadePublicacoesIAMInternaView.as_view(),
@@ -62,6 +70,7 @@ urlpatterns = [
     path("api/", include("apps.core.urls", namespace="core")),
     # ── Health check ─────────────────────────────────────────────────────
     path("api/health/", include("common.urls")),
+    path("api/ready/", prontidao_monolito, name="prontidao-monolito"),
 ]
 
 # ── Debug Toolbar (apenas em desenvolvimento) ───────────────────────────────

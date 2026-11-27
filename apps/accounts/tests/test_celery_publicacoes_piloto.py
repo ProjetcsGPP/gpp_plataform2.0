@@ -13,6 +13,125 @@ from django.db import connection
 from apps.accounts.tests.test_isolamento_proxy_tls import _porta_livre
 
 
+@pytest.mark.django_db
+def test_tarefa_em_execucao_retorna_automaticamente_apos_visibility_timeout(tmp_path):
+    """Worker reiniciado após visibility timeout restaura unacked sozinho."""
+    assert connection.settings_dict["NAME"] == "test_gpp_plataform"
+    porta = _porta_livre()
+    broker = f"redis://127.0.0.1:{porta}/0"
+    cliente = redis.Redis.from_url(broker)
+    ambiente = os.environ.copy()
+    ambiente.update({
+        "GPP_ENSAIO_TEST_DB_NAME": "test_gpp_plataform",
+        "GPP_ENSAIO_BROKER_URL": broker,
+        "CELERY_BROKER_URL": broker,
+        "GPP_ENSAIO_VISIBILITY_TIMEOUT": "2",
+        "GPP_ENSAIO_LONGA_SEGUNDOS": "30",
+    })
+    comando_redis = [
+        "redis-server", "--bind", "127.0.0.1", "--port", str(porta),
+        "--save", "", "--appendonly", "no", "--dir", str(tmp_path),
+    ]
+    comando_worker = [
+        sys.executable, "-m", "apps.accounts.tests.celery_ensaio_runner", "worker",
+    ]
+    log_redis = tmp_path / "redis-redelivery.log"
+    with _executar_processo(comando_redis, ambiente, log_redis) as servidor:
+        def redis_pronto():
+            try:
+                return cliente.ping()
+            except redis.RedisError:
+                return False
+
+        _aguardar(redis_pronto, servidor, log_redis)
+        log_primeiro = tmp_path / "worker-longo.log"
+        publicacao = subprocess.run(
+            [sys.executable, "-m", "apps.accounts.tests.celery_ensaio_runner",
+             "publicar-longa"],
+            env=ambiente, capture_output=True, text=True, timeout=10,
+            check=False,
+        )
+        assert publicacao.returncode == 0, publicacao.stderr[-500:]
+        assert cliente.llen("pub_institucional") == 1, cliente.keys("*")
+        with _executar_processo(comando_worker, ambiente, log_primeiro) as primeiro:
+            _aguardar(
+                lambda: int(cliente.get("ensaio:publicacoes:longa:iniciadas") or 0) == 1,
+                primeiro, log_primeiro,
+            )
+            primeiro.kill()
+            primeiro.wait(timeout=5)
+        assert int(cliente.get("ensaio:publicacoes:longa:concluidas") or 0) == 0
+        assert cliente.hlen("unacked") >= 1, cliente.keys("*")
+        time.sleep(3)
+        assert cliente.hlen("unacked") >= 1
+        ambiente_retomada = dict(ambiente)
+        ambiente_retomada["GPP_ENSAIO_LONGA_SEGUNDOS"] = "0"
+        log_segundo = tmp_path / "worker-retomada.log"
+        with _executar_processo(comando_worker, ambiente_retomada, log_segundo) as segundo:
+            _aguardar(
+                lambda: int(cliente.get("ensaio:publicacoes:longa:concluidas") or 0) == 1,
+                segundo, log_segundo, prazo=20,
+            )
+            assert int(cliente.get("ensaio:publicacoes:longa:iniciadas") or 0) == 2
+            assert cliente.llen("pub_institucional") == 0
+
+
+@pytest.mark.django_db
+def test_dois_workers_publicacoes_dividem_vinte_mensagens_sem_perda(tmp_path):
+    """Dois consumidores isolados processam uma carga concorrente sintética."""
+    assert connection.settings_dict["NAME"] == "test_gpp_plataform"
+    porta = _porta_livre()
+    broker = f"redis://127.0.0.1:{porta}/0"
+    cliente = redis.Redis.from_url(broker)
+    ambiente = os.environ.copy()
+    ambiente.update({
+        "GPP_ENSAIO_TEST_DB_NAME": "test_gpp_plataform",
+        "GPP_ENSAIO_BROKER_URL": broker,
+        "CELERY_BROKER_URL": broker,
+        "GPP_ENSAIO_PING_ATRASO": "0.03",
+    })
+    log_redis = tmp_path / "redis-concorrencia.log"
+    comando_redis = [
+        "redis-server", "--bind", "127.0.0.1", "--port", str(porta),
+        "--save", "", "--appendonly", "no", "--dir", str(tmp_path),
+    ]
+    comando_runner = [sys.executable, "-m", "apps.accounts.tests.celery_ensaio_runner"]
+    with _executar_processo(comando_redis, ambiente, log_redis) as servidor:
+        def redis_pronto():
+            try:
+                return cliente.ping()
+            except redis.RedisError:
+                return False
+
+        _aguardar(redis_pronto, servidor, log_redis)
+        log_a, log_b = tmp_path / "worker-a.log", tmp_path / "worker-b.log"
+        ambiente_a = {**ambiente, "GPP_ENSAIO_WORKER_ID": "1"}
+        ambiente_b = {**ambiente, "GPP_ENSAIO_WORKER_ID": "2"}
+        with (
+            _executar_processo(comando_runner + ["worker"], ambiente_a, log_a) as worker_a,
+            _executar_processo(comando_runner + ["worker"], ambiente_b, log_b) as worker_b,
+        ):
+            for processo, log in ((worker_a, log_a), (worker_b, log_b)):
+                _aguardar(
+                    lambda log=log: "ENSAIO_REGISTRO_PUBLICACOES_EXCLUSIVO"
+                    in log.read_text(encoding="utf-8"),
+                    processo, log,
+                )
+            publicacao = subprocess.run(
+                comando_runner + ["publicar-pings"], env=ambiente,
+                capture_output=True, text=True, timeout=15, check=False,
+            )
+            assert publicacao.returncode == 0, publicacao.stderr[-500:]
+            _aguardar(
+                lambda: int(cliente.get("ensaio:publicacoes:processados") or 0) == 20,
+                worker_a, log_a, prazo=20,
+            )
+            assert cliente.llen("pub_institucional") == 0
+            assert int(cliente.get("ensaio:publicacoes:processados")) == 20
+            assert int(cliente.get("ensaio:publicacoes:worker:1") or 0) > 0
+            assert int(cliente.get("ensaio:publicacoes:worker:2") or 0) > 0
+
+
 def _aguardar(condicao, processo, caminho_log, prazo=12):
     limite = time.monotonic() + prazo
     while time.monotonic() < limite:
@@ -223,4 +342,71 @@ def test_beat_unico_e_workers_exclusivos_preservam_mensagens_pendentes(tmp_path)
             assert "ENSAIO_REGISTRO_CARGA_ORG_LOT_EXCLUSIVO" in (
                 log_carga.read_text(encoding="utf-8")
             )
+        assert cliente.llen("celery") == 0
+
+
+@pytest.mark.django_db
+def test_mensagens_pendentes_resistem_ao_reinicio_do_broker(tmp_path):
+    """AOF temporário preserva as duas filas; workers retomam após reconexão."""
+    assert connection.settings_dict["NAME"] == "test_gpp_plataform"
+    porta = _porta_livre()
+    broker = f"redis://127.0.0.1:{porta}/0"
+    cliente = redis.Redis.from_url(broker)
+    ambiente = os.environ.copy()
+    ambiente.update({
+        "GPP_ENSAIO_TEST_DB_NAME": "test_gpp_plataform",
+        "GPP_ENSAIO_BROKER_URL": broker,
+        "GPP_ENSAIO_BEAT_SCHEDULE_FILE": str(tmp_path / "beat-persistente"),
+        "CELERY_BROKER_URL": broker,
+    })
+    comando_redis = [
+        "redis-server", "--bind", "127.0.0.1", "--port", str(porta),
+        "--save", "", "--appendonly", "yes", "--appendfsync", "always",
+        "--dir", str(tmp_path),
+    ]
+
+    def pronto():
+        try:
+            return cliente.ping()
+        except redis.RedisError:
+            return False
+
+    with _executar_processo(
+        comando_redis, ambiente, tmp_path / "redis-antes.log"
+    ) as servidor:
+        _aguardar(pronto, servidor, tmp_path / "redis-antes.log")
+        log_beat = tmp_path / "beat-persistente.log"
+        with _executar_processo([
+            sys.executable, "-m", "apps.accounts.tests.celery_ensaio_runner",
+            "beat-duplo",
+        ], ambiente, log_beat) as beat:
+            _aguardar(
+                lambda: cliente.llen("carga_org_lot") >= 1
+                and cliente.llen("pub_institucional") >= 1,
+                beat, log_beat,
+            )
+        assert cliente.llen("celery") == 0
+
+    with _executar_processo(
+        comando_redis, ambiente, tmp_path / "redis-depois.log"
+    ) as servidor:
+        _aguardar(pronto, servidor, tmp_path / "redis-depois.log")
+        assert cliente.llen("carga_org_lot") >= 1
+        assert cliente.llen("pub_institucional") >= 1
+        for modo, chave, fila in [
+            ("worker", "ensaio:publicacoes:processados", "pub_institucional"),
+            ("worker-carga", "ensaio:carga:processados", "carga_org_lot"),
+        ]:
+            log_worker = tmp_path / f"{modo}-persistente.log"
+            with _executar_processo([
+                sys.executable, "-m", "apps.accounts.tests.celery_ensaio_runner",
+                modo,
+            ], ambiente, log_worker) as worker:
+                _aguardar(
+                    lambda chave_atual=chave: int(
+                        cliente.get(chave_atual) or 0
+                    ) >= 1,
+                    worker, log_worker,
+                )
+                assert cliente.llen(fila) == 0
         assert cliente.llen("celery") == 0

@@ -1,5 +1,11 @@
 # I0 — Inventário e contrato proposto de comunicação entre serviços
 
+**Nota de atualização (2026-11-26):** este inventário registra observações
+históricas do piloto inicial, inclusive itens posteriormente implementados
+em Carga e Publicações. Para estado confirmado, opt-in e pendências atuais,
+consultar a [linha de base de execução](./BACKEND_APPLICATION_ISOLATION_EXECUTION.md)
+e os documentos dos dois pilotos antes de usar uma afirmação abaixo como gate.
+
 **Estado em 2026-11-19:** inventário estático do checkout da branch
 `feat/backend-isolamento-aplicacoes`. Não é comprovação de topologia operacional.
 Nenhum processo operacional, banco principal ou fila foi alterado. A suíte de

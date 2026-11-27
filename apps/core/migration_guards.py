@@ -16,3 +16,8 @@ def bloquear_migracao_carga_piloto(sender, **kwargs):
             "O perfil publicacoes_piloto não executa migrações. "
             "Aplique-as pelo processo de plataforma, em janela controlada."
         )
+    if getattr(settings, "GPP_BLOQUEAR_MIGRACOES_NO_PROCESSO_ACOES", False):
+        raise ImproperlyConfigured(
+            "O perfil acoes_piloto não executa migrações. "
+            "Aplique-as pelo processo de plataforma, em janela controlada."
+        )

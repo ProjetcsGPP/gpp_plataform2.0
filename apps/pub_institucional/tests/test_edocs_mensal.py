@@ -2,12 +2,15 @@
 
 import json
 import multiprocessing
+import os
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
 from io import StringIO
 from threading import Event
-from uuid import UUID
+from uuid import UUID, uuid4
 from unittest.mock import Mock, patch
 
 import pytest
@@ -34,6 +37,7 @@ from apps.pub_institucional.serializadores import (
     SerializadorResultadoMensalPatriarcaEdocs,
 )
 from apps.pub_institucional.services.calculos_edocs import calcular_indicadores_edocs
+from apps.pub_institucional.services.bloqueio_coleta_edocs import bloquear_coleta_edocs
 from apps.pub_institucional.services.edocs_mensal import (
     ErroColetaMensalEdocs,
     executar_coleta_mensal_edocs,
@@ -128,6 +132,27 @@ def patriarca_selecionado():
         coletar_detalhes=True,
         codigo_municipio=3201100,
     )
+
+
+@pytest.fixture
+def patriarca_ensaio_transacional():
+    """Dados próprios; o flush do banco reutilizável não cobre todo schema."""
+    patriarca = PatriarcaEdocs.objects.create(
+        id_externo=uuid4(), sigla="ENSAIO", nome="Patriarca de ensaio",
+        tipo_agente=5, descricao_tipo_agente="Organizacao",
+        coletar_detalhes=True,
+    )
+    yield patriarca
+    for mes in (1, 2):
+        competencia = CompetenciaEdocs.objects.filter(ano=2098, mes=mes).first()
+        if competencia is None:
+            continue
+        ids = list(competencia.coletas.values_list("pk", flat=True))
+        FonteBrutaColetaMensalEdocs.objects.filter(coleta_id__in=ids).delete()
+        EventoAuditoriaColetaMensalEdocs.objects.filter(coleta_id__in=ids).delete()
+        ColetaMensalEdocs.objects.filter(pk__in=ids).delete()
+        competencia.delete()
+    patriarca.delete()
 
 
 @pytest.fixture
@@ -772,6 +797,111 @@ def test_recuperacao_periodica_reencaminha_solicitacao_antiga(
 
     assert resultado == {"encontradas": 1, "reencaminhadas": 1}
     assert recuperadas == [coleta.pk]
+
+
+def test_recuperacao_nao_reenvia_execucao_interrompida_sem_protocolo_seguro(
+    patriarca_selecionado, monkeypatch, settings,
+):
+    """Uma revisão EXECUTANDO não pode duplicar fontes nem chamadas E-Docs."""
+    settings.GPP_EDOCS_REQUEST_STALE_SECONDS = 120
+    coleta = solicitar_coleta_mensal_edocs(ano=2024, mes=9, agendar=False)
+    ColetaMensalEdocs.objects.filter(pk=coleta.pk).update(
+        situacao=SituacaoColetaMensalEdocs.EXECUTANDO,
+        iniciada_em=timezone.now() - timedelta(minutes=3),
+        atualizado_em=timezone.now() - timedelta(minutes=3),
+    )
+    reencaminhamentos = []
+    monkeypatch.setattr(
+        "apps.pub_institucional.tasks.reencaminhar_coleta_mensal_edocs",
+        reencaminhamentos.append,
+    )
+
+    assert recuperar_coletas_mensais_edocs() == {
+        "encontradas": 0, "reencaminhadas": 0,
+    }
+    coleta.refresh_from_db()
+    assert coleta.situacao == SituacaoColetaMensalEdocs.EXECUTANDO
+    assert reencaminhamentos == []
+
+
+@pytest.mark.django_db(transaction=True)
+def test_queda_real_do_processo_encerra_revisao_sem_repetir_fontes(
+    patriarca_ensaio_transacional, settings,
+):
+    coleta = solicitar_coleta_mensal_edocs(ano=2098, mes=1, agendar=False)
+    ambiente = os.environ.copy()
+    ambiente.update({
+        "DJANGO_SETTINGS_MODULE": "config.settings.test",
+        "DB_NAME": "test_gpp_plataform",
+    })
+    programa = (
+        "import os, django; django.setup(); "
+        "from apps.pub_institucional.services.edocs_mensal import "
+        "executar_coleta_mensal_edocs; "
+        "Cliente = type('Cliente', (), {'listar_patriarcas': "
+        "lambda self: os._exit(73)}); "
+        f"executar_coleta_mensal_edocs('{coleta.pk}', cliente=Cliente())"
+    )
+    processo = subprocess.run(
+        [sys.executable, "-c", programa], env=ambiente,
+        capture_output=True, timeout=15, check=False,
+    )
+    assert processo.returncode == 73, processo.stderr[-500:]
+    coleta.refresh_from_db()
+    assert coleta.situacao == SituacaoColetaMensalEdocs.EXECUTANDO
+    assert coleta.eventos_auditoria.filter(tipo_evento="EXECUCAO_INICIADA").count() == 1
+    FonteBrutaColetaMensalEdocs.objects.create(
+        coleta=coleta, codigo_fonte="EDOC-05", conteudo=[], hash_sha256="0" * 64,
+    )
+    ColetaMensalEdocs.objects.filter(pk=coleta.pk).update(
+        iniciada_em=timezone.now() - timedelta(hours=2),
+    )
+    settings.GPP_EDOCS_ORPHAN_RECOVERY_ENABLED = True
+    settings.GPP_EDOCS_EXECUTION_STALE_SECONDS = 3600
+
+    assert recuperar_coletas_mensais_edocs()["orfas_encerradas"] == 1
+    coleta.refresh_from_db()
+    assert coleta.situacao == SituacaoColetaMensalEdocs.ERRO
+    assert coleta.codigo_erro == "ExecucaoInterrompida"
+    assert coleta.fontes_brutas.count() == 1
+    assert coleta.eventos_auditoria.filter(tipo_evento="ERRO").count() == 1
+    assert recuperar_coletas_mensais_edocs()["orfas_encerradas"] == 0
+    nova = solicitar_coleta_mensal_edocs(ano=2098, mes=1, agendar=False)
+    assert nova.revisao == coleta.revisao + 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_recuperacao_nao_encerra_worker_ativo(
+    patriarca_ensaio_transacional, settings,
+):
+    coleta = solicitar_coleta_mensal_edocs(ano=2098, mes=2, agendar=False)
+    ColetaMensalEdocs.objects.filter(pk=coleta.pk).update(
+        situacao=SituacaoColetaMensalEdocs.EXECUTANDO,
+        iniciada_em=timezone.now() - timedelta(hours=2),
+    )
+    settings.GPP_EDOCS_ORPHAN_RECOVERY_ENABLED = True
+    settings.GPP_EDOCS_EXECUTION_STALE_SECONDS = 3600
+    adquirido = Event()
+    liberar = Event()
+
+    def manter_bloqueio():
+        with bloquear_coleta_edocs(coleta.pk) as obteve:
+            assert obteve
+            adquirido.set()
+            assert liberar.wait(10)
+        connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        futuro = executor.submit(manter_bloqueio)
+        try:
+            assert adquirido.wait(10)
+            assert recuperar_coletas_mensais_edocs()["orfas_encerradas"] == 0
+            coleta.refresh_from_db()
+            assert coleta.situacao == SituacaoColetaMensalEdocs.EXECUTANDO
+        finally:
+            liberar.set()
+            futuro.result(timeout=10)
+    assert recuperar_coletas_mensais_edocs()["orfas_encerradas"] == 1
 
 
 @override_settings(PUBLICACOES_IAM_ATIVIDADES_REMOTAS_ATIVAS=True)

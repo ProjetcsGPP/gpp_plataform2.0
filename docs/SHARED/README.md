@@ -4,7 +4,7 @@
 repositório
 **Autoridade:** coordenação transversal; não substitui ADR, OpenAPI, contrato
 de fonte ou documentação operacional detalhada
-**Última revisão:** 2026-11-25
+**Última revisão:** 2026-11-27
 
 Esta pasta é a referência comum mantida no repositório backend. Chats e equipes
 que trabalhem em qualquer aplicação afetada devem consultar estes documentos
@@ -18,6 +18,9 @@ contrato, fase, bloqueio ou critério de aceite transversal mudar.
 | [PUBLICACOES_INTEGRATION_MATRIX.md](./PUBLICACOES_INTEGRATION_MATRIX.md) | Matriz consolidada de decisões, responsáveis, contratos, fases, segurança e aceite de `PUBLICACOES`, Portal e integrações |
 | [PUBLICACOES_CURRENT_STATE_ASSESSMENT.md](./PUBLICACOES_CURRENT_STATE_ASSESSMENT.md) | Reconfirmação arquitetural conjunta de backend/frontend, matriz de impacto, fases, riscos, testes, rollout e parecer de prontidão |
 | [BACKEND_APPLICATION_ISOLATION_PLAN.md](./BACKEND_APPLICATION_ISOLATION_PLAN.md) | Plano em fases para implantar cada app independentemente, com IAM central, filas próprias e piloto em Carga; trata o banco local `_hml` como trilha de ensaio separada, sem autorizar cutover imediato |
+| [BACKEND_APPLICATION_ISOLATION_EXECUTION.md](./BACKEND_APPLICATION_ISOLATION_EXECUTION.md) | Linha de base reconciliada em 26/11, entregas E0–E6 e gates para prosseguir com isolamento, deixando banco e ativação por último |
+| [BACKEND_APPLICATION_ISOLATION_E1_INVENTORY.md](./BACKEND_APPLICATION_ISOLATION_E1_INVENTORY.md) | Inventário operacional entre apps: Publicações mantém o catálogo E-Docs, Carga mantém seu cadastro de patriarcas e o IAM responde por autorização |
+| [BACKEND_APPLICATION_ISOLATION_E2_READINESS.md](./BACKEND_APPLICATION_ISOLATION_E2_READINESS.md) | Contrato local de vivacidade e prontidão, tratamento de dependências e evidências do primeiro incremento E2 |
 | [BACKEND_APPLICATION_ISOLATION_I0_INVENTORY.md](./BACKEND_APPLICATION_ISOLATION_I0_INVENTORY.md) | Inventário estático I0 de acoplamentos e contratos propostos para saúde e autorização entre serviços; registra pendências antes da extração de Carga |
 | [BACKEND_IAM_DECISION_CONTRACT_V1.md](./BACKEND_IAM_DECISION_CONTRACT_V1.md) | Contrato interno v1 de decisão IAM para o piloto de Carga; endpoint inicialmente desativado, segurança M2M, respostas e gates antes do cutover |
 | [BACKEND_CARGA_CELERY_INVENTORY.md](./BACKEND_CARGA_CELERY_INVENTORY.md) | Inventário das tarefas de Carga e regra de encerramento local por revogação, preservando a resposta já recebida da PRODEST |

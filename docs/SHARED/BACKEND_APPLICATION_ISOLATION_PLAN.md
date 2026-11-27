@@ -1,5 +1,11 @@
 # Plano de isolamento das aplicações do backend
 
+**Nota de atualização (2026-11-26):** este documento preserva a decisão e a
+sequência I0–I5 originais; descrições de "situação atual" e "próximo trabalho"
+abaixo refletem marcos anteriores. A linha de base reconciliada e a ordem de
+execução vigente, com banco por último, estão em
+[BACKEND_APPLICATION_ISOLATION_EXECUTION.md](./BACKEND_APPLICATION_ISOLATION_EXECUTION.md).
+
 **Estado:** criação de um banco local `gpp_plataform_hml` e cópia de estrutura,
 permissões e dados aprovadas em princípio pelo responsável em 2026-11-18.
 Em 2026-11-19, o responsável definiu também a implantação independente das

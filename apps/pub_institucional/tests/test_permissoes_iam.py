@@ -96,3 +96,24 @@ def test_todas_as_acoes_administrativas_roteadas_declaram_permissao():
             if not visao.mapa_permissoes.get(acao):
                 ausentes.append(f"{visao.__name__}.{acao}")
     assert ausentes == []
+
+
+@override_settings(PUBLICACOES_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA=True)
+def test_versao_iam_incompativel_nega_sem_fallback_local():
+    """Uma versão nova do produtor não deve autorizar consumidor antigo."""
+    requisicao = _requisicao()
+    visao = SimpleNamespace(required_permission="view_patriarcaedocs")
+    resposta = SimpleNamespace(
+        status_code=200,
+        json=lambda: {"versao": 2, "resultado": "AUTORIZADO"},
+    )
+    with (
+        patch("common.services.cliente_iam.requests.post", return_value=resposta),
+        patch(
+            "apps.pub_institucional.permissoes_iam.AuthorizationService",
+            side_effect=AssertionError("fallback local proibido"),
+        ),
+        pytest.raises(ServicoIAMPublicacoesIndisponivel) as erro,
+    ):
+        CanPermissionPublicacoes().has_permission(requisicao, visao)
+    assert erro.value.status_code == 503

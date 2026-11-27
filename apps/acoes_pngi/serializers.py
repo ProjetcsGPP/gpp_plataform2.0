@@ -24,6 +24,22 @@ from .models import (
 )
 
 
+class VinculoAcaoURLMixin:
+    """Impede que um filho aninhado seja criado ou movido para outra Ação."""
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        view = self.context.get("view")
+        acao_url = getattr(view, "kwargs", {}).get("acao_pk")
+        acao_payload = attrs.get("idacao")
+        if acao_url is not None and acao_payload is not None:
+            if acao_payload.pk != int(acao_url):
+                raise serializers.ValidationError({
+                    "idacao_id": "A Ação do corpo deve ser a mesma da URL."
+                })
+        return attrs
+
+
 # ---------------------------------------------------------------------------
 # Serializers de referência
 # ---------------------------------------------------------------------------
@@ -162,7 +178,7 @@ class AcoesSerializer(AuditableModelSerializer):
         ]
 
 
-class AcaoPrazoSerializer(AuditableModelSerializer):
+class AcaoPrazoSerializer(VinculoAcaoURLMixin, AuditableModelSerializer):
     idacao_id = serializers.PrimaryKeyRelatedField(
         source="idacao",
         queryset=Acoes.objects.all(),
@@ -181,7 +197,7 @@ class AcaoPrazoSerializer(AuditableModelSerializer):
         ]
 
 
-class AcaoDestaqueSerializer(AuditableModelSerializer):
+class AcaoDestaqueSerializer(VinculoAcaoURLMixin, AuditableModelSerializer):
     idacao_id = serializers.PrimaryKeyRelatedField(
         source="idacao",
         queryset=Acoes.objects.all(),
@@ -199,7 +215,7 @@ class AcaoDestaqueSerializer(AuditableModelSerializer):
         ]
 
 
-class AcaoAnotacaoAlinhamentoSerializer(AuditableModelSerializer):
+class AcaoAnotacaoAlinhamentoSerializer(VinculoAcaoURLMixin, AuditableModelSerializer):
     idacao_id = serializers.PrimaryKeyRelatedField(
         source="idacao",
         queryset=Acoes.objects.all(),

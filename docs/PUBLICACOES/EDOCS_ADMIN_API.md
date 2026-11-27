@@ -288,6 +288,20 @@ Mensagens duplicadas são idempotentes: o worker somente inicia a coleta se o
 estado persistido ainda for `SOLICITADA`. Um registro `EXECUTANDO`, `SUCESSO`
 ou `ERRO` não é reiniciado pela mesma mensagem.
 
+Uma execução mensal mantém bloqueio de sessão PostgreSQL até terminar. A
+recuperação de execuções interrompidas é opt-in por
+`GPP_EDOCS_ORPHAN_RECOVERY_ENABLED=true` e exige que **todos** os workers
+Publicações já executem esta versão; durante atualização mista, mantenha a
+flag desligada. Com a flag ativa, o monitor considera candidatas revisões
+`EXECUTANDO` iniciadas há pelo menos
+`GPP_EDOCS_EXECUTION_STALE_SECONDS` (padrão: 3600). Se o bloqueio ainda estiver
+com um worker, não altera o registro. Sem worker, encerra a revisão como `ERRO`,
+com `codigo_erro: ExecucaoInterrompida`, evento de auditoria e notificação,
+preservando as fontes recebidas. Não repete chamadas E-Docs nem altera revisões
+publicadas. O gestor pode então solicitar uma nova revisão da mesma competência.
+O retorno do monitor inclui `orfas_encontradas` e `orfas_encerradas` somente
+quando a recuperação opt-in estiver ativa.
+
 ### Decisão de divergência
 
 ```json

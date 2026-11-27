@@ -22,3 +22,8 @@ def plataforma_viva(_request):
 def publicacoes_vivas(_request):
     """Informa apenas que o processo HTTP de Publicações respondeu."""
     return _vivo("pub_institucional")
+
+
+def acoes_vivas(_request):
+    """Informa apenas que o processo HTTP de Ações PNGI respondeu."""
+    return _vivo("acoes_pngi")

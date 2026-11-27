@@ -10,8 +10,11 @@ from apps.accounts.models import UserRole
 from apps.accounts.tests.test_decisao_publicacoes_interna import (  # pylint: disable=unused-import
     sessao_publicacoes,
 )
+from apps.accounts.tests.test_decisao_interna_banco import _sessao
 from apps.accounts.tests.test_isolamento_asgi_proxy import _perfil_asgi, _websocket
 from apps.accounts.tests.test_isolamento_proxy_tls import _porta_livre, _proxy_tls
+from apps.carga_org_lot.models import TokenEnvioCarga
+from apps.pub_institucional.models import ColetaPatriarcasEdocs
 
 
 @pytest.mark.django_db(transaction=True)
@@ -55,14 +58,22 @@ def test_publicacoes_para_sem_derrubar_iam_ou_carga(  # pylint: disable=too-many
             anonimo = consultar("/api/pub-institucional/patriarcas/")
             assert anonimo.status_code == 401
             assert anonimo.json()["errors"]["code"] == "session_invalid"
+            assert requests.post(
+                f"{origem}/api/pub-institucional/coletas/", json={},
+                verify=certificado, timeout=8,
+            ).status_code == 401
             recurso = f"{origem}/api/pub-institucional/patriarcas/"
             credenciais = {
                 sessao_publicacoes.session_cookie_name: sessao_publicacoes.session_key
             }
             autorizado = requests.get(
-                recurso, cookies=credenciais, verify=certificado, timeout=8
+                recurso, cookies=credenciais, verify=certificado, timeout=8,
+                headers={"X-Correlation-ID": "ensaio-proxy-publicacoes-123"},
             )
             assert autorizado.status_code == 200, autorizado.text[:500]
+            assert "correlacao=ensaio-proxy-publicacoes-123" in (
+                tmp_path / "asgi-plataforma_separada.log"
+            ).read_text(encoding="utf-8")
             caminho_ws = "/ws/pub-institucional/edocs/"
             assert _websocket(origem, certificado, caminho_ws, sessao_publicacoes) == 101
             cookie_outra_app = requests.get(
@@ -83,6 +94,14 @@ def test_publicacoes_para_sem_derrubar_iam_ou_carga(  # pylint: disable=too-many
             )
             assert revogado.status_code == 403, revogado.text[:500]
             assert revogado.json()["errors"]["code"] == "permission_denied"
+            assert requests.get(
+                f"{recurso}999999999/", cookies=credenciais,
+                verify=certificado, timeout=8,
+            ).status_code == 403
+            assert requests.post(
+                f"{origem}/api/pub-institucional/coletas/", json={},
+                cookies=credenciais, verify=certificado, timeout=8,
+            ).status_code == 403
             assert _websocket(origem, certificado, caminho_ws, sessao_publicacoes) == 403
             assert consultar("/interno/iam/v1/decisoes/").status_code == 404
             assert _websocket(origem, certificado, caminho_ws) == 403
@@ -98,14 +117,15 @@ def test_publicacoes_para_sem_derrubar_iam_ou_carga(  # pylint: disable=too-many
 
 @pytest.mark.django_db(transaction=True)
 def test_publicacoes_falha_fechada_sem_iam_e_preserva_api_publica(
-    tmp_path, sessao_publicacoes
-):
+    tmp_path, sessao_publicacoes, gestor_carga
+):  # pylint: disable=too-many-locals
     banco = connection.settings_dict["NAME"]
     assert banco == "test_gpp_plataform"
     porta_proxy, porta_iam, porta_carga, porta_publicacoes = (
         _porta_livre(), _porta_livre(), _porta_livre(), _porta_livre()
     )
     with ExitStack() as processos:
+        sessao_carga = _sessao(gestor_carga)
         with ExitStack() as processo_iam:
             iam = processo_iam.enter_context(_perfil_asgi(
                 "plataforma_separada", porta_iam, porta_proxy, banco, "", tmp_path
@@ -129,6 +149,24 @@ def test_publicacoes_falha_fechada_sem_iam_e_preserva_api_publica(
             assert requests.get(
                 recurso, cookies=credenciais, verify=certificado, timeout=8
             ).status_code == 200
+            assert requests.get(
+                f"{origem}/api/ready/", verify=certificado, timeout=8
+            ).json()["service"] == "plataforma"
+            assert requests.get(
+                f"{origem}/api/carga-org-lot/ready/",
+                verify=certificado, timeout=8,
+            ).json()["service"] == "carga_org_lot"
+            assert requests.get(
+                f"{origem}/api/pub-institucional/ready/",
+                verify=certificado, timeout=8,
+            ).json()["service"] == "pub_institucional"
+            assert requests.get(
+                f"{recurso}999999999/", cookies=credenciais,
+                verify=certificado, timeout=8,
+            ).status_code == 404
+
+        coletas_antes = ColetaPatriarcasEdocs.objects.count()
+        cargas_antes = TokenEnvioCarga.objects.count()
 
         falha = requests.get(
             recurso, cookies=credenciais, verify=certificado, timeout=8
@@ -138,7 +176,28 @@ def test_publicacoes_falha_fechada_sem_iam_e_preserva_api_publica(
         assert falha.json()["errors"]["detail"] == (
             "Serviço de autorização temporariamente indisponível."
         )
+        assert requests.get(
+            f"{origem}/api/pub-institucional/ready/",
+            verify=certificado, timeout=8,
+        ).status_code == 200
         assert "Set-Cookie" not in falha.headers
+        mutacao = requests.post(
+            f"{origem}/api/pub-institucional/coletas/",
+            json={}, cookies=credenciais, verify=certificado, timeout=8,
+        )
+        assert mutacao.status_code == 503, mutacao.text[:500]
+        assert mutacao.json()["errors"]["code"] == "servico_iam_indisponivel"
+        assert ColetaPatriarcasEdocs.objects.count() == coletas_antes
+        mutacao_carga = requests.post(
+            f"{origem}/api/carga-org-lot/cargas/", json={},
+            cookies={sessao_carga.session_cookie_name: sessao_carga.session_key},
+            verify=certificado, timeout=8,
+        )
+        assert mutacao_carga.status_code == 503, mutacao_carga.text[:500]
+        assert mutacao_carga.json()["errors"]["code"] == (
+            "servico_iam_indisponivel"
+        )
+        assert TokenEnvioCarga.objects.count() == cargas_antes
         assert _websocket(
             origem, certificado, "/ws/pub-institucional/edocs/", sessao_publicacoes
         ) == 403
@@ -222,6 +281,7 @@ def test_reinicio_individual_dos_tres_processos_preserva_isolamento(  # pylint: 
 
                     processo_publicacoes.close()
                     assert consultar(recurso, autenticado=True).status_code == 502
+                    assert consultar("/api/pub-institucional/ready/").status_code == 502
                     assert consultar(publica).status_code == 502
                     assert consultar("/api/health/").status_code == 200
                     assert consultar("/api/carga-org-lot/health/").status_code == 200
@@ -234,6 +294,7 @@ def test_reinicio_individual_dos_tres_processos_preserva_isolamento(  # pylint: 
 
                     processo_carga.close()
                     assert consultar("/api/carga-org-lot/health/").status_code == 502
+                    assert consultar("/api/carga-org-lot/ready/").status_code == 502
                     assert consultar("/api/health/").status_code == 200
                     assert consultar(recurso, autenticado=True).status_code == 200
                     processo_carga.enter_context(_perfil_asgi(

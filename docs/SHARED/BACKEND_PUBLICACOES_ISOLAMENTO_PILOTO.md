@@ -237,17 +237,19 @@ servindo as mesmas rotas ou worker antigo consumindo suas tarefas.
 O teste de `58445` fecha a dúvida de **roteamento local** do proxy alternativo;
 não fecha os gates de ativação. A próxima sequência do backend é:
 
-1. O ensaio sintético já cobre um Beat, filas exclusivas dos dois workers,
+1. O ensaio sintético cobre um Beat, filas exclusivas dos dois workers,
    Carga parada enquanto Publicações processa, mensagens pendentes e retomada
-   de Carga, sempre em Redis descartável e sem executar E-Docs/PRODEST.
-   Ainda falta validar a configuração operacional real em janela controlada,
-   sobretudo persistência, concorrência e roteamento de tarefas não sintéticas.
+   de Carga. Um ensaio adicional reinicia Redis descartável com AOF e confirma
+   persistência das duas filas e consumo após reconexão. Nenhum deles executa
+   E-Docs/PRODEST ou usa o broker operacional. Ainda faltam concorrência,
+   interrupção de tarefa em execução e roteamento de tarefas reais.
 2. A varredura automatizada confirma que todas as ações administrativas HTTP
-   habilitadas no roteador de Publicações declaram permissão técnica. Falta a
-   matriz dinâmica de ações administrativas e autorização por objeto nos dois
-   serviços, inclusive mutações, respostas `401/403/503` e auditoria de
-   revogação. O teste da porta fixa cobre leituras e WebSockets, não todas as
-   ações.
+   habilitadas nos roteadores de Carga e Publicações declaram permissão
+   técnica. Os ensaios TLS cobrem mutações representativas com IAM
+   indisponível (`503`, nenhuma gravação), sessão ausente (`401`) e role
+   revogada (`403`). A matriz dinâmica cobre agora 80 rotas mutáveis com
+   `401/403/503` antes do handler. Ainda faltam efeitos e trilha de auditoria
+   por mutação **autorizada** e evidência de auditoria de cada negativa.
 3. Definir e testar inicialização, supervisão, versão, migração executada uma
    vez, rollback e observabilidade por serviço. Os três perfis ainda usam o
    mesmo banco e instalam modelos compartilhados; isso é isolamento de
@@ -261,18 +263,119 @@ não fecha os gates de ativação. A próxima sequência do backend é:
 | Cenário | Evidência/critério de aceite | Estado |
 | --- | --- | --- |
 | Beat único e workers exclusivos | Cada fila recebe apenas sua tarefa; parar Carga preserva mensagens até o retorno, sem bloquear Publicações; nenhum worker registra tarefas da outra app. | Ensaio sintético automatizado, Redis descartável. |
-| Falha e reconexão do broker | Confirmar que mensagens persistentes não se perdem, que não há consumo duplicado indevido e que tarefas idempotentes retomam após reinício. | Pendente; exige broker de ensaio com configuração representativa. |
-| IAM desligado durante leitura/mutação | API administrativa responde `503` e código `servico_iam_indisponivel`, sem gravação parcial; API pública segue independente. | Leituras e API pública ensaiadas; mutações pendentes. |
-| Sessão ausente, cookie de outra app e permissão revogada | `401` para sessão inválida, `403` para autorização negada; nenhuma decisão local substitui IAM; WebSocket fecha; ações ainda pendentes não executam. | Parte HTTP/WS coberta; ampliar para cada ação mutável. |
+| Falha e reconexão do broker | Confirmar que mensagens persistentes não se perdem, que não há consumo duplicado indevido e que tarefas idempotentes retomam após reinício. | **Parcial:** AOF descartável preservou mensagens pendentes das duas filas. Tarefa sintética com `acks_late`, interrompida por `SIGKILL`, voltou **automaticamente** após o `visibility_timeout` e concluiu no worker correto. Dois workers consumiram partes de 20 mensagens sintéticas, todas concluídas uma vez. O reinício imediato pode demorar mais que 30 s: o transporte Redis/Kombu só verifica periodicamente mensagens expiradas. Isso não prova retomada das tarefas reais nem idempotência de efeitos de negócio. |
+| IAM desligado durante leitura/mutação | API administrativa responde `503` e código `servico_iam_indisponivel`, sem gravação parcial; API pública segue independente. | **Parcial:** GET/POST reais via proxy preservaram dados e API pública. Matriz dinâmica percorreu **80 rotas mutáveis distintas**, exercitando `401`, `403` e `503` (**240 combinações**) e provou que nenhum handler de domínio foi chamado. Ainda não equivale a testar efeitos e auditoria de toda mutação autorizada. |
+| Sessão ausente, cookie de outra app e permissão revogada | `401` para sessão inválida, `403` para autorização negada; nenhuma decisão local substitui IAM; WebSocket fecha; ações ainda pendentes não executam. | **Parcial:** GET/POST representativos, cookie incorreto e WS cobertos; matriz de 80 rotas testa `401/403/503` antes do handler. Domínio tem testes de revogação em tarefas; falta cruzar todas as ações pendentes com a revogação. |
 | Revogação durante tarefa externa | Parar antes de nova chamada externa; se resposta PRODEST já chegou, preservá-la e auditá-la; nenhuma conclusão posterior à revogação. | Testes de domínio existentes; repetir ponta a ponta por fila isolada. |
-| Autorização por objeto e escopo | IDs de outra app/usuário não dão acesso nem permitem alteração; auditar tentativa negada sem vazar dados. | Pendente por endpoint. |
-| Migração única e rollback | Rodar `migrate --plan`/`--check` no perfil IAM, proibir migração pelos perfis Carga/Publicações, comprovar backup e restauração antes do corte. | Pendente de procedimento operacional; não usar o banco em uso para ensaio destrutivo. |
-| Versões incompatíveis durante reinício individual | API e tarefas suportam sobreposição de versões prevista; rejeição explícita de contrato incompatível; rollback recupera o serviço sem reiniciar os demais. | Pendente de artefatos/versionamento de implantação. |
-| Observabilidade | Correlation ID atravessa proxy, IAM e app; métricas/logs por serviço e fila permitem distinguir `401/403/503/502`, latência e falha de worker. | Pendente de ensaio integrado. |
+| Autorização por objeto e escopo | IDs de outra app/usuário não dão acesso nem permitem alteração; auditar tentativa negada sem vazar dados. | **Parcial:** ID inexistente dá `404` após autorização e `403` antes da busca após revogação; preferência E-Flow fica isolada por ID lógico de dois gestores. Não existe regra geral de propriedade para o acervo compartilhado do gestor; faltam escopos específicos e auditoria por endpoint. |
+| Migração única e rollback | Rodar `migrate --plan`/`--check` no perfil IAM, proibir migração pelos perfis Carga/Publicações, comprovar backup e restauração antes do corte. | **Comprovado em ensaio descartável:** `migrate --check` no `test_gpp_plataform`; guardas `pre_migrate`; `pg_dump`/`pg_restore` com utilitários PostgreSQL 18, identidade do servidor conferida, migração 0016 → 0015 → 0016 e `migrate --check` no banco restaurado. O banco temporário foi removido; nenhum banco `gpp_ensaio_iso_%` permaneceu. Ainda falta procedimento operacional de backup/cutover e restauração da implantação real. |
+| Versões incompatíveis durante reinício individual | API e tarefas suportam sobreposição de versões prevista; rejeição explícita de contrato incompatível; rollback recupera o serviço sem reiniciar os demais. | **Parcial:** resposta IAM versão 2 foi recusada com `503`, sem fallback; reinício individual de processos já foi ensaiado. A tag `v0.1.0` não contém os perfis separados de Carga/Publicações, portanto não serve como binário anterior comparável para este piloto. Coexistência real, versão de tarefa e rollback binário seguem pendentes. |
+| Observabilidade | Correlation ID atravessa proxy, IAM e app; métricas/logs por serviço e fila permitem distinguir `401/403/503/502`, latência e falha de worker. | **Parcial:** mesmo ID foi verificado do pedido via proxy TLS até o log IAM. Faltam métricas por serviço/fila, latência, alerta e rastreio sistemático de falhas. |
 
 O teste de filas usa `test_gpp_plataform`, Redis efêmero em loopback fora da
 porta operacional padrão e tarefas sintéticas. Não substitui uma validação de
 implantação nem autoriza ligar o perfil separado em operação.
+
+**Incidente de segurança do ensaio:** um produtor Celery criado dentro do
+processo pytest recebeu o broker global do Django (`127.0.0.1:6379`), apesar
+de receber a URL temporária no construtor, e tentou publicar uma mensagem
+**sintética** de teste. A abordagem foi removida; o produtor atual roda em
+subprocesso protegido por guarda de URL/porta antes de publicar. Uma leitura
+de verificação no broker operacional foi bloqueada pelo executor e não foi
+contornada. Assim, não há confirmação neste ensaio de que a mensagem tenha
+ficado pendente ou sido consumida; cabe inspeção operacional autorizada.
+
+Evidências locais de 25/11/2026: suíte de regressão de isolamento, autorização,
+E-Docs e revogação com **100 testes aprovados**; após os novos ensaios, suíte
+direcionada dos cinco módulos modificados com **41 testes aprovados**. Os
+serviços de teste usaram portas temporárias, TLS local e Redis descartável;
+nenhum worker acessou o broker operacional nem executou chamadas externas.
+`manage.py check`, Pylint dos módulos alterados e `git diff --check` passaram.
+Os totais das duas suítes podem conter testes repetidos e não devem ser somados
+como número de casos distintos.
+
+Complemento da mesma data: a matriz dinâmica de mutações passou com **240
+combinações** (`80 rotas × 3 resultados IAM`) no banco permanente de testes.
+Os ensaios de restauração **automática** de tarefa sintética e de dois workers
+concorrentes passaram no Redis efêmero. O ensaio opt-in de backup/restauração
+passou com `GPP_PG_BIN_DIR` apontando aos utilitários PostgreSQL 18 do Windows.
+O primeiro preflight falhou porque o interop WSL não encaminhava `PGPASSWORD`
+ao `psql.exe`; após adicionar `PGPASSWORD/w` a `WSLENV`, a identidade do servidor
+foi confirmada e o ensaio completo passou. A senha não foi posta na linha de
+comando. Esses resultados não fecham auditoria por endpoint nem recuperação de
+tarefas reais.
+
+Regressão ampliada após os ajustes: **299 aprovados, 1 ignorado por opt-in e 9
+avisos de `fork()` em processo multithread**. O ensaio TLS de reinício individual
+falhou uma vez na inicialização do proxy descartável; passou isoladamente e na
+reexecução integral. O helper agora inclui o log do contêiner quando a
+inicialização falha e não substitui o erro original por falha de limpeza. O
+ensaio de restauração foi executado separadamente com opt-in: **1 aprovado**;
+consulta posterior confirmou **zero** bancos `gpp_ensaio_iso_%` remanescentes.
+
+**Recuperação de Publicações, 26/11/2026:** o worker mantém bloqueio de sessão
+PostgreSQL durante a coleta. A rotina periódica, com flag opt-in, só encerra
+uma revisão `EXECUTANDO` antiga quando consegue obter o mesmo bloqueio; registra
+`ERRO`/`ExecucaoInterrompida` com auditoria, preserva fontes e permite nova
+revisão. Não repete chamadas externas. A flag
+`GPP_EDOCS_ORPHAN_RECOVERY_ENABLED` fica **desligada por padrão** até todos os
+workers Publicações terem sido atualizados; numa versão mista um worker antigo
+não mantém o bloqueio e poderia ser classificado incorretamente como órfão.
+Ensaio com morte real do processo após `EXECUCAO_INICIADA`, e com bloqueio
+simultâneo por outro acesso ao banco, passou. O primeiro ensaio deixou dois
+registros sintéticos no `test_gpp_plataform` devido à limitação do `flush`
+entre schemas; ambos foram identificados e removidos pontualmente. Os ensaios
+atuais limpam seus dados e a consulta posterior confirmou zero sobras.
+Regressão ampliada após a implementação: **307 aprovados, 1 opt-in ignorado e
+9 avisos de `fork()` em processo multithread**; `makemigrations --check --dry-run`
+não encontrou mudança de modelo. `manage.py check`, Pylint e `git diff --check`
+passaram.
+Permanecem para o gate: atualização coordenada de todos os workers, habilitação
+deliberada da flag, teste integrado de Beat/worker reais com falhas em cada
+etapa de persistência e alerta operacional para revisões encerradas pelo
+monitor. A confirmação antecipada do Celery continua; o mecanismo resolve o
+estado de negócio órfão, não reentrega a mesma tarefa.
+
+**Limite do ensaio de migração:** a reversão foi executada somente no banco
+descartável restaurado. Como os três perfis compartilham o mesmo banco,
+executar rollback real de schema na base em uso poderia indisponibilizar outras
+apps. O teste de sobreposição de versões ainda depende de artefatos versionados
+próprios; não é coberto por esse ensaio.
+
+### Procedimentos ainda necessários para fechar o gate
+
+1. **Mutações/auditoria:** manter a enumeração automática das rotas. Para
+   cada ação com estado persistente, ensaiar sucesso, validação inválida,
+   `401`, `403`, `503` e objeto fora do escopo aplicável; verificar estado
+   antes/depois, evento de auditoria (ator lógico, ação, alvo e instante) e
+   correlação. A matriz de `401/403/503` prova somente a barreira antes do
+   handler; não substitui essa verificação de efeito e auditoria. Separar
+   eventos do IAM, eventos de domínio e logs de falha quando IAM não responde.
+2. **Broker:** a restauração automática foi comprovada quando o novo worker
+   iniciou após o `visibility_timeout`; reinício imediato espera a cadência de
+   varredura do transporte. Repetir `SIGKILL` e reinício do broker com tarefas
+   reais instrumentadas e integrações externas substituídas por fakes, depois
+   de definir recuperação idempotente. Comprovar que reentrega não duplica
+   efeitos persistentes nem chamadas externas já aceitas.
+3. **Banco:** o teste opt-in passou com os utilitários PostgreSQL 18 no Windows:
+   `GPP_ENSAIO_RESTAURACAO_DESCARTAVEL=1 GPP_PG_BIN_DIR=<binarios-pg18> .venv/bin/pytest apps/core/test_isolamento_publicacoes_piloto.py::test_backup_restaura_e_reverte_migracao_em_banco_descartavel --reuse-db`
+   somente com `test_gpp_plataform` como origem. O teste confere o
+   identificador do servidor, cria nome aleatório, restaura, reverte 0016,
+   reaplica e remove o banco criado. Se falhar após criação, confirmar a
+   remoção do banco descartável; nunca apontar o ensaio para `gpp_plataform`.
+4. **Versões:** criar dois artefatos *do piloto separado* a partir de commits
+   conhecidos (a tag `v0.1.0` não contém os perfis). Testar IAM A/B com
+   consumidores A/B no mesmo schema expandido, tarefas serializadas por ambas
+   as versões e rollback do processo B para A sem reiniciar as outras apps.
+   Contrato incompatível deve responder `503` e registrar decisão; não
+   aceitar fallback de autorização.
+5. **Observabilidade:** antes de ativação, definir coleta interna por serviço
+   de contagem `401/403/503`, latência HTTP/IAM, falhas de tarefa, profundidade
+   e idade da mensagem mais antiga por fila, `unacked`, heartbeat do worker e
+   Beat único. Alertas precisam distinguir indisponibilidade de IAM, `502` do
+   proxy para domínio parado e acúmulo de fila; testar disparo e recuperação
+   com thresholds operacionais aprovados. Não expor métricas internas na API
+   pública nem registrar cookies/tokens em logs.
 
 ## Inventário para o próximo gate: IAM administrativo de Publicações
 

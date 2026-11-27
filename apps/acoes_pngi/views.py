@@ -28,9 +28,11 @@ from rest_framework import viewsets
 from rest_framework.filters import OrderingFilter
 from rest_framework.permissions import IsAuthenticated
 
-from apps.core.permissions import CanPermission
+from config.iam_boundary import acoes_http_iam_remoto
 from common.mixins import AuditableMixin
 from common.schema import tag_all_actions
+
+from .permissoes_iam import CanPermissionAcoes
 
 from .models import (
     AcaoAnotacaoAlinhamento,
@@ -78,11 +80,14 @@ class PermissionedViewSetMixin:
     ao AuthorizationService.
     """
 
-    permission_classes = [IsAuthenticated, CanPermission]
+    permission_classes = [IsAuthenticated, CanPermissionAcoes]
     permission_map: dict[str, str] = {}
 
     def get_permissions(self):
         self.required_permission = self.permission_map.get(self.action)
+        requisicao = getattr(self, "request", None)
+        if requisicao is not None and acoes_http_iam_remoto(requisicao.path):
+            return [CanPermissionAcoes()]
         return [permission() for permission in self.permission_classes]
 
 

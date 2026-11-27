@@ -14,6 +14,7 @@ from apps.accounts.services.authorization_service import AuthorizationService
 
 APLICACAO_CARGA = "CARGA_ORG_LOT"
 APLICACAO_PUBLICACOES = "PUB_INSTITUCIONAL"
+APLICACAO_ACOES = "ACOES_PNGI"
 PREFIXO_COOKIE = "gpp_session_"
 
 
@@ -30,6 +31,14 @@ def decidir_acesso_publicacoes(*, credenciais, permissao):
     return _decidir_acesso_aplicacao(
         credenciais=credenciais, permissao=permissao,
         codigo_aplicacao=APLICACAO_PUBLICACOES,
+    )
+
+
+def decidir_acesso_acoes(*, credenciais, permissao):
+    """Decide para Ações PNGI sem aceitar aplicação-alvo do solicitante."""
+    return _decidir_acesso_aplicacao(
+        credenciais=credenciais, permissao=permissao,
+        codigo_aplicacao=APLICACAO_ACOES,
     )
 
 

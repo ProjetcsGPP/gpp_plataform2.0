@@ -2,13 +2,14 @@
 
 import os
 import sys
+import time
 from urllib.parse import urlparse
 
 
-def main():
-    modos = {"worker", "worker-carga", "beat", "beat-duplo"}
+def main():  # pylint: disable=too-many-statements,too-many-branches
+    modos = {"worker", "worker-carga", "beat", "beat-duplo", "publicar-longa", "publicar-pings"}
     if len(sys.argv) != 2 or sys.argv[1] not in modos:
-        raise SystemExit("Uso: celery_ensaio_runner worker|worker-carga|beat|beat-duplo")
+        raise SystemExit("Modo de ensaio Celery inválido")
     modo = sys.argv[1]
     if os.environ.get("GPP_ENSAIO_TEST_DB_NAME") != "test_gpp_plataform":
         raise SystemExit("Ensaio Celery exige test_gpp_plataform")
@@ -27,6 +28,8 @@ def main():
         "worker-carga": "config.settings.carga_piloto",
         "beat": "config.settings.plataforma_separada_piloto",
         "beat-duplo": "config.settings.plataforma_separada_piloto",
+        "publicar-longa": "config.settings.publicacoes_piloto",
+        "publicar-pings": "config.settings.publicacoes_piloto",
     }
     os.environ["DJANGO_SETTINGS_MODULE"] = perfis[modo]
 
@@ -38,6 +41,10 @@ def main():
     settings.CELERY_BROKER_URL = broker
     settings.CELERY_TASK_ALWAYS_EAGER = False
     settings.CELERY_TASK_IGNORE_RESULT = True
+    if os.environ.get("GPP_ENSAIO_VISIBILITY_TIMEOUT"):
+        settings.CELERY_BROKER_TRANSPORT_OPTIONS = {
+            "visibility_timeout": int(os.environ["GPP_ENSAIO_VISIBILITY_TIMEOUT"]),
+        }
     if modo.startswith("beat"):
         # Beat não publica tarefas reais: apenas um ping sintético na fila alvo.
         settings.CELERY_BEAT_SCHEDULE = {
@@ -58,13 +65,22 @@ def main():
 
     if app.conf.broker_url != broker:
         raise SystemExit("Celery não está conectado ao Redis temporário do ensaio")
+    if os.environ.get("GPP_ENSAIO_VISIBILITY_TIMEOUT"):
+        esperado = int(os.environ["GPP_ENSAIO_VISIBILITY_TIMEOUT"])
+        if app.conf.broker_transport_options.get("visibility_timeout") != esperado:
+            raise SystemExit("Visibility timeout do ensaio não foi aplicado")
 
     @app.task(name="ensaio.publicacoes.ping")
     def ping_sintetico():
         """Marca processamento exclusivamente no Redis temporário do ensaio."""
         import redis  # pylint: disable=import-outside-toplevel
 
-        redis.Redis.from_url(broker).incr("ensaio:publicacoes:processados")
+        time.sleep(float(os.environ.get("GPP_ENSAIO_PING_ATRASO", "0")))
+        cliente = redis.Redis.from_url(broker)
+        cliente.incr("ensaio:publicacoes:processados")
+        identificador = os.environ.get("GPP_ENSAIO_WORKER_ID")
+        if identificador:
+            cliente.incr(f"ensaio:publicacoes:worker:{identificador}")
 
     @app.task(name="ensaio.carga.ping")
     def ping_carga_sintetico():
@@ -73,7 +89,22 @@ def main():
 
         redis.Redis.from_url(broker).incr("ensaio:carga:processados")
 
-    if modo in {"worker", "worker-carga"}:
+    @app.task(name="ensaio.publicacoes.longa", acks_late=True)
+    def tarefa_longa_sintetica():
+        """Simula queda após recebimento, antes da confirmação ao broker."""
+        import redis  # pylint: disable=import-outside-toplevel
+
+        cliente = redis.Redis.from_url(broker)
+        cliente.incr("ensaio:publicacoes:longa:iniciadas")
+        time.sleep(float(os.environ.get("GPP_ENSAIO_LONGA_SEGUNDOS", "0")))
+        cliente.incr("ensaio:publicacoes:longa:concluidas")
+
+    if modo == "publicar-longa":
+        app.send_task("ensaio.publicacoes.longa", queue="pub_institucional")
+    elif modo == "publicar-pings":
+        for _ in range(20):
+            app.send_task("ensaio.publicacoes.ping", queue="pub_institucional")
+    elif modo in {"worker", "worker-carga"}:
         app.loader.import_default_modules()
         tarefas = set(app.tasks)
         carga = modo == "worker-carga"
@@ -92,10 +123,13 @@ def main():
             else "ENSAIO_REGISTRO_PUBLICACOES_EXCLUSIVO"
         )
         print(marcador, flush=True)
+        identificador = os.environ.get("GPP_ENSAIO_WORKER_ID", "0")
+        if not identificador.isdigit():
+            raise SystemExit("ID de worker de ensaio inválido")
         app.worker_main([
             "worker", "-Q", fila, "--pool=solo",
             "--concurrency=1", "--loglevel=WARNING",
-            f"--hostname={fila}-ensaio@localhost",
+            f"--hostname={fila}-ensaio-{identificador}@localhost",
             "--without-gossip", "--without-mingle", "--without-heartbeat",
         ])
     else:

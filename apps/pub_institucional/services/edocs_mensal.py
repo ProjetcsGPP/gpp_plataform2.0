@@ -27,6 +27,8 @@ from apps.pub_institucional.models import (CodigoFonteMensalEdocs,
                                            TipoEventoColetaMensalEdocs)
 from apps.pub_institucional.services.calculos_edocs import (
     VERSAO_CALCULO_EDOCS, calcular_indicadores_edocs)
+from apps.pub_institucional.services.bloqueio_coleta_edocs import (
+    bloquear_coleta_edocs, confirmar_bloqueio_coleta_edocs)
 from apps.pub_institucional.services.cliente_edocs import (ClienteEdocs,
                                                            ErroEdocs)
 from apps.pub_institucional.services.patriarcas_edocs import (
@@ -98,6 +100,7 @@ def _criar_evento(coleta, ator, tipo_evento, mensagem, metadados=None):
 
 def _revalidar_atividade(coleta, ator, etapa):
     """Decisão sem cache antes de cada operação; o ator vem da coleta persistida."""
+    confirmar_bloqueio_coleta_edocs()
     if not settings.PUBLICACOES_IAM_ATIVIDADES_REMOTAS_ATIVAS:
         return
     try:
@@ -257,7 +260,14 @@ class _ClienteCatalogoObtido:
         return self.conteudo
 
 
+@transaction.atomic
 def _persistir_fonte(coleta, resposta: _RespostaFonte, ator):
+    confirmar_bloqueio_coleta_edocs()
+    atual = ColetaMensalEdocs.objects.select_for_update().get(pk=coleta.pk)
+    if atual.situacao != SituacaoColetaMensalEdocs.EXECUTANDO:
+        raise ErroColetaMensalEdocs(
+            "A coleta deixou de estar em execução antes de persistir a fonte."
+        )
     return FonteBrutaColetaMensalEdocs.objects.create(
         coleta=coleta,
         codigo_fonte=resposta.codigo,
@@ -416,7 +426,19 @@ def _criar_resultado_patriarca(
     )
 
 
-def executar_coleta_mensal_edocs(  # pylint: disable=too-many-locals,too-many-statements
+def executar_coleta_mensal_edocs(
+    coleta_id,
+    *,
+    cliente: ClienteEdocs | None = None,
+) -> ColetaMensalEdocs:
+    """Uma execução por revisão; mantém o bloqueio até concluir ou falhar."""
+    with bloquear_coleta_edocs(coleta_id) as adquirido:
+        if not adquirido:
+            return ColetaMensalEdocs.objects.get(pk=coleta_id)
+        return _executar_coleta_mensal_edocs(coleta_id, cliente=cliente)
+
+
+def _executar_coleta_mensal_edocs(  # pylint: disable=too-many-locals,too-many-statements
     coleta_id,
     *,
     cliente: ClienteEdocs | None = None,
@@ -551,7 +573,10 @@ def executar_coleta_mensal_edocs(  # pylint: disable=too-many-locals,too-many-st
 
 @transaction.atomic
 def _concluir_coleta(coleta, ator, resultados_patriarcas, resultados_organizacoes):
+    confirmar_bloqueio_coleta_edocs()
     coleta = ColetaMensalEdocs.objects.select_for_update().get(pk=coleta.pk)
+    if coleta.situacao != SituacaoColetaMensalEdocs.EXECUTANDO:
+        raise ErroColetaMensalEdocs("A coleta deixou de estar em execução.")
     ResultadoMensalPatriarcaEdocs.objects.bulk_create(resultados_patriarcas)
     ResultadoMensalOrganizacaoEdocs.objects.bulk_create(resultados_organizacoes)
     coleta.situacao = SituacaoColetaMensalEdocs.SUCESSO
@@ -598,6 +623,8 @@ def _concluir_coleta(coleta, ator, resultados_patriarcas, resultados_organizacoe
 @transaction.atomic
 def _marcar_falha(coleta, ator, codigo, mensagem):
     coleta = ColetaMensalEdocs.objects.select_for_update().get(pk=coleta.pk)
+    if coleta.situacao != SituacaoColetaMensalEdocs.EXECUTANDO:
+        return coleta
     coleta.situacao = SituacaoColetaMensalEdocs.ERRO
     coleta.concluida_em = timezone.now()
     coleta.quantidade_fontes_brutas = coleta.fontes_brutas.count()
@@ -613,6 +640,29 @@ def _marcar_falha(coleta, ator, codigo, mensagem):
     )
     publicar_evento_edocs("edocs.mensal.coleta.falhou", _resumo(coleta))
     return coleta
+
+
+def encerrar_coleta_interrompida_edocs(coleta_id, *, limite):
+    """Encerra uma execução órfã sem repetir chamadas ou apagar evidências."""
+    with bloquear_coleta_edocs(coleta_id) as adquirido:
+        if not adquirido:
+            return False
+        with transaction.atomic():
+            coleta = ColetaMensalEdocs.objects.select_for_update().get(pk=coleta_id)
+            if (
+                coleta.situacao != SituacaoColetaMensalEdocs.EXECUTANDO
+                or coleta.iniciada_em is None
+                or coleta.iniciada_em > limite
+            ):
+                return False
+            _marcar_falha(
+                coleta,
+                AtorAuditoriaEdocs(nome="recuperacao_automatica"),
+                "ExecucaoInterrompida",
+                "A execução foi interrompida antes da conclusão; "
+                "as fontes recebidas foram preservadas. Solicite nova revisão.",
+            )
+            return True
 
 
 def _resumo(coleta):

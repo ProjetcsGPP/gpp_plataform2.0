@@ -10,7 +10,8 @@ import sys
 
 def main():
     if len(sys.argv) != 4 or sys.argv[1] not in {
-        "carga", "plataforma", "publicacoes", "plataforma_separada"
+        "carga", "plataforma", "publicacoes", "plataforma_separada",
+        "acoes", "plataforma_quatro",
     }:
         raise SystemExit("Uso: asgi_ensaio_runner PERFIL PORTA PORTA_PROXY")
     perfil, porta, porta_proxy = sys.argv[1:]
@@ -53,8 +54,13 @@ def main():
     settings.IAM_TOKEN_SERVICO_PUBLICACOES = (
         "credencial-publicacoes-sintetica-de-integracao"
     )
+    settings.IAM_TOKEN_SERVICO_ACOES = (
+        "credencial-acoes-sintetica-de-integracao"
+    )
     settings.IAM_DECISOES_INTERNAS_ATIVAS = True
     settings.IAM_DECISOES_PUBLICACOES_ATIVAS = True
+    if perfil == "plataforma_quatro":
+        settings.IAM_DECISOES_ACOES_ATIVAS = True
     if perfil == "carga":
         settings.IAM_URL_CARGA = os.environ["GPP_ENSAIO_IAM_URL"]
         settings.CARGA_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA = True
@@ -64,6 +70,9 @@ def main():
         settings.IAM_URL_PUBLICACOES = os.environ["GPP_ENSAIO_IAM_URL"]
         settings.PUBLICACOES_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA = True
         settings.PUBLICACOES_IAM_WEBSOCKET_REMOTO_ATIVO = True
+    if perfil == "acoes":
+        settings.IAM_URL_ACOES = os.environ["GPP_ENSAIO_IAM_URL"]
+        settings.ACOES_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA = True
 
     from daphne.cli import CommandLineInterface  # pylint: disable=import-outside-toplevel
 

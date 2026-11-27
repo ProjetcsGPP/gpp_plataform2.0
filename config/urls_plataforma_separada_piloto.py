@@ -3,13 +3,17 @@
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
+
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
 
+from common.health import prontidao_plataforma
+
 from apps.accounts.views_internas import (
+    DecisaoAcoesIAMInternaView,
     DecisaoAtividadeIAMInternaView,
     DecisaoAtividadePublicacoesIAMInternaView,
     DecisaoIAMInternaView,
@@ -19,6 +23,11 @@ from apps.accounts.views_internas import (
 from .health_piloto import plataforma_viva
 
 urlpatterns = [
+    path(
+        "interno/iam/v1/decisoes-acoes/",
+        DecisaoAcoesIAMInternaView.as_view(),
+        name="iam-decisao-acoes-interna-v1",
+    ),
     path(
         "interno/iam/v1/decisoes-atividade-publicacoes/",
         DecisaoAtividadePublicacoesIAMInternaView.as_view(),
@@ -45,6 +54,7 @@ urlpatterns = [
     path("api/acoes-pngi/", include("apps.acoes_pngi.urls", namespace="acoes_pngi")),
     path("api/", include("apps.core.urls", namespace="core")),
     path("api/health/", plataforma_viva, name="plataforma-viva"),
+    path("api/ready/", prontidao_plataforma, name="plataforma-pronta"),
 ]
 
 if settings.DEBUG:

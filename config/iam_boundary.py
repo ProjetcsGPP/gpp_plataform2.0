@@ -19,10 +19,20 @@ def publicacoes_http_iam_remoto(caminho):
     )
 
 
+def acoes_http_iam_remoto(caminho):
+    """Restringe a decisão remota à API administrativa de Ações PNGI."""
+    return bool(
+        settings.ACOES_IAM_IDENTIDADE_HTTP_REMOTA_ATIVA
+        and caminho.startswith("/api/acoes-pngi/")
+    )
+
+
 def dominio_http_iam_remoto(caminho):
     """Retorna o código do domínio remoto ou None para o fluxo local."""
     if carga_http_iam_remoto(caminho):
         return "CARGA_ORG_LOT"
     if publicacoes_http_iam_remoto(caminho):
         return "PUB_INSTITUCIONAL"
+    if acoes_http_iam_remoto(caminho):
+        return "ACOES_PNGI"
     return None
